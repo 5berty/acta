@@ -99,7 +99,13 @@ pub async fn open_system_settings(app: AppHandle, kind: PermissionKind) -> ApiRe
 pub async fn overlay_set_expanded(app: AppHandle, expanded: bool) -> ApiResult<()> {
     let Some(win) = app.get_webview_window("overlay") else { return Ok(()) };
     let (w, h) = if expanded { EXPANDED_SIZE } else { PILL_SIZE };
-    win.set_size(tauri::LogicalSize::new(w, h)).map_err(internal)
+    // Crece hacia los lados y hacia abajo, centrada en su sitio.
+    let scale = win.scale_factor().map_err(internal)?;
+    let pos = win.outer_position().map_err(internal)?.to_logical::<f64>(scale);
+    let size = win.outer_size().map_err(internal)?.to_logical::<f64>(scale);
+    let (x, y) = crate::overlay::resized_origin((pos.x, pos.y), (size.width, size.height), (w, h));
+    win.set_size(tauri::LogicalSize::new(w, h)).map_err(internal)?;
+    win.set_position(tauri::LogicalPosition::new(x, y)).map_err(internal)
 }
 
 /// Muestra la ventana principal y, si se pide, abre esa reunión.

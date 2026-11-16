@@ -7,6 +7,12 @@ use acta_core::recording::SessionState;
 pub const PILL_SIZE: (f64, f64) = (280.0, 56.0);
 pub const EXPANDED_SIZE: (f64, f64) = (360.0, 150.0);
 
+/// Nueva esquina superior izquierda (puntos lógicos) al pasar de `from` a
+/// `to`: mismo centro horizontal y mismo borde superior.
+pub fn resized_origin(origin: (f64, f64), from: (f64, f64), to: (f64, f64)) -> (f64, f64) {
+    (origin.0 + (from.0 - to.0) / 2.0, origin.1)
+}
+
 /// ¿Se muestra la pastilla en este estado? En reposo no estorba.
 pub fn overlay_visible(state: &SessionState) -> bool {
     !matches!(state, SessionState::Idle)
@@ -86,5 +92,18 @@ mod tests {
         assert!(!overlay_visible(&SessionState::Idle));
         assert!(overlay_visible(&SessionState::Ready { meeting_id: MeetingId::from_u128(1) }));
         assert!(overlay_visible(&SessionState::Recovering { meeting_id: MeetingId::from_u128(1) }));
+    }
+
+    /// Al expandir, la pastilla crecía desde su esquina superior izquierda y
+    /// se iba a la derecha: debe crecer hacia los lados y hacia abajo
+    /// manteniendo el centro horizontal y el borde superior.
+    #[test]
+    fn resizing_keeps_horizontal_centre_and_top_edge() {
+        let pill_x = (1512.0 - PILL_SIZE.0) / 2.0;
+        let (x, y) = resized_origin((pill_x, 36.0), PILL_SIZE, EXPANDED_SIZE);
+        assert_eq!(y, 36.0);
+        assert!(((x + EXPANDED_SIZE.0 / 2.0) - (pill_x + PILL_SIZE.0 / 2.0)).abs() < 1e-9);
+        // Y vuelve exactamente al sitio al plegarse.
+        assert_eq!(resized_origin((x, y), EXPANDED_SIZE, PILL_SIZE), (pill_x, 36.0));
     }
 }

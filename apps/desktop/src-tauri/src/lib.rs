@@ -229,6 +229,9 @@ pub fn run() {
             commands::app_info,
             commands::overlay_set_expanded,
             commands::main_window_show,
+            commands::providers_ui::llm_list_models,
+            commands::providers_ui::llm_detect_local,
+            commands::providers_ui::open_external_url,
         ])
         .build(tauri::generate_context!());
     let app = match app {

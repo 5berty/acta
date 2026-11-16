@@ -23,6 +23,14 @@ pub struct Settings {
     pub transcription: TranscriptionSettings,
     pub llm: LlmSettings,
     pub embeddings: EmbeddingSettings,
+    /// Bienvenida de primer arranque: la UI la marca al terminarla o saltarla.
+    pub onboarding: OnboardingSettings,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct OnboardingSettings {
+    pub completed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -113,6 +121,7 @@ impl Default for Settings {
             transcription: TranscriptionSettings::default(),
             llm: LlmSettings::default(),
             embeddings: EmbeddingSettings::default(),
+            onboarding: OnboardingSettings::default(),
         }
     }
 }

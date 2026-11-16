@@ -475,6 +475,20 @@ export interface CliDetection {
   codexEnv: Record<string, string>;
 }
 
+/** Un servidor local de modelos (Ollama, LM Studio). */
+export interface LocalRuntime {
+  running: boolean;
+  /** URL base compatible con OpenAI (`…/v1`), lista para un proveedor. */
+  baseUrl: string;
+  models: string[];
+}
+
+/** Espejo de `acta_llm::providers::models::LocalDetection`. */
+export interface LocalDetection {
+  ollama: LocalRuntime;
+  lmStudio: LocalRuntime;
+}
+
 export interface ModelStatus {
   name: string;
   downloaded: boolean;
@@ -539,6 +553,8 @@ export interface Settings {
     namingProvider: ProviderId | null;
   };
   embeddings: { model: string };
+  /** Bienvenida de primer arranque: se marca al terminarla o saltarla. */
+  onboarding: { completed: boolean };
 }
 
 export interface AppInfo {

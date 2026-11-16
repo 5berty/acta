@@ -52,6 +52,8 @@ export function createTauriApi(): ActaApi {
     settingsUpdate: (settings) => invoke(C.settingsUpdate, { settings }),
     llmProviderTest: (providerId) => invoke(C.llmProviderTest, { providerId }),
     llmCliDetect: () => invoke(C.llmCliDetect),
+    llmListModels: (baseUrl, providerId) => invoke(C.llmListModels, { baseUrl, providerId: providerId ?? null }),
+    llmDetectLocal: () => invoke(C.llmDetectLocal),
     secretSet: (providerId, value) => invoke(C.secretSet, { providerId, value }),
     secretDelete: (providerId) => invoke(C.secretDelete, { providerId }),
     modelsStatus: () => invoke(C.modelsStatus),
@@ -61,6 +63,7 @@ export function createTauriApi(): ActaApi {
     openSystemSettings: (kind) => invoke(C.openSystemSettings, { kind }),
     healthGet: () => invoke(C.healthGet),
     appInfo: () => invoke(C.appInfo),
+    openExternalUrl: (url) => invoke(C.openExternalUrl, { url }),
 
     overlaySetExpanded: (expanded) => invoke(C.overlaySetExpanded, { expanded }),
     mainWindowShow: (meetingId) => invoke(C.mainWindowShow, { meetingId: meetingId ?? null }),

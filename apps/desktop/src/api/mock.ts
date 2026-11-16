@@ -22,6 +22,19 @@ export interface MockState {
   settings: T.Settings;
   models: T.ModelStatus[];
   permissions: T.PermissionState[];
+  /** Servidores locales de modelos que «hay» en este Mac. */
+  local: T.LocalDetection;
+  /** Modelos por URL base (sin barra final) para `llmListModels`. */
+  remoteModels: Record<string, string[]>;
+  /** Enlaces que se han pedido abrir en el navegador. */
+  opened: string[];
+}
+
+export function noLocalRuntimes(): T.LocalDetection {
+  return {
+    ollama: { running: false, baseUrl: "http://127.0.0.1:11434/v1", models: [] },
+    lmStudio: { running: false, baseUrl: "http://127.0.0.1:1234/v1", models: [] },
+  };
 }
 
 let counter = 0;
@@ -79,6 +92,8 @@ export function defaultSettings(): T.Settings {
       namingProvider: "claude-cli",
     },
     embeddings: { model: "intfloat/multilingual-e5-small" },
+    // En los tests la bienvenida ya está vista; los suyos la reabren.
+    onboarding: { completed: true },
   };
 }
 
@@ -213,6 +228,9 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
       { kind: "accessibility", status: "notDetermined", target: null },
       { kind: "automation", status: "notDetermined", target: "com.google.Chrome" },
     ],
+    local: noLocalRuntimes(),
+    remoteModels: {},
+    opened: [],
     ...seed,
   };
 
@@ -475,6 +493,16 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     async llmCliDetect() {
       return { claude: "/opt/homebrew/bin/claude", codex: null, claudeEnv: {}, codexEnv: {} };
     },
+    async llmListModels(baseUrl) {
+      const key = baseUrl.trim().replace(/\/+$/, "");
+      const local = [state.local.ollama, state.local.lmStudio].find((r) => r.running && r.baseUrl === key);
+      const models = state.remoteModels[key] ?? local?.models;
+      if (!models) throw { code: "unavailable", message: `no se pudo conectar con ${key}/models: ¿está el servidor en marcha?` } satisfies T.ApiError;
+      return [...models];
+    },
+    async llmDetectLocal() {
+      return structuredClone(state.local);
+    },
     async secretSet(providerId) {
       return { service: "acta", account: `provider:${providerId}` };
     },
@@ -502,6 +530,10 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     },
     async appInfo() {
       return { version: "0.1.0-mock", dataDir: "/tmp/acta", sidecarVersion: null, macosVersion: null };
+    },
+
+    async openExternalUrl(url) {
+      state.opened.push(url);
     },
 
     async overlaySetExpanded() {},

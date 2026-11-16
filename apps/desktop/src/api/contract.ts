@@ -54,6 +54,10 @@ export const COMMANDS = {
   appInfo: "app_info",
   overlaySetExpanded: "overlay_set_expanded",
   mainWindowShow: "main_window_show",
+  // src-tauri/src/commands/providers_ui.rs
+  llmListModels: "llm_list_models",
+  llmDetectLocal: "llm_detect_local",
+  openExternalUrl: "open_external_url",
 } as const;
 
 export const EVENTS = {
@@ -141,6 +145,10 @@ export interface ActaApi {
   settingsUpdate(settings: T.Settings): Promise<T.Settings>;
   llmProviderTest(providerId: T.ProviderId): Promise<T.ProviderTestResult>;
   llmCliDetect(): Promise<T.CliDetection>;
+  /** Modelos de texto de un servidor compatible con OpenAI. Con `providerId`, usa su clave del Llavero. */
+  llmListModels(baseUrl: string, providerId?: T.ProviderId | null): Promise<string[]>;
+  /** Ollama y LM Studio en sus puertos por defecto. Que no estén no es un error. */
+  llmDetectLocal(): Promise<T.LocalDetection>;
   secretSet(providerId: T.ProviderId, value: string): Promise<T.SecretRef>;
   secretDelete(providerId: T.ProviderId): Promise<void>;
   modelsStatus(): Promise<T.ModelStatus[]>;
@@ -150,6 +158,8 @@ export interface ActaApi {
   openSystemSettings(kind: T.PermissionKind): Promise<void>;
   healthGet(): Promise<T.HealthWarning[]>;
   appInfo(): Promise<T.AppInfo>;
+  /** Abre un enlace web en el navegador por defecto (nunca dentro de acta). */
+  openExternalUrl(url: string): Promise<void>;
 
   // ventanas
   overlaySetExpanded(expanded: boolean): Promise<void>;

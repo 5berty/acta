@@ -53,6 +53,26 @@ describe("mock api", () => {
     expect(k.type === "claudeCli" && k.effort).toBeNull();
   });
 
+  it("starts with the onboarding done and no local model server running", async () => {
+    const { api } = createMockApi();
+    expect((await api.settingsGet()).onboarding).toEqual({ completed: true });
+    const local = await api.llmDetectLocal();
+    expect(local.ollama).toEqual({ running: false, baseUrl: "http://127.0.0.1:11434/v1", models: [] });
+    expect(local.lmStudio).toEqual({ running: false, baseUrl: "http://127.0.0.1:1234/v1", models: [] });
+  });
+
+  it("lists the models of a server by its base url and rejects an unknown one", async () => {
+    const { api } = createMockApi({ remoteModels: { "https://api.nan.builders/v1": ["gemma4", "qwen3.6"] } });
+    expect(await api.llmListModels("https://api.nan.builders/v1/", "nan")).toEqual(["gemma4", "qwen3.6"]);
+    await expect(api.llmListModels("http://127.0.0.1:9/v1")).rejects.toMatchObject({ code: "unavailable" });
+  });
+
+  it("remembers the links it was asked to open in the browser", async () => {
+    const { api, controls } = createMockApi();
+    await api.openExternalUrl("https://cloud.nan.builders/r/YZ524NPK");
+    expect(controls.state.opened).toEqual(["https://cloud.nan.builders/r/YZ524NPK"]);
+  });
+
   it("lists the sample meeting with my open tasks", async () => {
     const { api } = createMockApi();
     const page = await api.meetingsList({});

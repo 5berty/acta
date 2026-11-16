@@ -1,0 +1,8 @@
+target/
+node_modules/
+dist/
+.build/
+*.wav
+*.opus
+.DS_Store
+.env

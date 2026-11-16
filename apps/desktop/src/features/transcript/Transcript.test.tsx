@@ -68,3 +68,29 @@ describe("TranscriptTab", () => {
     expect(screen.queryByRole("button", { name: "Renombrar a Edu" })).not.toBeInTheDocument();
   });
 });
+
+describe("turnos del transcript", () => {
+  it("agrupa las frases seguidas del mismo hablante en un turno", () => {
+    const base = sampleMeeting().transcript;
+    const [ana, me] = [base.speakers[1]!, base.speakers[0]!];
+    const line = (idx: number, speakerId: string, text: string) => ({ idx, speakerId, track: "system" as const, start: idx * 1000, end: idx * 1000 + 900, text, confidence: null });
+    render(
+      <TranscriptTab
+        transcript={{ ...base, utterances: [line(0, ana.id, "Uno."), line(1, ana.id, "Dos."), line(2, me.id, "Tres.")] }}
+        voiceprintNames={[]}
+        currentMs={0}
+        onSeek={() => {}}
+        onRename={() => {}}
+      />,
+    );
+    const items = screen.getAllByRole("listitem").filter((li) => li.querySelector(".line"));
+    expect(items.map((li) => li.className)).toEqual(["turn", "", "turn"]);
+    // El nombre solo encabeza el turno (más la ficha de hablantes).
+    expect(screen.getAllByText("Ana")).toHaveLength(2);
+  });
+
+  it("marca quién eres tú", () => {
+    setup();
+    expect(screen.getByText("tú")).toBeInTheDocument();
+  });
+});

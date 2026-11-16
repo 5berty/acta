@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { ApiProvider } from "../../app/ApiContext";
 import { createMockApi } from "../../api";
-import { AudioPlayer } from "./AudioPlayer";
+import { AudioPlayer, voiceActivity } from "./AudioPlayer";
 import { PlayerProvider, usePlayer } from "./PlayerContext";
 
 function SeekButton() {
@@ -58,5 +58,52 @@ describe("AudioPlayer", () => {
   it("sin audio avisa en vez de romper", () => {
     setup({ mic: null, system: null, mix: null });
     expect(screen.getByText("Esta reunión no tiene audio")).toBeInTheDocument();
+  });
+});
+
+describe("onda de voz", () => {
+  it("reparte la voz del transcript en tramos", () => {
+    expect(voiceActivity([{ start: 0, end: 500 }, { start: 1000, end: 2000 }], 4000, 4)).toEqual([0.5, 1, 0, 0]);
+    expect(voiceActivity([{ start: 0, end: 4000 }], 4000, 4)).toEqual([1, 1, 1, 1]);
+    expect(voiceActivity([{ start: 0, end: 10 }], 0, 3)).toEqual([0, 0, 0]);
+  });
+
+  it("dibuja la onda y marca lo ya reproducido", () => {
+    const { api } = createMockApi();
+    const { container } = render(
+      <ApiProvider api={api}>
+        <PlayerProvider audio={audio}>
+          <AudioPlayer activity={[{ start: 0, end: 60_000 }]} durationMs={60_000} />
+        </PlayerProvider>
+      </ApiProvider>,
+    );
+    expect(container.querySelectorAll(".wave-bar")).toHaveLength(64);
+    expect(container.querySelectorAll(".wave-bar-played")).toHaveLength(0);
+    const el = container.querySelector("audio")!;
+    el.currentTime = 30;
+    act(() => {
+      fireEvent.timeUpdate(el);
+    });
+    expect(container.querySelectorAll(".wave-bar-played")).toHaveLength(32);
+    expect(screen.getByText("01:00")).toBeInTheDocument();
+  });
+
+  it("la onda sirve para saltar en el audio", () => {
+    const { api } = createMockApi();
+    const { container } = render(
+      <ApiProvider api={api}>
+        <PlayerProvider audio={audio}>
+          <AudioPlayer durationMs={60_000} />
+        </PlayerProvider>
+      </ApiProvider>,
+    );
+    fireEvent.change(screen.getByRole("slider", { name: "Posición" }), { target: { value: "15000" } });
+    expect(container.querySelector("audio")!.currentTime).toBeCloseTo(15);
+  });
+
+  it("con una sola pista no ofrece elegir", () => {
+    setup({ mic: null, system: null, mix: "/m/mix.wav" });
+    expect(screen.queryByLabelText("Pista")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Velocidad")).toBeInTheDocument();
   });
 });

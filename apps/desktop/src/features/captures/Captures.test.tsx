@@ -97,3 +97,26 @@ describe("CapturesContainer", () => {
     );
   });
 });
+
+describe("visor de capturas", () => {
+  it("las flechas del teclado pasan de captura sin salirse", async () => {
+    setup();
+    await userEvent.click(screen.getByRole("button", { name: "Captura 1 en 00:10" }));
+    expect(screen.getByRole("button", { name: "Captura anterior" })).toBeDisabled();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(screen.getByRole("dialog")).toHaveTextContent("2 de 2");
+    await userEvent.keyboard("{ArrowRight}");
+    expect(screen.getByRole("dialog")).toHaveTextContent("2 de 2");
+    await userEvent.keyboard("{ArrowLeft}");
+    expect(screen.getByRole("dialog")).toHaveTextContent("1 de 2");
+  });
+
+  it("se puede cerrar con su botón y enseña por qué se capturó", async () => {
+    setup([cap(1, { reason: "keyword", keyword: "deadline" })]);
+    await userEvent.click(screen.getByRole("button", { name: "Captura 1 en 00:10" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("Palabra clave");
+    expect(screen.getByRole("dialog")).toHaveTextContent("«deadline»");
+    await userEvent.click(screen.getByRole("button", { name: "Cerrar visor" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});

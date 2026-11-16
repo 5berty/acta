@@ -1,6 +1,8 @@
+import { AudioLines, Camera, ListChecks, MessageCircle, Mic, Search, SearchX } from "lucide-react";
 import type { Group, MeetingSummary, ProcessingStep } from "../../api";
-import { formatDate, formatDuration, platformLabel } from "../../shared/format";
-import { Badge, EmptyState } from "../../shared/ui/ui";
+import { groupByDay } from "../../shared/format";
+import { Badge, Button, EmptyState, Segmented, Select } from "../../shared/ui/ui";
+import { MeetingRow } from "./MeetingRow";
 import { ProcessingStatus } from "./ProcessingStatus";
 
 export type DatePreset = "all" | "today" | "7d" | "30d";
@@ -23,72 +25,105 @@ interface Props {
   onDatePreset(v: DatePreset): void;
   onOpen(id: string): void;
   onRetry(id: string): void;
+  onRecord?(): void;
 }
 
+const DATES: { key: DatePreset; label: string }[] = [
+  { key: "all", label: "Todas" },
+  { key: "today", label: "Hoy" },
+  { key: "7d", label: "7 días" },
+  { key: "30d", label: "30 días" },
+];
+
+const HOW = [
+  { icon: <Mic size={16} aria-hidden />, title: "Graba", text: "Entra en una llamada de Teams o Meet y acta te preguntará si la graba." },
+  { icon: <AudioLines size={16} aria-hidden />, title: "Se transcribe en tu Mac", text: "Tu voz y la de los demás van en pistas separadas. Nada sale de aquí." },
+  { icon: <MessageCircle size={16} aria-hidden />, title: "Pregunta", text: "Resumen, decisiones y tareas al momento. Y un chat que cita el minuto exacto." },
+];
+
 export function MeetingList(p: Props) {
+  const filtered = Boolean(p.text || p.groupId || p.datePreset !== "all");
+  const sections = groupByDay(p.items, Date.now());
+  const empty = p.items.length === 0 && !p.loading;
+
   return (
-    <section className="meeting-list" aria-label="Reuniones">
-      <header className="list-filters">
-        <input
-          type="search"
-          role="searchbox"
-          aria-label="Buscar reuniones"
-          placeholder="Buscar en reuniones…"
-          value={p.text}
-          onChange={(e) => p.onText(e.target.value)}
-        />
-        <label className="field-inline">
-          <span className="sr-only">Grupo</span>
-          <select aria-label="Grupo" value={p.groupId} onChange={(e) => p.onGroup(e.target.value)}>
-            <option value="">Todos los grupos</option>
-            {p.groups.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <select aria-label="Fecha" value={p.datePreset} onChange={(e) => p.onDatePreset(e.target.value as DatePreset)}>
-          <option value="all">Cualquier fecha</option>
-          <option value="today">Hoy</option>
-          <option value="7d">Últimos 7 días</option>
-          <option value="30d">Últimos 30 días</option>
-        </select>
+    <section className="page meeting-list" aria-label="Reuniones">
+      <header className="page-head">
+        <div className="page-title">
+          <h1>Reuniones</h1>
+          {p.items.length > 0 ? <span className="page-count num">{p.items.length}</span> : null}
+        </div>
       </header>
-      {p.items.length === 0 && !p.loading ? (
-        p.text || p.groupId || p.datePreset !== "all" ? (
-          <EmptyState title="Ninguna reunión coincide" hint="Prueba con otros filtros." />
-        ) : (
-          <EmptyState title="Todavía no hay reuniones" hint="Cuando grabes una, aparecerá aquí." />
-        )
-      ) : (
-        <ul className="rows">
-          {p.items.map((m) => {
-            const pr = p.progress[m.id];
-            return (
-              <li key={m.id} className="row">
-                <button type="button" className="row-main" onClick={() => p.onOpen(m.id)}>
-                  <span className="row-title">{m.title}</span>
-                  <span className="row-meta">
-                    {formatDate(m.startedAt)} · {formatDuration(m.duration)} · {platformLabel(m.platform)}
-                    {m.speakerNames.length ? ` · ${m.speakerNames.join(", ")}` : ""}
+      <div className="sticky-bar">
+        <div className="toolbar glass">
+          <label className="search-field">
+            <Search size={14} strokeWidth={2.1} aria-hidden />
+            <input type="search" role="searchbox" aria-label="Buscar reuniones" placeholder="Buscar por título o por lo que se dijo" value={p.text} onChange={(e) => p.onText(e.target.value)} />
+          </label>
+          {p.groups.length > 0 ? (
+            <Select label="Grupo" capsule value={p.groupId} onChange={(e) => p.onGroup(e.target.value)}>
+              <option value="">Todos los grupos</option>
+              {p.groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </Select>
+          ) : null}
+          <Segmented label="Fecha" small options={DATES} value={p.datePreset} onChange={p.onDatePreset} />
+        </div>
+      </div>
+
+      <div className="page-body">
+        {empty && filtered ? (
+          <EmptyState icon={<SearchX size={26} strokeWidth={1.7} />} title="Ninguna reunión coincide" hint="Prueba con otras palabras o quita algún filtro." />
+        ) : null}
+        {empty && !filtered ? (
+          <div className="onboarding">
+            <EmptyState icon={<AudioLines size={28} strokeWidth={1.7} />} title="Todavía no hay reuniones" hint="Tu primera acta está a una llamada de distancia.">
+              {p.onRecord ? (
+                <Button variant="primary" size="lg" capsule onClick={p.onRecord}>
+                  Empezar a grabar
+                </Button>
+              ) : null}
+            </EmptyState>
+            <ol className="how">
+              {HOW.map((h) => (
+                <li key={h.title} className="how-step card">
+                  <span className="how-icon" aria-hidden>
+                    {h.icon}
                   </span>
-                  {m.snippet ? <span className="row-snippet">{m.snippet}</span> : null}
-                </button>
-                <div className="row-side">
-                  {m.myOpenTasks > 0 ? <Badge tone="accent">{m.myOpenTasks} tareas tuyas</Badge> : null}
-                  <ProcessingStatus
-                    status={m.status}
-                    step={pr?.step}
-                    fraction={pr?.fraction}
-                    onRetry={() => p.onRetry(m.id)}
-                  />
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+                  <p className="how-title">{h.title}</p>
+                  <p className="how-text">{h.text}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : null}
+        {sections.map((s) => (
+          <section key={s.key} className="day" aria-label={s.label}>
+            <h3 className="day-title">{s.label}</h3>
+            <ul className="group m-rows">
+              {s.items.map((m) => {
+                const pr = p.progress[m.id];
+                return (
+                  <MeetingRow key={m.id} meeting={m} when={s.key === "today" || s.key === "yesterday" ? "time" : "date"} onOpen={() => p.onOpen(m.id)}>
+                    {m.captureCount > 0 ? (
+                      <Badge icon={<Camera size={11} strokeWidth={2.2} aria-hidden />}>{m.captureCount}</Badge>
+                    ) : null}
+                    {m.myOpenTasks > 0 ? (
+                      <Badge tone="accent" icon={<ListChecks size={11} strokeWidth={2.4} aria-hidden />}>
+                        {m.myOpenTasks === 1 ? "1 tarea tuya" : `${m.myOpenTasks} tareas tuyas`}
+                      </Badge>
+                    ) : null}
+                    <ProcessingStatus variant="row" status={m.status} step={pr?.step} fraction={pr?.fraction} onRetry={() => p.onRetry(m.id)} />
+                  </MeetingRow>
+                );
+              })}
+            </ul>
+          </section>
+        ))}
+      </div>
     </section>
   );
 }

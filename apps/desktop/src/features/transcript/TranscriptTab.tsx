@@ -1,7 +1,8 @@
+import { Captions, Check, Pencil } from "lucide-react";
 import { useState } from "react";
 import type { Speaker, Transcript } from "../../api";
 import { formatClock, speakerColor } from "../../shared/format";
-import { Button, EmptyState } from "../../shared/ui/ui";
+import { Avatar, Button, EmptyState, IconButton } from "../../shared/ui/ui";
 
 interface Props {
   transcript: Transcript;
@@ -25,14 +26,14 @@ function RenameForm({ speaker, names, onSave, onCancel }: { speaker: Speaker; na
         if (value.trim()) onSave(value.trim(), remember);
       }}
     >
-      <input role="combobox" aria-label="Nombre del hablante" list={listId} value={value} onChange={(e) => setValue(e.target.value)} autoFocus />
+      <input role="combobox" aria-label="Nombre del hablante" aria-expanded="false" list={listId} value={value} onChange={(e) => setValue(e.target.value)} autoFocus />
       <datalist id={listId}>
         {names.map((n) => (
           <option key={n} value={n} />
         ))}
       </datalist>
       <label className="check">
-        <input type="checkbox" aria-label="Recordar esta voz" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+        <input type="checkbox" className="check-box" aria-label="Recordar esta voz" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
         Recordar esta voz
       </label>
       <Button small variant="primary" type="submit" aria-label="Guardar nombre">
@@ -50,7 +51,9 @@ export function TranscriptTab({ transcript, voiceprintNames, currentMs, onSeek, 
   const index = new Map(transcript.speakers.map((s, i) => [s.id, i]));
   const byId = new Map(transcript.speakers.map((s) => [s.id, s]));
 
-  if (transcript.utterances.length === 0) return <EmptyState title="Sin transcripción" hint="Aparecerá cuando termine la transcripción." />;
+  if (transcript.utterances.length === 0) {
+    return <EmptyState icon={<Captions size={26} strokeWidth={1.7} />} title="Sin transcripción" hint="Aparecerá aquí cuando termine la transcripción." />;
+  }
 
   return (
     <div className="transcript">
@@ -58,8 +61,8 @@ export function TranscriptTab({ transcript, voiceprintNames, currentMs, onSeek, 
         {transcript.speakers.map((s, i) => {
           const suggested = !s.isMe && !s.confirmed && (s.nameSource === "voiceprint" || s.nameSource === "appUi") && s.displayName;
           return (
-            <li key={s.id} className="speaker-chip">
-              <span className="dot" style={{ background: speakerColor(i) }} aria-hidden />
+            <li key={s.id} className={`speaker-chip${editing === s.id ? " speaker-chip-editing" : ""}`}>
+              <Avatar name={nameOf(s)} color={speakerColor(i)} size="sm" />
               {editing === s.id ? (
                 <RenameForm
                   speaker={s}
@@ -73,18 +76,19 @@ export function TranscriptTab({ transcript, voiceprintNames, currentMs, onSeek, 
               ) : (
                 <>
                   <span className="speaker-name">{nameOf(s)}</span>
+                  {s.isMe ? <span className="speaker-me">tú</span> : null}
                   {suggested ? (
                     <span className="suggestion">
-                      ¿Es {s.displayName}?{" "}
-                      <Button small variant="primary" aria-label={`Confirmar a ${s.displayName}`} onClick={() => onRename(s.id, s.displayName!, true)}>
+                      ¿Es {s.displayName}?
+                      <Button small capsule variant="primary" icon={<Check size={11} strokeWidth={2.8} aria-hidden />} aria-label={`Confirmar a ${s.displayName}`} onClick={() => onRename(s.id, s.displayName!, true)}>
                         Confirmar
                       </Button>
                     </span>
                   ) : null}
                   {!s.isMe ? (
-                    <Button small variant="ghost" aria-label={`Renombrar a ${nameOf(s)}`} onClick={() => setEditing(s.id)}>
-                      Renombrar
-                    </Button>
+                    <IconButton small label={`Renombrar a ${nameOf(s)}`} onClick={() => setEditing(s.id)}>
+                      <Pencil size={11} strokeWidth={2.2} aria-hidden />
+                    </IconButton>
                   ) : null}
                 </>
               )}
@@ -92,23 +96,26 @@ export function TranscriptTab({ transcript, voiceprintNames, currentMs, onSeek, 
           );
         })}
       </ul>
-      <ol className="lines">
-        {transcript.utterances.map((u) => {
+      <ol className="lines card">
+        {transcript.utterances.map((u, i) => {
           const s = byId.get(u.speakerId);
           const active = currentMs >= u.start && currentMs < u.end;
+          const first = transcript.utterances[i - 1]?.speakerId !== u.speakerId;
+          const color = speakerColor(index.get(u.speakerId) ?? 0);
+          const name = s ? nameOf(s) : "?";
           return (
-            <li key={u.idx}>
-              <button
-                type="button"
-                className={`line${active ? " line-active" : ""}`}
-                aria-current={active ? "true" : undefined}
-                onClick={() => onSeek(u.start)}
-              >
-                <span className="line-time">{formatClock(u.start)}</span>
-                <span className="line-speaker" style={{ color: speakerColor(index.get(u.speakerId) ?? 0) }}>
-                  {s ? nameOf(s) : "?"}
+            <li key={u.idx} className={first ? "turn" : undefined}>
+              <button type="button" className={`line${active ? " line-active" : ""}`} aria-current={active ? "true" : undefined} onClick={() => onSeek(u.start)}>
+                <span className="line-gutter">{first ? <Avatar name={name} color={color} /> : null}</span>
+                <span className="line-body">
+                  {first ? (
+                    <span className="line-speaker" style={{ color }}>
+                      {name}
+                    </span>
+                  ) : null}
+                  <span className="line-text">{u.text}</span>
                 </span>
-                <span className="line-text">{u.text}</span>
+                <span className="line-time num">{formatClock(u.start)}</span>
               </button>
             </li>
           );

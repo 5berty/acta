@@ -75,6 +75,7 @@ export function MeetingListContainer({ onOpen }: { onOpen: (id: string) => void 
       onDatePreset={setDatePreset}
       onOpen={onOpen}
       onRetry={(id) => void api.meetingReprocess({ meetingId: id, steps: REPROCESS_STEPS }).then(load)}
+      onRecord={() => void api.sessionStart(null).catch(() => {})}
     />
   );
 }

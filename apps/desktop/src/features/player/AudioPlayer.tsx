@@ -1,13 +1,43 @@
-import { useEffect, useRef, useState } from "react";
+import { Pause, Play, VolumeX } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useApi } from "../../app/ApiContext";
 import { formatClock } from "../../shared/format";
-import { Button } from "../../shared/ui/ui";
+import { Select } from "../../shared/ui/ui";
 import { usePlayer, type TrackChoice } from "./PlayerContext";
 
 const LABEL: Record<TrackChoice, string> = { mix: "Mezcla", mic: "Yo", system: "Otros" };
 const RATES = [1, 1.25, 1.5, 2];
+const BARS = 64;
 
-export function AudioPlayer() {
+interface Span {
+  start: number;
+  end: number;
+}
+
+/** Cuánta voz hay en cada tramo (0..1): la «onda» sale del transcript, no del audio. */
+export function voiceActivity(spans: Span[], durationMs: number, bars = BARS): number[] {
+  const out = new Array<number>(bars).fill(0);
+  if (durationMs <= 0) return out;
+  const width = durationMs / bars;
+  for (const s of spans) {
+    const first = Math.max(0, Math.floor(s.start / width));
+    const last = Math.min(bars - 1, Math.floor(Math.max(s.start, s.end - 1) / width));
+    for (let i = first; i <= last; i += 1) {
+      const overlap = Math.min(s.end, (i + 1) * width) - Math.max(s.start, i * width);
+      out[i] = Math.min(1, (out[i] ?? 0) + Math.max(0, overlap) / width);
+    }
+  }
+  return out;
+}
+
+interface Props {
+  /** Intervalos con voz (ms), para dibujar la onda. */
+  activity?: Span[];
+  /** Duración conocida de la reunión, mientras el audio no ha cargado. */
+  durationMs?: number;
+}
+
+export function AudioPlayer({ activity, durationMs }: Props = {}) {
   const api = useApi();
   const p = usePlayer();
   const [playing, setPlaying] = useState(false);
@@ -17,6 +47,8 @@ export function AudioPlayer() {
 
   const available = (["mix", "mic", "system"] as TrackChoice[]).filter((t) => p.audio[t]);
   const src = p.audio[p.track];
+  const total = Number.isFinite(duration) && duration > 0 ? duration : (durationMs ?? 0);
+  const bars = useMemo(() => (activity && activity.length > 0 ? voiceActivity(activity, total) : null), [activity, total]);
 
   // Al cambiar de pista se conserva la posición y el estado de reproducción.
   useEffect(() => {
@@ -30,13 +62,19 @@ export function AudioPlayer() {
   }, [src, p.audioRef]);
 
   if (!p.hasAudio || !src) {
-    return <div className="player player-empty">Esta reunión no tiene audio</div>;
+    return (
+      <div className="player player-empty glass">
+        <VolumeX size={15} strokeWidth={1.9} aria-hidden />
+        Esta reunión no tiene audio
+      </div>
+    );
   }
 
   const el = p.audioRef.current;
+  const played = total > 0 ? Math.min(1, p.currentMs / total) : 0;
 
   return (
-    <div className="player">
+    <div className="player glass" role="group" aria-label="Reproductor">
       <audio
         ref={p.audioRef}
         src={api.fileUrl(src)}
@@ -50,28 +88,37 @@ export function AudioPlayer() {
         onPause={() => setPlaying(false)}
         onEnded={() => setPlaying(false)}
       />
-      <Button
-        small
-        variant="primary"
-        aria-label={playing ? "Pausar audio" : "Reproducir audio"}
-        onClick={() => (playing ? el?.pause() : void el?.play()?.catch(() => {}))}
-      >
-        {playing ? "Pausa" : "Reproducir"}
-      </Button>
-      <span className="player-time">{formatClock(p.currentMs)}</span>
-      <input
-        type="range"
-        aria-label="Posición"
-        min={0}
-        max={Number.isFinite(duration) && duration > 0 ? Math.round(duration) : 1}
-        value={Math.min(Math.round(p.currentMs), Math.round(duration) || 1)}
-        onChange={(e) => p.seek(Number(e.target.value))}
-      />
-      <span className="player-time muted">{formatClock(Number.isFinite(duration) ? duration : 0)}</span>
-      <label className="field-inline">
-        <span className="sr-only">Pista</span>
-        <select
-          aria-label="Pista"
+      <button type="button" className="player-play" aria-label={playing ? "Pausar audio" : "Reproducir audio"} onClick={() => (playing ? el?.pause() : void el?.play()?.catch(() => {}))}>
+        {playing ? <Pause size={15} fill="currentColor" strokeWidth={0} aria-hidden /> : <Play size={15} fill="currentColor" strokeWidth={0} aria-hidden />}
+      </button>
+      <span className="player-time num">{formatClock(p.currentMs)}</span>
+      <div className={`player-wave${bars ? "" : " player-wave-flat"}`}>
+        {bars ? (
+          <div className="wave" aria-hidden>
+            {bars.map((v, i) => (
+              <span key={i} className={`wave-bar${(i + 0.5) / bars.length <= played ? " wave-bar-played" : ""}`} style={{ height: `${Math.round(14 + 86 * Math.sqrt(v))}%` }} />
+            ))}
+          </div>
+        ) : (
+          <div className="wave-line" aria-hidden>
+            <span style={{ transform: `scaleX(${played})` }} />
+          </div>
+        )}
+        <input
+          type="range"
+          className="player-seek"
+          aria-label="Posición"
+          min={0}
+          max={total > 0 ? Math.round(total) : 1}
+          value={Math.min(Math.round(p.currentMs), Math.round(total) || 1)}
+          onChange={(e) => p.seek(Number(e.target.value))}
+        />
+      </div>
+      <span className="player-time player-total num">{formatClock(total)}</span>
+      {available.length > 1 ? (
+        <Select
+          label="Pista"
+          capsule
           value={p.track}
           onChange={(e) => {
             resume.current = { at: el?.currentTime ?? 0, play: playing };
@@ -83,10 +130,11 @@ export function AudioPlayer() {
               {LABEL[t]}
             </option>
           ))}
-        </select>
-      </label>
-      <select
-        aria-label="Velocidad"
+        </Select>
+      ) : null}
+      <Select
+        label="Velocidad"
+        capsule
         value={rate}
         onChange={(e) => {
           const r = Number(e.target.value);
@@ -99,7 +147,7 @@ export function AudioPlayer() {
             {r}×
           </option>
         ))}
-      </select>
+      </Select>
     </div>
   );
 }

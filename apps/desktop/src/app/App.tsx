@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ActaApi } from "../api";
-import { ChatContainer } from "../features/chat/ChatContainer";
+import { AskPage } from "../features/chat/AskPage";
 import { GroupsContainer } from "../features/groups/GroupsContainer";
 import { MeetingDetailContainer } from "../features/meetings/MeetingDetailContainer";
 import { MeetingListContainer } from "../features/meetings/MeetingListContainer";
 import { SettingsContainer } from "../features/settings/SettingsContainer";
 import { ApiProvider, useApiEvent } from "./ApiContext";
+import { CommandPalette } from "./CommandPalette";
 import { Sidebar, type View } from "./Sidebar";
 
 interface Open {
@@ -16,23 +17,36 @@ interface Open {
 function Shell() {
   const [view, setView] = useState<View>("meetings");
   const [open, setOpen] = useState<Open | null>(null);
+  const [palette, setPalette] = useState(false);
 
-  const openMeeting = (id: string, at?: number) => {
+  const openMeeting = useCallback((id: string, at?: number) => {
     setOpen({ id, at: at ?? null });
     setView("meetings");
-  };
+  }, []);
+  const goTo = useCallback((v: View) => {
+    setView(v);
+    if (v === "meetings") setOpen(null);
+  }, []);
   useApiEvent("main:navigate", ({ meetingId }) => openMeeting(meetingId));
+
+  // ⌘K: búsqueda rápida. Sin animación: es un atajo que se usa decenas de veces al día.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPalette((p) => !p);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   return (
     <div className="app">
-      <Sidebar
-        view={view}
-        onView={(v) => {
-          setView(v);
-          if (v === "meetings") setOpen(null);
-        }}
-      />
-      <main className="main">
+      {/* Franja para arrastrar la ventana: la barra de título es transparente. */}
+      <div className="window-drag" data-tauri-drag-region aria-hidden />
+      <Sidebar view={view} onView={goTo} onSearch={() => setPalette(true)} />
+      <main className="pane">
         {view === "meetings" ? (
           open ? (
             <MeetingDetailContainer key={`${open.id}-${open.at}`} meetingId={open.id} initialSeekMs={open.at} onBack={() => setOpen(null)} onOpenMeeting={openMeeting} />
@@ -41,14 +55,10 @@ function Shell() {
           )
         ) : null}
         {view === "groups" ? <GroupsContainer onOpenMeeting={openMeeting} /> : null}
-        {view === "ask" ? (
-          <div className="ask-page">
-            <h1>Pregunta a todas tus reuniones</h1>
-            <ChatContainer scope={{ kind: "all" }} placeholder="todas tus reuniones" onCitation={(c) => openMeeting(c.meetingId, c.at)} />
-          </div>
-        ) : null}
+        {view === "ask" ? <AskPage onOpenMeeting={openMeeting} /> : null}
         {view === "settings" ? <SettingsContainer /> : null}
       </main>
+      {palette ? <CommandPalette onClose={() => setPalette(false)} onOpenMeeting={openMeeting} onView={goTo} /> : null}
     </div>
   );
 }

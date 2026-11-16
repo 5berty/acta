@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { createMockApi } from "../api";
@@ -23,7 +23,7 @@ describe("App", () => {
     setup();
     const nav = screen.getByRole("navigation", { name: "Secciones" });
     await userEvent.click(within(nav).getByRole("button", { name: "Grupos" }));
-    expect(await screen.findByText("Elige un grupo")).toBeInTheDocument();
+    expect(await screen.findByText("Crea tu primer grupo")).toBeInTheDocument();
     await userEvent.click(within(nav).getByRole("button", { name: "Preguntar" }));
     expect(await screen.findByRole("textbox", { name: "Pregunta" })).toBeInTheDocument();
     await userEvent.click(within(nav).getByRole("button", { name: "Ajustes" }));
@@ -66,5 +66,62 @@ describe("App", () => {
     await userEvent.click(within(nav).getByRole("button", { name: "Preguntar" }));
     await userEvent.click(await screen.findByRole("button", { name: "Daily del equipo, 00:04" }));
     expect(await screen.findByRole("heading", { name: "Daily del equipo" })).toBeInTheDocument();
+  });
+
+  it("con grupos creados invita a elegir uno", async () => {
+    const mock = setup();
+    await mock.api.groupCreate("Producto");
+    const nav = screen.getByRole("navigation", { name: "Secciones" });
+    await userEvent.click(within(nav).getByRole("button", { name: "Grupos" }));
+    expect(await screen.findByText("Elige un grupo")).toBeInTheDocument();
+  });
+
+  it("se puede parar la grabación desde la barra lateral", async () => {
+    const { api } = setup();
+    const stop = vi.spyOn(api, "sessionStop");
+    const pause = vi.spyOn(api, "sessionPause");
+    await userEvent.click(await screen.findByRole("button", { name: "Grabar ahora" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Pausar grabación" }));
+    expect(pause).toHaveBeenCalled();
+    expect(await screen.findByText("En pausa")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Parar grabación" }));
+    expect(stop).toHaveBeenCalled();
+    expect(await screen.findByText(/Guardando el audio/)).toBeInTheDocument();
+  });
+
+  it("⌘K abre la búsqueda rápida y Enter abre la reunión", async () => {
+    setup();
+    await screen.findByRole("button", { name: /Daily del equipo/ });
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const dialog = await screen.findByRole("dialog", { name: "Búsqueda rápida" });
+    await userEvent.type(within(dialog).getByRole("combobox", { name: "Buscar en acta" }), "Daily");
+    expect(await within(dialog).findByRole("option", { name: /Daily del equipo/ })).toHaveAttribute("aria-selected", "true");
+    await userEvent.keyboard("{Enter}");
+    expect(await screen.findByRole("heading", { name: "Daily del equipo" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Búsqueda rápida" })).not.toBeInTheDocument();
+  });
+
+  it("la búsqueda rápida encuentra frases del transcript", async () => {
+    setup();
+    await userEvent.click(await screen.findByRole("button", { name: "Búsqueda rápida" }));
+    const dialog = await screen.findByRole("dialog", { name: "Búsqueda rápida" });
+    await userEvent.type(within(dialog).getByRole("combobox"), "presupuesto");
+    await userEvent.click(await within(dialog).findByRole("option", { name: /Yo envío el presupuesto el viernes/ }));
+    expect(await screen.findByRole("heading", { name: "Daily del equipo" })).toBeInTheDocument();
+  });
+
+  it("la búsqueda rápida navega con las flechas y se cierra con Escape", async () => {
+    setup();
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const dialog = await screen.findByRole("dialog", { name: "Búsqueda rápida" });
+    await userEvent.type(within(dialog).getByRole("combobox"), "ajustes");
+    expect(await within(dialog).findByRole("option", { name: /Abrir Ajustes/ })).toBeInTheDocument();
+    await userEvent.keyboard("{ArrowDown}{ArrowUp}{Enter}");
+    expect(await screen.findByRole("heading", { name: "Ajustes" })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    await userEvent.type(await screen.findByRole("combobox", { name: "Buscar en acta" }), "zzzz");
+    expect(await screen.findByText(/Nada coincide/)).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Búsqueda rápida" })).not.toBeInTheDocument();
   });
 });

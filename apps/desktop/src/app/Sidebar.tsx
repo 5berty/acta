@@ -1,52 +1,122 @@
-import { useEffect, useState } from "react";
-import type { SessionSnapshot } from "../api";
+import { AudioLines, FolderOpen, Pause, Play, Search, Settings, Sparkles, Square } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import type { Levels, SessionSnapshot } from "../api";
+import { STEP_LABEL } from "../features/meetings/ProcessingStatus";
+import { dbToLevel, formatClock, platformLabel } from "../shared/format";
+import { IconButton, Spinner } from "../shared/ui/ui";
 import { useApi, useApiEvent } from "./ApiContext";
-import { formatClock } from "../shared/format";
-import { Button } from "../shared/ui/ui";
 
 export type View = "meetings" | "groups" | "ask" | "settings";
 
-const ITEMS: { key: View; label: string }[] = [
-  { key: "meetings", label: "Reuniones" },
-  { key: "groups", label: "Grupos" },
-  { key: "ask", label: "Preguntar" },
-  { key: "settings", label: "Ajustes" },
+const ICON = { size: 16, strokeWidth: 1.9, "aria-hidden": true } as const;
+
+const ITEMS: { key: View; label: string; icon: ReactNode }[] = [
+  { key: "meetings", label: "Reuniones", icon: <AudioLines {...ICON} /> },
+  { key: "groups", label: "Grupos", icon: <FolderOpen {...ICON} /> },
+  { key: "ask", label: "Preguntar", icon: <Sparkles {...ICON} /> },
+  { key: "settings", label: "Ajustes", icon: <Settings {...ICON} /> },
 ];
 
-export function Sidebar({ view, onView }: { view: View; onView(v: View): void }) {
+function MiniMeter({ label, level }: { label: string; level: number }) {
+  return (
+    <span className="mini-meter" title={label}>
+      <span className="mini-meter-label">{label}</span>
+      <span className="mini-meter-track">
+        <span className="mini-meter-fill" style={{ transform: `scaleX(${level})` }} />
+      </span>
+    </span>
+  );
+}
+
+/** Control de grabación de la barra lateral: refleja la sesión en vivo. */
+function RecordControl() {
   const api = useApi();
   const [snap, setSnap] = useState<SessionSnapshot | null>(null);
+  const [levels, setLevels] = useState<Levels | null>(null);
   useEffect(() => {
     void api.sessionGetState().then(setSnap);
   }, [api]);
   useApiEvent("session:state", setSnap);
+  useApiEvent("session:levels", setLevels);
 
-  const s = snap?.state.state ?? "idle";
-  const recording = s === "recording" || s === "paused";
+  const state = snap?.state ?? { state: "idle" as const };
+
+  if (state.state === "recording" || state.state === "paused") {
+    const paused = state.state === "paused";
+    return (
+      <div className={`rec-card glass${paused ? " rec-card-paused" : ""}`}>
+        <div className="rec-card-top" role="status">
+          <span className={`rec-dot${paused ? " rec-dot-paused" : ""}`} aria-hidden />
+          <span className="rec-card-state">{paused ? "En pausa" : "Grabando"}</span>
+          <span className="rec-card-time num">{formatClock(snap?.elapsedMs ?? 0)}</span>
+        </div>
+        <div className="rec-card-meters" aria-hidden>
+          <MiniMeter label="Yo" level={paused || !levels ? 0 : dbToLevel(levels.mic.rmsDbfs)} />
+          <MiniMeter label="Otros" level={paused || !levels ? 0 : dbToLevel(levels.system.rmsDbfs)} />
+        </div>
+        <div className="rec-card-actions">
+          <IconButton label={paused ? "Reanudar grabación" : "Pausar grabación"} variant="glass" onClick={() => void (paused ? api.sessionResume() : api.sessionPause()).then(setSnap)}>
+            {paused ? <Play size={13} fill="currentColor" aria-hidden /> : <Pause size={13} fill="currentColor" aria-hidden />}
+          </IconButton>
+          <button type="button" className="btn btn-capsule rec-stop" onClick={() => void api.sessionStop().then(setSnap)} aria-label="Parar grabación">
+            <Square size={11} fill="currentColor" aria-hidden />
+            Parar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (state.state === "detected") {
+    const name = state.app.platform === "other" ? state.app.name : platformLabel(state.app.platform);
+    return (
+      <div className="rec-card glass">
+        <p className="rec-card-hint">Reunión de {name} en curso</p>
+        <button type="button" className="rec-button" onClick={() => void api.promptAnswer(state.prompt.id, "accept").then(setSnap)}>
+          <span className="rec-button-dot" aria-hidden />
+          Grabar reunión
+        </button>
+      </div>
+    );
+  }
+
+  if (state.state === "stopping" || state.state === "processing" || state.state === "recovering") {
+    const label = state.state === "stopping" ? "Guardando el audio" : state.state === "recovering" ? "Recuperando grabación" : STEP_LABEL[state.step];
+    return (
+      <div className="rec-card glass rec-card-busy" role="status">
+        <Spinner />
+        <span>{label}…</span>
+      </div>
+    );
+  }
 
   return (
+    <button type="button" className="rec-button" onClick={() => void api.sessionStart(null).then(setSnap)}>
+      <span className="rec-button-dot" aria-hidden />
+      Grabar ahora
+    </button>
+  );
+}
+
+export function Sidebar({ view, onView, onSearch }: { view: View; onView(v: View): void; onSearch(): void }) {
+  return (
     <aside className="sidebar">
-      <div className="brand">acta</div>
-      <nav aria-label="Secciones">
+      <button type="button" className="search-trigger" aria-label="Búsqueda rápida" onClick={onSearch}>
+        <Search size={14} strokeWidth={2.1} aria-hidden />
+        <span>Buscar</span>
+        <span className="kbd" aria-hidden>
+          ⌘K
+        </span>
+      </button>
+      <nav aria-label="Secciones" className="side-nav">
         {ITEMS.map((i) => (
-          <button key={i.key} type="button" className={`nav-item${view === i.key ? " nav-active" : ""}`} aria-current={view === i.key ? "page" : undefined} onClick={() => onView(i.key)}>
+          <button key={i.key} type="button" className={`nav-item${view === i.key ? " nav-active" : ""}${i.key === "settings" ? " nav-bottom" : ""}`} aria-current={view === i.key ? "page" : undefined} onClick={() => onView(i.key)}>
+            {i.icon}
             {i.label}
           </button>
         ))}
       </nav>
-      <div className="side-session">
-        {recording ? (
-          <p className="rec-chip" role="status">
-            <span className="rec-dot" aria-hidden /> {s === "paused" ? "En pausa" : "Grabando"} · {formatClock(snap?.elapsedMs ?? 0)}
-          </p>
-        ) : s === "idle" || s === "ready" || s === "failed" ? (
-          <Button variant="primary" onClick={() => void api.sessionStart(null).then(setSnap)}>
-            Grabar ahora
-          </Button>
-        ) : (
-          <p className="muted">Procesando…</p>
-        )}
-      </div>
+      <RecordControl />
     </aside>
   );
 }

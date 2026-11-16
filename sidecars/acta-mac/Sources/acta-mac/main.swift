@@ -6,6 +6,9 @@
 import ActaMacCore
 import Foundation
 
+// Un pipe roto no debe matar el proceso con SIGPIPE: lo detecta Output y sale limpio.
+signal(SIGPIPE, SIG_IGN)
+
 let output = Output()
 let dispatcher = Dispatcher(output: output)
 let parent = getppid()
@@ -16,6 +19,7 @@ Task.detached {
         try? await Task.sleep(for: .seconds(2))
         if getppid() != parent {
             Log.warn("parent died; exiting")
+            await dispatcher.shutdown()
             exit(0)
         }
     }
@@ -34,4 +38,5 @@ do {
     Log.error("stdin read failed: \(error)")
 }
 Log.info("stdin closed; exiting")
+await dispatcher.shutdown()
 exit(0)

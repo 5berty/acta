@@ -1,4 +1,6 @@
-import ActaMacProtocol
+// @testable: los init memberwise de Protocol.swift son internal (ver petición
+// de cambio de contrato de WP4: añadir init públicos).
+@testable import ActaMacProtocol
 import Foundation
 import Testing
 

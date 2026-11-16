@@ -25,4 +25,5 @@ pub mod permissions;
 pub mod protocol;
 pub mod screen;
 pub mod speakers;
+mod task;
 pub mod transcription;

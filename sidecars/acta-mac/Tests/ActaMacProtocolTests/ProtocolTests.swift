@@ -31,3 +31,7 @@ import Testing
     #expect(payload["pts_us"] as? Int == 4_200_000)
     #expect(payload["sample_rate"] as? Int == 16_000)
 }
+
+@Test func `speaker embedding model id matches the Rust constant`() {
+    #expect(speakerEmbeddingModel == "fluidaudio-wespeaker-community1-256")
+}

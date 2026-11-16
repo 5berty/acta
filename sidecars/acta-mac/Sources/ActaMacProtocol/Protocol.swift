@@ -12,6 +12,9 @@
 import Foundation
 
 public let protocolVersion: UInt32 = 1
+/// Identificador del modelo de embeddings de voz (huella de voz y diarización).
+/// Espejo de `SPEAKER_EMBEDDING_MODEL` en protocol.rs.
+public let speakerEmbeddingModel = "fluidaudio-wespeaker-community1-256"
 public let maxLineBytes = 1024 * 1024
 
 public enum ProtocolCoding {
@@ -61,34 +64,67 @@ public enum ErrorCode: String, Codable, Sendable {
 
 // MARK: - Argumentos de comandos
 
-public struct HelloArgs: Codable, Sendable, Equatable { public var protocolVersion: UInt32 }
+public struct HelloArgs: Codable, Sendable, Equatable {
+    public var protocolVersion: UInt32
+    public init(protocolVersion: UInt32) {
+        self.protocolVersion = protocolVersion
+    }
+}
 
 public struct PermissionsRequestArgs: Codable, Sendable, Equatable {
     public var kind: PermissionName
     public var target: String?
+
+    public init(kind: PermissionName, target: String? = nil) {
+        self.kind = kind
+        self.target = target
+    }
 }
 
 public struct AppRuleWire: Codable, Sendable, Equatable {
     public var bundleId: String
     public var platform: String
     public var isBrowser: Bool
+
+    public init(bundleId: String, platform: String, isBrowser: Bool) {
+        self.bundleId = bundleId
+        self.platform = platform
+        self.isBrowser = isBrowser
+    }
 }
 
 public struct DetectStartArgs: Codable, Sendable, Equatable {
     public var rules: [AppRuleWire]
     public var meetUrlPatterns: [String]
     public var pollMs: UInt32
+
+    public init(rules: [AppRuleWire], meetUrlPatterns: [String], pollMs: UInt32) {
+        self.rules = rules
+        self.meetUrlPatterns = meetUrlPatterns
+        self.pollMs = pollMs
+    }
 }
 
 public struct MicArgs: Codable, Sendable, Equatable {
     public var enabled: Bool
     public var deviceUid: String?
+
+    public init(enabled: Bool, deviceUid: String? = nil) {
+        self.enabled = enabled
+        self.deviceUid = deviceUid
+    }
 }
 
 public struct SystemArgs: Codable, Sendable, Equatable {
     public var enabled: Bool
     public var pids: [Int32]
     public var bundleIds: [String]
+
+    public init(enabled: Bool, pids: [Int32], bundleIds: [String]) {
+        self.enabled = enabled
+        self.pids = pids
+        self.bundleIds = bundleIds
+    }
 }
 
 public struct CaptureStartArgs: Codable, Sendable, Equatable {
@@ -97,16 +133,34 @@ public struct CaptureStartArgs: Codable, Sendable, Equatable {
     public var frameMs: UInt32
     public var mic: MicArgs
     public var system: SystemArgs
+
+    public init(sessionId: String, sampleRate: UInt32, frameMs: UInt32, mic: MicArgs, system: SystemArgs) {
+        self.sessionId = sessionId
+        self.sampleRate = sampleRate
+        self.frameMs = frameMs
+        self.mic = mic
+        self.system = system
+    }
 }
 
 public struct CaptureRetargetArgs: Codable, Sendable, Equatable {
     public var pids: [Int32]
     public var bundleIds: [String]
+
+    public init(pids: [Int32], bundleIds: [String]) {
+        self.pids = pids
+        self.bundleIds = bundleIds
+    }
 }
 
 public struct SpeakersWatchArgs: Codable, Sendable, Equatable {
     public var pid: Int32
     public var bundleId: String
+
+    public init(pid: Int32, bundleId: String) {
+        self.pid = pid
+        self.bundleId = bundleId
+    }
 }
 
 public struct ScreenStartArgs: Codable, Sendable, Equatable {
@@ -123,12 +177,34 @@ public struct ScreenStartArgs: Codable, Sendable, Equatable {
     public var ringSeconds: UInt32
     public var maxWidth: UInt32
     public var format: String
+
+    public init(sessionId: String, pid: Int32, bundleId: String, windowTitleHint: String? = nil, outDir: String, candidatesDir: String, fps: Float, phashThreshold: UInt32, stableFrames: UInt32, candidateEveryS: UInt32, ringSeconds: UInt32, maxWidth: UInt32, format: String) {
+        self.sessionId = sessionId
+        self.pid = pid
+        self.bundleId = bundleId
+        self.windowTitleHint = windowTitleHint
+        self.outDir = outDir
+        self.candidatesDir = candidatesDir
+        self.fps = fps
+        self.phashThreshold = phashThreshold
+        self.stableFrames = stableFrames
+        self.candidateEveryS = candidateEveryS
+        self.ringSeconds = ringSeconds
+        self.maxWidth = maxWidth
+        self.format = format
+    }
 }
 
 public struct ScreenSnapshotArgs: Codable, Sendable, Equatable {
     public var reason: CaptureReasonName
     public var atUnixMs: Int64
     public var keyword: String?
+
+    public init(reason: CaptureReasonName, atUnixMs: Int64, keyword: String? = nil) {
+        self.reason = reason
+        self.atUnixMs = atUnixMs
+        self.keyword = keyword
+    }
 }
 
 public struct AsrTranscribeArgs: Codable, Sendable, Equatable {
@@ -137,11 +213,24 @@ public struct AsrTranscribeArgs: Codable, Sendable, Equatable {
     public var outPath: String
     public var language: String?
     public var model: String
+
+    public init(jobId: String, wavPath: String, outPath: String, language: String? = nil, model: String) {
+        self.jobId = jobId
+        self.wavPath = wavPath
+        self.outPath = outPath
+        self.language = language
+        self.model = model
+    }
 }
 
 public struct AsrLiveStartArgs: Codable, Sendable, Equatable {
     public var tracks: [TrackName]
     public var language: String?
+
+    public init(tracks: [TrackName], language: String? = nil) {
+        self.tracks = tracks
+        self.language = language
+    }
 }
 
 public struct DiarizeRunArgs: Codable, Sendable, Equatable {
@@ -151,21 +240,50 @@ public struct DiarizeRunArgs: Codable, Sendable, Equatable {
     public var numSpeakers: UInt8?
     public var minSpeakers: UInt8?
     public var maxSpeakers: UInt8?
+
+    public init(jobId: String, wavPath: String, outPath: String, numSpeakers: UInt8? = nil, minSpeakers: UInt8? = nil, maxSpeakers: UInt8? = nil) {
+        self.jobId = jobId
+        self.wavPath = wavPath
+        self.outPath = outPath
+        self.numSpeakers = numSpeakers
+        self.minSpeakers = minSpeakers
+        self.maxSpeakers = maxSpeakers
+    }
 }
 
 public struct SpanMs: Codable, Sendable, Equatable {
     public var startMs: UInt64
     public var endMs: UInt64
+
+    public init(startMs: UInt64, endMs: UInt64) {
+        self.startMs = startMs
+        self.endMs = endMs
+    }
 }
 
 public struct VoiceprintEmbedArgs: Codable, Sendable, Equatable {
     public var wavPath: String
     public var spans: [SpanMs]
+
+    public init(wavPath: String, spans: [SpanMs]) {
+        self.wavPath = wavPath
+        self.spans = spans
+    }
 }
 
-public struct ModelsDownloadArgs: Codable, Sendable, Equatable { public var name: String }
+public struct ModelsDownloadArgs: Codable, Sendable, Equatable {
+    public var name: String
+    public init(name: String) {
+        self.name = name
+    }
+}
 
-public struct JobCancelArgs: Codable, Sendable, Equatable { public var jobId: String }
+public struct JobCancelArgs: Codable, Sendable, Equatable {
+    public var jobId: String
+    public init(jobId: String) {
+        self.jobId = jobId
+    }
+}
 
 // MARK: - Comandos
 
@@ -313,21 +431,49 @@ public struct PermissionEntry: Codable, Sendable, Equatable {
     public var kind: PermissionName
     public var status: PermissionStatusName
     public var target: String?
+
+    public init(kind: PermissionName, status: PermissionStatusName, target: String? = nil) {
+        self.kind = kind
+        self.status = status
+        self.target = target
+    }
 }
 
-public struct PermissionsStatusResult: Codable, Sendable, Equatable { public var permissions: [PermissionEntry] }
-public struct PermissionsRequestResult: Codable, Sendable, Equatable { public var status: PermissionStatusName }
+public struct PermissionsStatusResult: Codable, Sendable, Equatable {
+    public var permissions: [PermissionEntry]
+    public init(permissions: [PermissionEntry]) {
+        self.permissions = permissions
+    }
+}
+public struct PermissionsRequestResult: Codable, Sendable, Equatable {
+    public var status: PermissionStatusName
+    public init(status: PermissionStatusName) {
+        self.status = status
+    }
+}
 
 public struct DeviceWire: Codable, Sendable, Equatable {
     public var uid: String
     public var name: String
     public var isDefault: Bool
     public var transport: String
+
+    public init(uid: String, name: String, isDefault: Bool, transport: String) {
+        self.uid = uid
+        self.name = name
+        self.isDefault = isDefault
+        self.transport = transport
+    }
 }
 
 public struct DevicesListResult: Codable, Sendable, Equatable {
     public var inputs: [DeviceWire]
     public var outputs: [DeviceWire]
+
+    public init(inputs: [DeviceWire], outputs: [DeviceWire]) {
+        self.inputs = inputs
+        self.outputs = outputs
+    }
 }
 
 public struct AppInfoWire: Codable, Sendable, Equatable {
@@ -335,14 +481,32 @@ public struct AppInfoWire: Codable, Sendable, Equatable {
     public var bundleId: String
     public var name: String
     public var audioPids: [Int32]
+
+    public init(pid: Int32, bundleId: String, name: String, audioPids: [Int32]) {
+        self.pid = pid
+        self.bundleId = bundleId
+        self.name = name
+        self.audioPids = audioPids
+    }
 }
 
-public struct AppsListResult: Codable, Sendable, Equatable { public var apps: [AppInfoWire] }
+public struct AppsListResult: Codable, Sendable, Equatable {
+    public var apps: [AppInfoWire]
+    public init(apps: [AppInfoWire]) {
+        self.apps = apps
+    }
+}
 
 public struct CaptureStartResult: Codable, Sendable, Equatable {
     public var startedAtUnixMs: Int64
     public var micDevice: String?
     public var systemPids: [Int32]
+
+    public init(startedAtUnixMs: Int64, micDevice: String? = nil, systemPids: [Int32]) {
+        self.startedAtUnixMs = startedAtUnixMs
+        self.micDevice = micDevice
+        self.systemPids = systemPids
+    }
 }
 
 public struct ScreenFrameEvent: Codable, Sendable, Equatable {
@@ -353,33 +517,75 @@ public struct ScreenFrameEvent: Codable, Sendable, Equatable {
     public var width: UInt32
     public var height: UInt32
     public var keyword: String?
+
+    public init(path: String, atUnixMs: Int64, reason: CaptureReasonName, phash: String, width: UInt32, height: UInt32, keyword: String? = nil) {
+        self.path = path
+        self.atUnixMs = atUnixMs
+        self.reason = reason
+        self.phash = phash
+        self.width = width
+        self.height = height
+        self.keyword = keyword
+    }
 }
 
-public struct ScreenSnapshotResult: Codable, Sendable, Equatable { public var frame: ScreenFrameEvent? }
+public struct ScreenSnapshotResult: Codable, Sendable, Equatable {
+    public var frame: ScreenFrameEvent?
+    public init(frame: ScreenFrameEvent? = nil) {
+        self.frame = frame
+    }
+}
 
 public struct AsrTranscribeResult: Codable, Sendable, Equatable {
     public var outPath: String
     public var segments: UInt32
     public var durationMs: UInt64
+
+    public init(outPath: String, segments: UInt32, durationMs: UInt64) {
+        self.outPath = outPath
+        self.segments = segments
+        self.durationMs = durationMs
+    }
 }
 
 public struct DiarizeRunResult: Codable, Sendable, Equatable {
     public var outPath: String
     public var speakers: UInt32
+
+    public init(outPath: String, speakers: UInt32) {
+        self.outPath = outPath
+        self.speakers = speakers
+    }
 }
 
 public struct VoiceprintEmbedResult: Codable, Sendable, Equatable {
     public var embedding: [Float]
     public var model: String
+
+    public init(embedding: [Float], model: String) {
+        self.embedding = embedding
+        self.model = model
+    }
 }
 
 public struct ModelStatusWire: Codable, Sendable, Equatable {
     public var name: String
     public var downloaded: Bool
     public var bytes: UInt64?
+
+    public init(name: String, downloaded: Bool, bytes: UInt64? = nil) {
+        self.name = name
+        self.downloaded = downloaded
+        self.bytes = bytes
+    }
 }
 
-public struct ModelsStatusResult: Codable, Sendable, Equatable { public var models: [ModelStatusWire] }
+public struct ModelsStatusResult: Codable, Sendable, Equatable {
+    public var models: [ModelStatusWire]
+    public init(models: [ModelStatusWire]) {
+        self.models = models
+    }
+}
 
 // MARK: - Eventos
 
@@ -392,6 +598,16 @@ public struct AudioFrameEvent: Codable, Sendable, Equatable {
     public var format: String
     /// PCM s16le en base64.
     public var data: String
+
+    public init(track: TrackName, seq: UInt64, ptsUs: UInt64, sampleRate: UInt32, channels: UInt16, format: String, data: String) {
+        self.track = track
+        self.seq = seq
+        self.ptsUs = ptsUs
+        self.sampleRate = sampleRate
+        self.channels = channels
+        self.format = format
+        self.data = data
+    }
 }
 
 public struct AudioDeviceChangedEvent: Codable, Sendable, Equatable {
@@ -399,17 +615,35 @@ public struct AudioDeviceChangedEvent: Codable, Sendable, Equatable {
     public var deviceUid: String?
     public var deviceName: String?
     public var reason: String
+
+    public init(track: TrackName, deviceUid: String? = nil, deviceName: String? = nil, reason: String) {
+        self.track = track
+        self.deviceUid = deviceUid
+        self.deviceName = deviceName
+        self.reason = reason
+    }
 }
 
 public struct AudioTrackStateEvent: Codable, Sendable, Equatable {
     public var track: TrackName
     public var state: TrackStateName
     public var message: String?
+
+    public init(track: TrackName, state: TrackStateName, message: String? = nil) {
+        self.track = track
+        self.state = state
+        self.message = message
+    }
 }
 
 public struct AudioOverrunEvent: Codable, Sendable, Equatable {
     public var track: TrackName
     public var droppedFrames: UInt64
+
+    public init(track: TrackName, droppedFrames: UInt64) {
+        self.track = track
+        self.droppedFrames = droppedFrames
+    }
 }
 
 public struct DetectSignalEvent: Codable, Sendable, Equatable {
@@ -417,28 +651,57 @@ public struct DetectSignalEvent: Codable, Sendable, Equatable {
     public var app: AppInfoWire
     public var windowTitle: String?
     public var url: String?
+
+    public init(signal: SignalName, app: AppInfoWire, windowTitle: String? = nil, url: String? = nil) {
+        self.signal = signal
+        self.app = app
+        self.windowTitle = windowTitle
+        self.url = url
+    }
 }
 
 public struct ParticipantWire: Codable, Sendable, Equatable {
     public var name: String
     public var isSelf: Bool
     public var muted: Bool?
+
+    public init(name: String, isSelf: Bool, muted: Bool? = nil) {
+        self.name = name
+        self.isSelf = isSelf
+        self.muted = muted
+    }
 }
 
 public struct SpeakersRosterEvent: Codable, Sendable, Equatable {
     public var pid: Int32
     public var participants: [ParticipantWire]
+
+    public init(pid: Int32, participants: [ParticipantWire]) {
+        self.pid = pid
+        self.participants = participants
+    }
 }
 
 public struct SpeakersActiveEvent: Codable, Sendable, Equatable {
     public var pid: Int32
     public var names: [String]
+
+    public init(pid: Int32, names: [String]) {
+        self.pid = pid
+        self.names = names
+    }
 }
 
 public struct ScreenShareStateEvent: Codable, Sendable, Equatable {
     public var sharing: Bool
     public var presenter: String?
     public var source: String
+
+    public init(sharing: Bool, presenter: String? = nil, source: String) {
+        self.sharing = sharing
+        self.presenter = presenter
+        self.source = source
+    }
 }
 
 public struct AsrPartialEvent: Codable, Sendable, Equatable {
@@ -446,12 +709,25 @@ public struct AsrPartialEvent: Codable, Sendable, Equatable {
     public var text: String
     public var atUnixMs: Int64
     public var isFinal: Bool
+
+    public init(track: TrackName, text: String, atUnixMs: Int64, isFinal: Bool) {
+        self.track = track
+        self.text = text
+        self.atUnixMs = atUnixMs
+        self.isFinal = isFinal
+    }
 }
 
 public struct JobProgressEvent: Codable, Sendable, Equatable {
     public var jobId: String
     public var fraction: Float
     public var stage: String?
+
+    public init(jobId: String, fraction: Float, stage: String? = nil) {
+        self.jobId = jobId
+        self.fraction = fraction
+        self.stage = stage
+    }
 }
 
 public struct ModelsProgressEvent: Codable, Sendable, Equatable {
@@ -459,19 +735,41 @@ public struct ModelsProgressEvent: Codable, Sendable, Equatable {
     public var fraction: Float
     public var done: Bool
     public var error: String?
+
+    public init(name: String, fraction: Float, done: Bool, error: String? = nil) {
+        self.name = name
+        self.fraction = fraction
+        self.done = done
+        self.error = error
+    }
 }
 
 public struct PermissionsChangedEvent: Codable, Sendable, Equatable {
     public var kind: PermissionName
     public var status: PermissionStatusName
+
+    public init(kind: PermissionName, status: PermissionStatusName) {
+        self.kind = kind
+        self.status = status
+    }
 }
 
 public struct LogEvent: Codable, Sendable, Equatable {
     public var level: String
     public var message: String
+
+    public init(level: String, message: String) {
+        self.level = level
+        self.message = message
+    }
 }
 
-public struct FatalEvent: Codable, Sendable, Equatable { public var message: String }
+public struct FatalEvent: Codable, Sendable, Equatable {
+    public var message: String
+    public init(message: String) {
+        self.message = message
+    }
+}
 
 public enum Event: Sendable, Equatable {
     case audioFrame(AudioFrameEvent)
@@ -554,6 +852,12 @@ public struct AsrWordWire: Codable, Sendable, Equatable {
     public var startMs: UInt64
     public var endMs: UInt64
     public var text: String
+
+    public init(startMs: UInt64, endMs: UInt64, text: String) {
+        self.startMs = startMs
+        self.endMs = endMs
+        self.text = text
+    }
 }
 
 public struct AsrSegmentWire: Codable, Sendable, Equatable {
@@ -562,6 +866,14 @@ public struct AsrSegmentWire: Codable, Sendable, Equatable {
     public var text: String
     public var confidence: Float?
     public var words: [AsrWordWire]
+
+    public init(startMs: UInt64, endMs: UInt64, text: String, confidence: Float? = nil, words: [AsrWordWire]) {
+        self.startMs = startMs
+        self.endMs = endMs
+        self.text = text
+        self.confidence = confidence
+        self.words = words
+    }
 }
 
 /// `transcript/asr-<track>.json`
@@ -570,18 +882,37 @@ public struct AsrFile: Codable, Sendable, Equatable {
     public var language: String?
     public var durationMs: UInt64
     public var segments: [AsrSegmentWire]
+
+    public init(model: String, language: String? = nil, durationMs: UInt64, segments: [AsrSegmentWire]) {
+        self.model = model
+        self.language = language
+        self.durationMs = durationMs
+        self.segments = segments
+    }
 }
 
 public struct DiarizationTurnWire: Codable, Sendable, Equatable {
     public var label: String
     public var startMs: UInt64
     public var endMs: UInt64
+
+    public init(label: String, startMs: UInt64, endMs: UInt64) {
+        self.label = label
+        self.startMs = startMs
+        self.endMs = endMs
+    }
 }
 
 public struct DiarizedSpeakerWire: Codable, Sendable, Equatable {
     public var label: String
     public var embedding: [Float]
     public var totalMs: UInt64
+
+    public init(label: String, embedding: [Float], totalMs: UInt64) {
+        self.label = label
+        self.embedding = embedding
+        self.totalMs = totalMs
+    }
 }
 
 /// `transcript/diarization.json`
@@ -589,4 +920,10 @@ public struct DiarizationFile: Codable, Sendable, Equatable {
     public var embeddingModel: String
     public var turns: [DiarizationTurnWire]
     public var speakers: [DiarizedSpeakerWire]
+
+    public init(embeddingModel: String, turns: [DiarizationTurnWire], speakers: [DiarizedSpeakerWire]) {
+        self.embeddingModel = embeddingModel
+        self.turns = turns
+        self.speakers = speakers
+    }
 }

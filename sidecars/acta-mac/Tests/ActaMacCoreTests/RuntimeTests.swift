@@ -156,7 +156,7 @@ private func dispatcher(_ lines: Lines) -> Dispatcher {
     func obj(_ e: Event) throws -> [String: Any] {
         try #require(try JSONSerialization.jsonObject(with: enc.encode(EventLine(ts: 1, event: e))) as? [String: Any])
     }
-    let frame = try obj(.audioFrame(AudioFrameEvent(track: .mic, seq: 3, ptsUs: 300_000, sampleRate: 16_000, data: "AA==")))
+    let frame = try obj(.audioFrame(AudioFrameEvent(track: .mic, seq: 3, ptsUs: 300_000, sampleRate: 16_000, channels: 1, format: "s16le", data: "AA==")))
     let fd = try #require(frame["data"] as? [String: Any])
     #expect(fd["channels"] as? Int == 1 && fd["format"] as? String == "s16le" && fd["pts_us"] as? Int == 300_000)
 

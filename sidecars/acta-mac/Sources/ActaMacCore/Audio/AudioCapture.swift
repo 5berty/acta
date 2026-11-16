@@ -117,7 +117,7 @@ actor TrackPipeline {
     }
 
     private func emit(_ f: PcmFrame) async {
-        await output.emit(.audioFrame(AudioFrameEvent(track: track, seq: f.seq, ptsUs: f.ptsUs, sampleRate: 16_000, data: f.base64)))
+        await output.emit(.audioFrame(AudioFrameEvent(track: track, seq: f.seq, ptsUs: f.ptsUs, sampleRate: 16_000, channels: 1, format: "s16le", data: f.base64)))
         switch zero.observe(f.samples) {
         case true?:
             if expectSignal() {

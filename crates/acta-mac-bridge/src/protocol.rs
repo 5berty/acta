@@ -15,6 +15,10 @@
 use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL_VERSION: u32 = 1;
+/// Id del modelo de embeddings de voz (huella de voz y diarización). Las huellas
+/// solo son comparables entre sí si comparten este id. Espejo de
+/// `speakerEmbeddingModel` en el sidecar Swift.
+pub const SPEAKER_EMBEDDING_MODEL: &str = "fluidaudio-wespeaker-community1-256";
 pub const MAX_LINE_BYTES: usize = 1024 * 1024;
 
 // ===========================================================================
@@ -653,6 +657,11 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
     use serde_json::json;
+
+    #[test]
+    fn speaker_embedding_model_id_is_stable() {
+        assert_eq!(SPEAKER_EMBEDDING_MODEL, "fluidaudio-wespeaker-community1-256");
+    }
 
     #[test]
     fn request_with_args_has_expected_shape() {

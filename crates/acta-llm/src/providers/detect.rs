@@ -10,6 +10,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::process::Command;
 
+/// Un `~/.zshrc` cargado (nvm, asdf, pnpm…) puede tardar >10 s sin TTY.
+pub const INTERACTIVE_SHELL_TIMEOUT: Duration = Duration::from_secs(45);
+const LOGIN_SHELL_TIMEOUT: Duration = Duration::from_secs(10);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DetectedCli {
     pub path: PathBuf,
@@ -33,10 +37,10 @@ pub async fn detect_cli(shell: &Path, name: &str) -> PortResult<Option<DetectedC
 /// también esté en el PATH. Si falla, un shell de login (`-lc`).
 /// `$HOME`, `${HOME}` y `~` se expanden con `home`.
 pub async fn detect_cli_any(shell: &Path, name: &str, home: &Path) -> PortResult<Option<DetectedCli>> {
-    for flag in ["-ic", "-lc"] {
+    for (flag, timeout) in [("-ic", INTERACTIVE_SHELL_TIMEOUT), ("-lc", LOGIN_SHELL_TIMEOUT)] {
         let mut cmd = Command::new(shell);
         cmd.arg(flag).arg(format!("command -v {name}"));
-        let out = match run_supervised(cmd, None, Duration::from_secs(10)).await {
+        let out = match run_supervised(cmd, None, timeout).await {
             Ok(o) => o,
             Err(e) => {
                 tracing::warn!("{shell:?} {flag}: {e}");
@@ -221,6 +225,13 @@ mod tests {
         let d = detect_cli_any(&shell, "claude", Path::new("/Users/e")).await.expect("ok").expect("found");
         assert_eq!(d.path, PathBuf::from("/opt/x/claude"));
         assert_eq!(d.env.get("CLAUDE_CONFIG_DIR").map(String::as_str), Some("/Users/e/.c"));
+    }
+
+    /// El `~/.zshrc` de Edu tarda 12,3 s en arrancar sin TTY (nvm, asdf…):
+    /// con 10 s el shell interactivo moría por timeout y se perdía el alias.
+    #[test]
+    fn interactive_shell_gets_time_for_a_slow_zshrc() {
+        assert!(INTERACTIVE_SHELL_TIMEOUT >= Duration::from_secs(30));
     }
 
     #[tokio::test]

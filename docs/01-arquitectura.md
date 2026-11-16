@@ -440,11 +440,14 @@ Tabla completa de comandos: `crates/acta-core/src/api/commands.rs` (documentaci�
 | `model:download` | `ModelDownload` | descargas |
 | `main:navigate` | `MainNavigate{meetingId}` | `main_window_show{meetingId}` (la pastilla abre una reunión) |
 
-Ventanas (`tauri.conf.json`):
+Ventanas (`tauri.conf.json`, con `macOSPrivateApi: true`):
 
-- `main`: 1200×800.
-- `overlay`: 280×56, sin decoraciones, transparente, `alwaysOnTop`, `visibleOnAllWorkspaces`, oculta al arrancar.
-- WP6 convierte `overlay` en un **NSPanel no activable** con `tauri-nspanel` (`NSWindowStyleMaskNonactivatingPanel`, nivel por encima de pantalla completa, `canJoinAllSpaces` + `fullScreenAuxiliary`). Se expande para las preguntas.
+- `main`: 1200×800 (mínimo 900×600), transparente, `titleBarStyle: "Overlay"` con título oculto y semáforos en (20, 24). Material `windowEffects: ["liquidGlassRegular", "sidebar"]` que sigue el estado activo de la ventana: en macOS 26 monta un `NSGlassEffectView`; en macOS 14-15 cae al `NSVisualEffectView` `sidebar`.
+- `overlay` (la pastilla): 280×56, sin decoraciones ni sombra, transparente, `alwaysOnTop`, `visibleOnAllWorkspaces`, `focus: false`, `acceptFirstMouse`, oculta al arrancar. Material `["liquidGlassRegular", "hudWindow"]` con radio 28 y tinte `#101014b3`.
+- Capacidad `default` (ventanas `main` y `overlay`): `core:default`, `core:window:allow-start-dragging` (arrastrar por la barra de título superpuesta) y `opener:default`.
+- WP6 convierte `overlay` en un **NSPanel no activable** con `tauri-nspanel` (`NSWindowStyleMaskNonactivatingPanel`, nivel por encima de pantalla completa, `canJoinAllSpaces` + `fullScreenAuxiliary`). `overlay_set_expanded` la amplía a 360×150 para las preguntas **manteniendo su centro horizontal y su borde superior**.
+- **Trampa (macOS 26.5)**: no llamar a `set_effects` sobre la pastilla DESPUÉS de convertirla en NSPanel. La llamada no vuelve y se salta el resto de `setup` (bandeja, eventos, estado inicial). El efecto declarado en la configuración sobrevive a la conversión. Detalle en `src-tauri/src/glass.rs`.
+- Variables de entorno de desarrollo: `ACTA_DATA_DIR` (otra carpeta de datos), `ACTA_MAC_SIDECAR` (otro binario del sidecar), `VITE_ACTA_DEMO=1` (datos de demostración, solo en desarrollo y nunca dentro de un build de producción), `ACTA_THEME`, `ACTA_OVERLAY_PREVIEW` y `ACTA_PREVIEW_AT` (ayudas de diseño, ver `glass.rs`).
 - Audio y capturas se sirven por el asset protocol (`convertFileSrc`), con scope `$HOME/Library/Application Support/acta/**`.
 
 ---

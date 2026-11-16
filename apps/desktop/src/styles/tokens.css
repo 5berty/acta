@@ -12,14 +12,15 @@
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   --font-rounded: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
-  --t-caption: 11px;
-  --t-small: 12px;
-  --t-body: 13px;
-  --t-callout: 14px;
-  --t-title3: 15px;
-  --t-title2: 17px;
-  --t-title1: 22px;
-  --t-large: 28px;
+  /* Escala v2: un punto más en todo. 13 px de cuerpo quedaba pequeño en una ventana de 1200 px. */
+  --t-caption: 12px;
+  --t-small: 13px;
+  --t-body: 14px;
+  --t-callout: 15px;
+  --t-title3: 16px;
+  --t-title2: 20px;
+  --t-title1: 26px;
+  --t-large: 32px;
 
   /* ---- geometría: radios concéntricos (hijo = padre − separación) ---- */
   --inset: 8px;
@@ -30,7 +31,16 @@
   --r-control: 8px;
   --r-chip: 6px;
   --r-capsule: 999px;
-  --sidebar-w: 232px;
+  --sidebar-w: 252px;
+  /* Anchos de contenido: lectura cómoda, listas más anchas. */
+  --content-max: 1160px;
+  --content-wide: 1320px;
+  --content-form: 940px;
+  --page-pad: 40px;
+  /* Altura mínima de lo que se pulsa. */
+  --control-h: 32px;
+  --control-h-sm: 28px;
+  --control-h-lg: 40px;
   --titlebar-h: 28px;
 
   /* ---- color ---- */

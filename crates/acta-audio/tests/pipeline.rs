@@ -299,3 +299,22 @@ async fn empty_steps_reprocess_everything_from_transcribing() {
         assert!(steps.contains(&s), "falta {s:?}: {steps:?}");
     }
 }
+
+/// Caso real (16-nov-2026, app recién reinstalada): el permiso de micro/audio
+/// del sistema estaba «sin decidir», `capture.start` no respondió y la reunión
+/// quedó como «Lista» sin nada dentro y sin explicar por qué.
+#[tokio::test]
+async fn a_meeting_without_any_recorded_audio_fails_with_a_clear_reason() {
+    let w = world().await;
+    let id = MeetingId::from_u128(9);
+    w.store
+        .create_meeting(NewMeeting { id, title: "Grabación".into(), platform: Platform::Other, app_bundle_id: None, started_at: T0, language: "es".into() })
+        .await
+        .unwrap();
+    let cfg = SegmentWriterConfig { layout: w.layout.clone(), meeting_id: id, format: AudioFormat::WORKING, segment_seconds: 30, flush_every_ms: 1_000 };
+    SegmentWriter::create(cfg, T0).unwrap().finish(StopReason::Error, T0).unwrap();
+    let sink = Sink(Mutex::new(vec![]));
+    let e = w.pipeline.run(id, &ProcessingStep::ORDER, &sink).await.unwrap_err();
+    assert!(e.to_string().contains("No se grabó audio"), "{e}");
+    assert!(w.minutes.inputs.lock().unwrap().is_empty());
+}

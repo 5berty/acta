@@ -167,11 +167,19 @@ impl DefaultPipeline {
             Ok(m)
         })
         .await?;
+        let duration = manifest_duration(&manifest);
         let patch = MeetingPatch {
-            duration: Some(manifest_duration(&manifest)),
+            duration: Some(duration),
             ..MeetingPatch::default()
         };
         self.store.patch_meeting(id, patch).await?;
+        if manifest.tracks.iter().all(|t| t.segments.iter().all(|s| s.samples == 0)) {
+            return Err(PortError::Unavailable(
+                "No se grabó audio: la captura no llegó a empezar. Revisa en Ajustes › Permisos el Micrófono y \
+                 el Audio del sistema (tras reinstalar acta, macOS vuelve a pedirlos)."
+                    .into(),
+            ));
+        }
         let events: Vec<ScreenEvent> = read_jsonl(&self.layout.live_screen_path(id));
         self.store.save_screen_shares(id, screen_shares(&events, &manifest)).await
     }

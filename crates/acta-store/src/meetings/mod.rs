@@ -11,7 +11,7 @@ use acta_core::layout::DataLayout;
 use acta_core::library::*;
 use acta_core::minutes::{ActionItem, Decision, Escaleta, KeyMoment, Minutes, MinutesOutput, Tema};
 use acta_core::recording::Track;
-use acta_core::screen::Capture;
+use acta_core::screen::{Capture, ScreenShare};
 use acta_core::time::{MediaMs, UnixMs};
 use acta_core::transcription::{NameSource, Speaker, Transcript, Utterance};
 use acta_core::{PortError, PortResult};
@@ -175,6 +175,17 @@ fn load_minutes(conn: &Connection, id: MeetingId) -> PortResult<Option<(Minutes,
         generated_at: UnixMs(generated_at),
     };
     Ok(Some((minutes, escaleta, key_moments)))
+}
+
+fn load_screen_shares(conn: &Connection, id: MeetingId) -> PortResult<Vec<ScreenShare>> {
+    conn.prepare("SELECT start_ms,end_ms,presenter FROM screen_shares WHERE meeting_id = ?1 ORDER BY start_ms, id")
+        .and_then(|mut st| {
+            st.query_map([id.to_string()], |r| {
+                Ok(ScreenShare { start: MediaMs(col_u64(r, 0)?), end: r.get::<_, Option<i64>>(1)?.map(|v| MediaMs(v.max(0) as u64)), presenter: r.get(2)? })
+            })?
+            .collect::<Result<Vec<_>, _>>()
+        })
+        .map_err(sql_err)
 }
 
 fn capture_from_row(r: &Row<'_>) -> rusqlite::Result<Capture> {
@@ -393,6 +404,7 @@ impl MeetingStore for SqliteStore {
         let now = self.now().0;
         self.with_conn(move |conn| {
             let mut m = load_meeting(conn, id)?.ok_or_else(|| PortError::NotFound(format!("meeting {id}")))?;
+            let title_edited = patch.title.is_some();
             if let Some(t) = patch.title {
                 m.title = t;
             }
@@ -412,8 +424,8 @@ impl MeetingStore for SqliteStore {
                 m.error = e;
             }
             conn.execute(
-                "UPDATE meetings SET title=?2, ended_at=?3, duration_ms=?4, status=?5, recovered=?6, error=?7, updated_at=?8 WHERE id=?1",
-                params![id.to_string(), m.title, m.ended_at.map(|t| t.0), m.duration.0 as i64, enc(&m.status), i64::from(m.recovered), m.error, now],
+                "UPDATE meetings SET title=?2, ended_at=?3, duration_ms=?4, status=?5, recovered=?6, error=?7, updated_at=?8, title_edited = title_edited OR ?9 WHERE id=?1",
+                params![id.to_string(), m.title, m.ended_at.map(|t| t.0), m.duration.0 as i64, enc(&m.status), i64::from(m.recovered), m.error, now, i64::from(title_edited)],
             )
             .map_err(sql_err)?;
             m.updated_at = UnixMs(now);
@@ -432,6 +444,7 @@ impl MeetingStore for SqliteStore {
             let Some(meeting) = load_meeting(conn, id)? else { return Ok(None) };
             let transcript = load_transcript(conn, id)?;
             let captures = load_captures(conn, id)?;
+            let shares = load_screen_shares(conn, id)?;
             let (minutes, escaleta) = match load_minutes(conn, id)? {
                 Some((m, e, _)) => (Some(m), Some(e)),
                 None => (None, None),
@@ -441,6 +454,7 @@ impl MeetingStore for SqliteStore {
                 minutes.as_ref().map_or(&[][..], |m| &m.decisions),
                 minutes.as_ref().map_or(&[][..], |m| &m.action_items),
                 &captures,
+                &shares,
             );
             let groups = crate::groups::groups_for_meeting(conn, id)?;
             Ok(Some(MeetingDetail { meeting, transcript, minutes, escaleta, captures, timeline, groups, audio: audio_paths(&layout, id) }))
@@ -540,7 +554,17 @@ impl MeetingStore for SqliteStore {
             let tx = conn.transaction().map_err(sql_err)?;
             tx.execute("DELETE FROM minutes WHERE meeting_id = ?1", [&mid]).map_err(sql_err)?;
             tx.execute("DELETE FROM decisions WHERE meeting_id = ?1", [&mid]).map_err(sql_err)?;
+            let done_texts: std::collections::HashSet<String> = tx
+                .prepare("SELECT text FROM action_items WHERE meeting_id = ?1 AND done = 1")
+                .and_then(|mut st| st.query_map([&mid], |r| r.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>())
+                .map_err(sql_err)?
+                .into_iter()
+                .map(|t| fold_text(&t).trim().to_owned())
+                .collect();
             tx.execute("DELETE FROM action_items WHERE meeting_id = ?1", [&mid]).map_err(sql_err)?;
+            if let Some(title) = output.suggested_title.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+                tx.execute("UPDATE meetings SET title = ?2 WHERE id = ?1 AND title_edited = 0", params![mid, title]).map_err(sql_err)?;
+            }
             tx.execute(
                 "INSERT INTO minutes(meeting_id,summary_md,escaleta,key_moments,provider,model,generated_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
                 params![
@@ -568,7 +592,7 @@ impl MeetingStore for SqliteStore {
                 };
                 tx.execute(
                     "INSERT INTO action_items(id,meeting_id,text,owner_name,owner_speaker_id,is_mine,due,done,at_ms) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
-                    params![a.id.to_string(), mid, a.text, a.owner_name, owner, i64::from(a.is_mine), a.due, i64::from(a.done), a.at.map(|v| v.0 as i64)],
+                    params![a.id.to_string(), mid, a.text, a.owner_name, owner, i64::from(a.is_mine), a.due, i64::from(a.done || done_texts.contains(fold_text(&a.text).trim())), a.at.map(|v| v.0 as i64)],
                 )
                 .map_err(sql_err)?;
                 link_captures(&tx, &mid, &a.id.to_string(), &a.capture_ids)?;
@@ -579,6 +603,24 @@ impl MeetingStore for SqliteStore {
                 if let Ok(cid) = cref.parse::<CaptureId>() {
                     tx.execute("UPDATE captures SET topic_path=?1 WHERE id=?2 AND meeting_id=?3", params![path, cid.to_string(), mid]).map_err(sql_err)?;
                 }
+            }
+            tx.commit().map_err(sql_err)
+        })
+        .await
+    }
+
+    async fn save_screen_shares(&self, meeting_id: MeetingId, shares: Vec<ScreenShare>) -> PortResult<()> {
+        self.with_conn(move |conn| {
+            require_meeting(conn, meeting_id)?;
+            let mid = meeting_id.to_string();
+            let tx = conn.transaction().map_err(sql_err)?;
+            tx.execute("DELETE FROM screen_shares WHERE meeting_id = ?1", [&mid]).map_err(sql_err)?;
+            for sh in &shares {
+                tx.execute(
+                    "INSERT INTO screen_shares(meeting_id,start_ms,end_ms,presenter) VALUES (?1,?2,?3,?4)",
+                    params![mid, sh.start.0 as i64, sh.end.map(|e| e.0 as i64), sh.presenter],
+                )
+                .map_err(sql_err)?;
             }
             tx.commit().map_err(sql_err)
         })

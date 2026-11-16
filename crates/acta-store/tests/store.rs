@@ -10,7 +10,7 @@ use acta_core::layout::DataLayout;
 use acta_core::library::*;
 use acta_core::minutes::*;
 use acta_core::recording::Track;
-use acta_core::screen::{Capture, CaptureReason};
+use acta_core::screen::{Capture, CaptureReason, ScreenShare};
 use acta_core::settings::Settings;
 use acta_core::time::{MediaMs, UnixMs};
 use acta_core::transcription::{NameSource, Voiceprint};
@@ -585,4 +585,88 @@ async fn settings_default_then_roundtrip_with_secret_refs_only() {
     let raw: String = s.with_conn(|c| Ok(c.query_row("SELECT value FROM settings WHERE key='app'", [], |r| r.get(0)).unwrap())).await.unwrap();
     assert!(raw.contains("provider:openrouter"));
     assert!(!raw.contains("sk-"));
+}
+
+// ---------- pantalla compartida, título sugerido, tareas al reprocesar ----------
+
+#[tokio::test]
+async fn screen_shares_replace_roundtrip_in_timeline_and_cascade() {
+    let (s, _d, _c) = store();
+    seed_meeting(&s, 1, "R", T0, &["a"]).await;
+    let share = |a: u64, b: Option<u64>, p: Option<&str>| ScreenShare { start: MediaMs(a), end: b.map(MediaMs), presenter: p.map(Into::into) };
+    s.save_screen_shares(mid(1), vec![share(1_000, Some(2_000), None), share(3_000, None, Some("Ana"))]).await.unwrap();
+    let tl = s.get_meeting_detail(mid(1)).await.unwrap().unwrap().timeline;
+    let shares: Vec<_> = tl.iter().filter(|e| e.kind == TimelineKind::ScreenShare).collect();
+    assert_eq!(shares.len(), 2);
+    assert_eq!((shares[0].at, shares[0].end, shares[0].label.as_str()), (MediaMs(1_000), Some(MediaMs(2_000)), "Pantalla compartida"));
+    assert_eq!((shares[1].end, shares[1].label.as_str(), shares[1].ref_id.clone()), (None, "Comparte: Ana", None));
+
+    // Reemplaza, no acumula.
+    s.save_screen_shares(mid(1), vec![share(9_000, None, None)]).await.unwrap();
+    let n = s.get_meeting_detail(mid(1)).await.unwrap().unwrap().timeline.iter().filter(|e| e.kind == TimelineKind::ScreenShare).count();
+    assert_eq!(n, 1);
+    assert!(matches!(s.save_screen_shares(mid(42), vec![]).await, Err(PortError::NotFound(_))));
+
+    s.delete_meeting(mid(1)).await.unwrap();
+    let left: i64 = s.with_conn(|c| Ok(c.query_row("SELECT count(*) FROM screen_shares", [], |r| r.get(0)).unwrap())).await.unwrap();
+    assert_eq!(left, 0);
+}
+
+#[tokio::test]
+async fn suggested_title_applies_unless_user_edited() {
+    let (s, _d, _c) = store();
+    seed_meeting(&s, 1, "Reunión sin título", T0, &["a"]).await;
+    let mut out = minutes_output(1, "v");
+    out.suggested_title = Some("  Presupuesto 2027  ".into());
+    s.save_minutes(out.clone()).await.unwrap();
+    assert_eq!(s.get_meeting(mid(1)).await.unwrap().unwrap().title, "Presupuesto 2027");
+
+    // Una sugerencia vacía no pisa nada; otra sugerencia sí (el usuario no editó).
+    out.suggested_title = Some("   ".into());
+    s.save_minutes(out.clone()).await.unwrap();
+    assert_eq!(s.get_meeting(mid(1)).await.unwrap().unwrap().title, "Presupuesto 2027");
+    out.suggested_title = Some("Otro".into());
+    s.save_minutes(out.clone()).await.unwrap();
+    assert_eq!(s.get_meeting(mid(1)).await.unwrap().unwrap().title, "Otro");
+
+    // Edición del usuario: se respeta para siempre.
+    s.patch_meeting(mid(1), MeetingPatch { title: Some("Mi título".into()), ..Default::default() }).await.unwrap();
+    out.suggested_title = Some("Machacar".into());
+    s.save_minutes(out).await.unwrap();
+    assert_eq!(s.get_meeting(mid(1)).await.unwrap().unwrap().title, "Mi título");
+
+    // Parchear otras cosas no cuenta como edición de título.
+    seed_meeting(&s, 2, "T2", T0, &["a"]).await;
+    s.patch_meeting(mid(2), MeetingPatch { status: Some(MeetingStatus::Ready), ..Default::default() }).await.unwrap();
+    let mut o2 = minutes_output(2, "v");
+    o2.minutes.decisions.clear();
+    o2.minutes.action_items.clear();
+    o2.suggested_title = Some("Sugerido".into());
+    s.save_minutes(o2).await.unwrap();
+    assert_eq!(s.get_meeting(mid(2)).await.unwrap().unwrap().title, "Sugerido");
+}
+
+#[tokio::test]
+async fn reprocessing_keeps_done_flags_by_folded_text() {
+    let (s, _d, _c) = store();
+    seed_meeting(&s, 1, "R", T0, &["a", "b"]).await;
+    s.save_minutes(minutes_output(1, "v1")).await.unwrap();
+    s.set_action_item_done(ActionItemId::from_u128(900), true).await.unwrap();
+
+    // Nueva generación: ids nuevos, texto reformulado en mayúsculas/acentos; la otra tarea cambia.
+    let mut v2 = minutes_output(1, "v2");
+    v2.minutes.action_items[0].id = ActionItemId::from_u128(950);
+    v2.minutes.action_items[0].text = "  ENVIAR INFORME ".into();
+    v2.minutes.action_items[1].id = ActionItemId::from_u128(951);
+    v2.minutes.action_items[1].text = "Llamar a proveedor".into();
+    s.save_minutes(v2).await.unwrap();
+    let items = s.get_minutes(mid(1)).await.unwrap().unwrap().action_items;
+    assert_eq!(items.iter().map(|a| a.done).collect::<Vec<_>>(), vec![true, false]);
+
+    // Un `done=true` entrante se mantiene.
+    let mut v3 = minutes_output(1, "v3");
+    v3.minutes.action_items[1].done = true;
+    s.save_minutes(v3).await.unwrap();
+    let items = s.get_minutes(mid(1)).await.unwrap().unwrap().action_items;
+    assert_eq!(items.iter().filter(|a| a.done).count(), 2);
 }

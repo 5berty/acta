@@ -158,7 +158,7 @@ async fn remove_and_delete_clean_up_vectors_and_fts() {
     s.index_meeting(mid(1)).await.unwrap();
     s.index_meeting(mid(2)).await.unwrap();
 
-    SearchIndex::remove_meeting(&s, mid(1)).await.unwrap();
+    SearchIndex::unindex_meeting(&s, mid(1)).await.unwrap();
     assert_eq!((count(&s, "chunks").await, count(&s, "vec_chunks").await, count(&s, "vec_meetings").await), (1, 1, 1));
     // La reunión sigue existiendo, solo se quitó del índice.
     assert!(s.get_meeting(mid(1)).await.unwrap().is_some());
@@ -232,4 +232,37 @@ async fn suggest_groups_needs_embeddings_and_enough_meetings() {
         s.index_meeting(mid(n)).await.unwrap();
     }
     assert!(s.suggest_groups().await.unwrap().is_empty()); // mínimo 3
+}
+
+#[tokio::test]
+async fn stale_meetings_tracks_embedding_failures() {
+    // Embedder configurado pero roto: queda marcada.
+    let (s, _d, _c) = store_with_embedder(TopicEmbedder::failing());
+    seed_meeting(&s, 2, "B", T0 + 2, &["presupuesto"]).await;
+    seed_meeting(&s, 1, "A", T0 + 1, &["presupuesto"]).await;
+    s.index_meeting(mid(2)).await.unwrap();
+    s.index_meeting(mid(1)).await.unwrap();
+    assert_eq!(s.stale_meetings().await.unwrap(), vec![mid(1), mid(2)]);
+
+    // Sin embedder: FTS-only es el estado esperado, no es stale.
+    let (s, _d, _c) = store();
+    seed_meeting(&s, 1, "A", T0, &["presupuesto"]).await;
+    s.index_meeting(mid(1)).await.unwrap();
+    assert!(s.stale_meetings().await.unwrap().is_empty());
+
+    // Embedder sano: no stale.
+    let (s, _d, _c) = store_with_embedder(TopicEmbedder::new(topics()));
+    seed_meeting(&s, 1, "A", T0, &["presupuesto"]).await;
+    s.index_meeting(mid(1)).await.unwrap();
+    assert!(s.stale_meetings().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn reindex_success_clears_stale_flag() {
+    let (s, _d, _c) = store_with_embedder(TopicEmbedder::new(topics()));
+    seed_meeting(&s, 1, "A", T0, &["presupuesto"]).await;
+    s.with_conn(|c| Ok(c.execute("UPDATE meetings SET index_stale = 1", []).unwrap())).await.unwrap();
+    assert_eq!(s.stale_meetings().await.unwrap(), vec![mid(1)]);
+    s.index_meeting(mid(1)).await.unwrap();
+    assert!(s.stale_meetings().await.unwrap().is_empty());
 }

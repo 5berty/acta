@@ -195,6 +195,7 @@ impl SearchIndex for SqliteStore {
             .await?;
 
         // 2) embeddings (si hay modelo); si falla, quedan chunks + FTS y sin vectores
+        let embedder_configured = self.embedder.is_some();
         let vectors: Option<Vec<Vec<f32>>> = match (&self.embedder, drafts.is_empty()) {
             (Some(e), false) => match e.embed(drafts.iter().map(|d| d.text.clone()).collect(), EmbedKind::Passage).await {
                 Ok(v) => {
@@ -240,12 +241,24 @@ impl SearchIndex for SqliteStore {
                     tx.execute("INSERT INTO embedding_meta(key,value) VALUES (?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value", params![k, v]).map_err(sql_err)?;
                 }
             }
+            // Stale = hay embedder configurado pero esta vez no hubo vectores.
+            let stale = embedder_configured && !drafts.is_empty() && vectors.is_none();
+            tx.execute("UPDATE meetings SET index_stale = ?2 WHERE id = ?1", params![mid, i64::from(stale)]).map_err(sql_err)?;
             tx.commit().map_err(sql_err)
         })
         .await
     }
 
-    async fn remove_meeting(&self, meeting_id: MeetingId) -> PortResult<()> {
+    async fn stale_meetings(&self) -> PortResult<Vec<MeetingId>> {
+        self.with_conn(|conn| {
+            conn.prepare("SELECT id FROM meetings WHERE index_stale = 1 ORDER BY started_at, rowid_alias")
+                .and_then(|mut st| st.query_map([], |r| col_id::<MeetingId>(r, 0))?.collect::<Result<Vec<_>, _>>())
+                .map_err(sql_err)
+        })
+        .await
+    }
+
+    async fn unindex_meeting(&self, meeting_id: MeetingId) -> PortResult<()> {
         self.with_conn(move |conn| {
             let tx = conn.transaction().map_err(sql_err)?;
             purge_index(&tx, meeting_id)?;

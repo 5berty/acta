@@ -3,7 +3,7 @@
 
 use acta_core::ids::{ActionItemId, CaptureId, DecisionId, MeetingId};
 use acta_core::minutes::{ActionItem, Decision, Escaleta, Tema, TimelineKind};
-use acta_core::screen::{Capture, CaptureReason};
+use acta_core::screen::{Capture, CaptureReason, ScreenShare};
 use acta_core::time::{MediaMs, UnixMs};
 use acta_store::clustering::agglomerative;
 use acta_store::meetings::timeline::derive_timeline;
@@ -201,7 +201,7 @@ fn timeline_merges_topics_decisions_tasks_and_captures_in_media_order() {
         topic_path: None,
         action_item_ids: vec![],
     }];
-    let tl = derive_timeline(&esc, &decisions, &items, &captures);
+    let tl = derive_timeline(&esc, &decisions, &items, &captures, &[]);
     let kinds: Vec<_> = tl.iter().map(|e| (e.at.0, e.kind)).collect();
     assert_eq!(
         kinds,
@@ -219,4 +219,19 @@ fn timeline_merges_topics_decisions_tasks_and_captures_in_media_order() {
     assert_eq!(tl[1].ref_id.as_deref(), Some("1.1"));
     assert_eq!(tl[2].ref_id.as_deref(), Some(CaptureId::from_u128(5).to_string().as_str()));
     assert!(tl[2].label.contains("deadline"));
+}
+
+#[test]
+fn timeline_includes_screen_shares_with_presenter_labels() {
+    let shares = vec![
+        ScreenShare { start: MediaMs(5_000), end: Some(MediaMs(9_000)), presenter: None },
+        ScreenShare { start: MediaMs(1_000), end: None, presenter: Some("Ana".into()) },
+    ];
+    let tl = derive_timeline(&Escaleta::default(), &[], &[], &[], &shares);
+    assert_eq!(tl.len(), 2);
+    assert_eq!((tl[0].at, tl[0].end, tl[0].kind), (MediaMs(1_000), None, TimelineKind::ScreenShare));
+    assert_eq!(tl[0].label, "Comparte: Ana");
+    assert_eq!(tl[0].ref_id, None);
+    assert_eq!((tl[1].at, tl[1].end), (MediaMs(5_000), Some(MediaMs(9_000))));
+    assert_eq!(tl[1].label, "Pantalla compartida");
 }

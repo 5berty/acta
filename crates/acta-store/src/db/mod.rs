@@ -11,7 +11,10 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, Once};
 
 /// Migraciones en orden. La posición + 1 es el `user_version` resultante.
-pub const MIGRATIONS: &[&str] = &[include_str!("../../migrations/0001_init.sql")];
+pub const MIGRATIONS: &[&str] = &[
+    include_str!("../../migrations/0001_init.sql"),
+    include_str!("../../migrations/0002_screen_shares_titles_stale.sql"),
+];
 
 /// Dimensión de los vectores en el esquema actual (multilingual-e5-small).
 pub const EMBEDDING_DIMS: usize = 384;

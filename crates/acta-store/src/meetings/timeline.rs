@@ -1,7 +1,7 @@
-//! Timeline derivado (no lo genera el LLM): escaleta + decisiones + tareas + capturas.
+//! Timeline derivado (no lo genera el LLM): escaleta + decisiones + tareas + capturas + pantalla compartida.
 
 use acta_core::minutes::{ActionItem, Decision, Escaleta, Tema, TimelineEvent, TimelineKind};
-use acta_core::screen::{Capture, CaptureReason};
+use acta_core::screen::{Capture, CaptureReason, ScreenShare};
 use acta_core::time::MediaMs;
 
 fn rank(k: TimelineKind) -> u8 {
@@ -45,6 +45,7 @@ pub fn derive_timeline(
     decisions: &[Decision],
     items: &[ActionItem],
     captures: &[Capture],
+    shares: &[ScreenShare],
 ) -> Vec<TimelineEvent> {
     let mut out = Vec::new();
     push_topics(&escaleta.temas, "", &mut out);
@@ -82,6 +83,13 @@ pub fn derive_timeline(
             label,
             ref_id: Some(c.id.to_string()),
         });
+    }
+    for sh in shares {
+        let label = match &sh.presenter {
+            Some(p) => format!("Comparte: {p}"),
+            None => "Pantalla compartida".to_owned(),
+        };
+        out.push(TimelineEvent { at: sh.start, end: sh.end, kind: TimelineKind::ScreenShare, label, ref_id: None });
     }
     out.sort_by_key(|e| (e.at, rank(e.kind)));
     out

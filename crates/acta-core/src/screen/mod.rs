@@ -45,6 +45,16 @@ pub struct Capture {
     pub action_item_ids: Vec<ActionItemId>,
 }
 
+/// Tramo en el que alguien compartió pantalla (se guarda para el timeline).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenShare {
+    pub start: MediaMs,
+    /// `None` = seguía compartiendo al parar.
+    pub end: Option<MediaMs>,
+    pub presenter: Option<String>,
+}
+
 /// Fichero que reporta el capturador (antes de vincularse a la reunión).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

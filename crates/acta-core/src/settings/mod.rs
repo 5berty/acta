@@ -46,6 +46,9 @@ pub struct DetectionSettings {
     pub start_prompt_timeout_s: u32,
     pub poll_ms: u32,
     pub debounce_ms: u32,
+    /// Bundle ids que NUNCA disparan la detección aunque usen el micro
+    /// (apps de dictado como Typeless u Orca). Se aplica antes que `rules`.
+    pub denylist: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -146,6 +149,7 @@ impl Default for DetectionSettings {
             start_prompt_timeout_s: 90,
             poll_ms: 1_000,
             debounce_ms: 3_000,
+            denylist: Vec::new(),
         }
     }
 }
@@ -202,6 +206,7 @@ impl Default for LlmSettings {
             kind: ProviderKind::ClaudeCli {
                 binary_path: PathBuf::from("/opt/homebrew/bin/claude"),
                 model: None,
+                effort: None,
                 extra_env: BTreeMap::new(),
             },
             timeout_s: 600,

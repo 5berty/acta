@@ -36,6 +36,10 @@
 //! | `settings_update` | `{ settings }` | `Settings` |
 //! | `llm_provider_test` | `{ providerId }` | `ProviderTestResult` |
 //! | `llm_cli_detect` | — | `CliDetection` |
+//! | `secret_set` | `{ providerId, value }` | `SecretRef` (Llavero; nunca se guarda en SQLite) |
+//! | `secret_delete` | `{ providerId }` | `null` |
+//! | `models_status` | — | `ModelStatus[]` |
+//! | `models_download` | `{ name }` (`asr` \| `diarizer` \| `vad`) | `null` (+ eventos `model:download`) |
 //! | `permissions_status` | — | `PermissionState[]` |
 //! | `permissions_request` | `{ kind }` | `PermissionStatus` |
 //! | `open_system_settings` | `{ kind }` | `null` |
@@ -49,6 +53,7 @@ use crate::ids::ChatMessageId;
 use crate::recording::{HealthWarning, SessionState};
 use crate::time::UnixMs;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// Nombres de comando (para no teclear strings sueltos en Rust).
 pub mod command_names {
@@ -90,6 +95,10 @@ pub mod command_names {
     pub const SETTINGS_UPDATE: &str = "settings_update";
     pub const LLM_PROVIDER_TEST: &str = "llm_provider_test";
     pub const LLM_CLI_DETECT: &str = "llm_cli_detect";
+    pub const SECRET_SET: &str = "secret_set";
+    pub const SECRET_DELETE: &str = "secret_delete";
+    pub const MODELS_STATUS: &str = "models_status";
+    pub const MODELS_DOWNLOAD: &str = "models_download";
     pub const PERMISSIONS_STATUS: &str = "permissions_status";
     pub const PERMISSIONS_REQUEST: &str = "permissions_request";
     pub const OPEN_SYSTEM_SETTINGS: &str = "open_system_settings";
@@ -130,6 +139,21 @@ pub struct CliDetection {
     /// Ruta absoluta de `claude` si se encontró (login shell `zsh -lc 'command -v claude'`).
     pub claude: Option<String>,
     pub codex: Option<String>,
+    /// Variables que fija el alias de `claude` (p. ej. `CLAUDE_CONFIG_DIR`),
+    /// con `$HOME` ya expandido. Van a `ProviderKind::ClaudeCli.extra_env`.
+    #[serde(default)]
+    pub claude_env: BTreeMap<String, String>,
+    #[serde(default)]
+    pub codex_env: BTreeMap<String, String>,
+}
+
+/// Estado de un modelo local (FluidAudio: `asr`, `diarizer`, `vad`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelStatus {
+    pub name: String,
+    pub downloaded: bool,
+    pub bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

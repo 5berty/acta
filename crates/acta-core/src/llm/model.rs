@@ -23,6 +23,9 @@ pub enum ProviderKind {
         /// Ruta absoluta (las apps GUI no heredan el PATH del shell).
         binary_path: PathBuf,
         model: Option<String>,
+        /// `--effort <low|medium|high|xhigh|max>`. `None` = el del CLI.
+        #[serde(default)]
+        effort: Option<String>,
         /// Variables extra (p. ej. `CLAUDE_CONFIG_DIR`).
         extra_env: BTreeMap<String, String>,
     },

@@ -5,7 +5,7 @@
 use super::model::*;
 use crate::ids::{ActionItemId, CaptureId, GroupId, MeetingId, SpeakerId, VoiceprintId};
 use crate::minutes::{Minutes, MinutesOutput};
-use crate::screen::Capture;
+use crate::screen::{Capture, ScreenShare};
 use crate::settings::Settings;
 use crate::transcription::{Transcript, Voiceprint, VoiceprintSummary};
 use crate::PortResult;
@@ -46,6 +46,10 @@ pub trait MeetingStore: Send + Sync {
     async fn update_capture(&self, capture: Capture) -> PortResult<()>;
     async fn list_captures(&self, meeting_id: MeetingId) -> PortResult<Vec<Capture>>;
     async fn delete_capture(&self, id: CaptureId) -> PortResult<()>;
+
+    /// Reemplaza los tramos de pantalla compartida (aparecen en el timeline
+    /// como `screenShare`).
+    async fn save_screen_shares(&self, meeting_id: MeetingId, shares: Vec<ScreenShare>) -> PortResult<()>;
 }
 
 #[async_trait]
@@ -88,8 +92,14 @@ pub trait VoiceprintStore: Send + Sync {
 #[async_trait]
 pub trait SearchIndex: Send + Sync {
     /// (Re)construye chunks, FTS y vectores de la reunión y su embedding medio.
+    /// Si hay embedder y falla, se indexa solo FTS y la reunión queda marcada
+    /// para reindexar (ver `stale_meetings`).
     async fn index_meeting(&self, meeting_id: MeetingId) -> PortResult<()>;
-    async fn remove_meeting(&self, meeting_id: MeetingId) -> PortResult<()>;
+    /// Quita la reunión del índice (chunks, FTS, vectores). Se llama
+    /// `unindex_*` para no chocar con `GroupStore::remove_meeting`.
+    async fn unindex_meeting(&self, meeting_id: MeetingId) -> PortResult<()>;
+    /// Reuniones cuyo último indexado no pudo calcular embeddings.
+    async fn stale_meetings(&self) -> PortResult<Vec<MeetingId>>;
     async fn search(&self, query: SearchQuery) -> PortResult<Vec<SearchHit>>;
 }
 

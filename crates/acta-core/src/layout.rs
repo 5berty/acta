@@ -15,6 +15,9 @@
 //!     audio/mix.wav                           <- mezcla mono para reproducir
 //!     transcript/asr-mic.json  asr-system.json  diarization.json
 //!     live/speakers.jsonl                     <- roster / hablante activo en vivo
+//!     live/screen.jsonl                       <- inicio/fin de pantalla compartida
+//!     transcript/segments-<track>.json        <- caché del pipeline (Vec<AsrSegment>)
+//!     transcript/diarization-result.json      <- caché del pipeline (DiarizationResult)
 //!     captures/<media_ms>-<reason>.jpg        <- capturas conservadas
 //!     captures/candidates/<unix_ms>.jpg       <- candidatas (se podan al procesar)
 //!     llm/minutes.json  llm/raw-<kind>-<n>.txt
@@ -104,6 +107,28 @@ impl DataLayout {
     pub fn llm_dir(&self, id: MeetingId) -> PathBuf {
         self.meeting_dir(id).join("llm")
     }
+    /// `ScreenEvent` (inicio/fin de compartición) en vivo, JSON por líneas.
+    pub fn live_screen_path(&self, id: MeetingId) -> PathBuf {
+        self.meeting_dir(id).join("live").join("screen.jsonl")
+    }
+    /// Caché del pipeline: segmentos ASR de una pista (`Vec<AsrSegment>`).
+    pub fn asr_cache_json(&self, id: MeetingId, track: Track) -> PathBuf {
+        self.transcript_dir(id)
+            .join(format!("segments-{}.json", track.as_str()))
+    }
+    /// Caché del pipeline: `DiarizationResult` de la pista system.
+    pub fn diarization_cache_json(&self, id: MeetingId) -> PathBuf {
+        self.transcript_dir(id).join("diarization-result.json")
+    }
+    /// Salida completa del LLM (`MinutesOutput`), para podar capturas y reprocesar.
+    pub fn minutes_json(&self, id: MeetingId) -> PathBuf {
+        self.llm_dir(id).join("minutes.json")
+    }
+    /// Ruta relativa (a la carpeta de la reunión) de una captura conservada:
+    /// `captures/<media_ms 9 dígitos>-<reason>.jpg`.
+    pub fn capture_rel_path(media_ms: u64, reason_wire: &str) -> String {
+        format!("captures/{media_ms:09}-{reason_wire}.jpg")
+    }
 }
 
 #[cfg(test)]
@@ -118,5 +143,10 @@ mod tests {
         assert!(p.ends_with("audio/mic/seg-000007.wav"));
         let t = l.segment_tmp_path(id, Track::System, 7);
         assert!(t.ends_with("audio/system/seg-000007.wav.tmp"));
+    }
+
+    #[test]
+    fn capture_rel_path_is_media_ms_zero_padded() {
+        assert_eq!(DataLayout::capture_rel_path(123_456, "slide_change"), "captures/000123456-slide_change.jpg");
     }
 }

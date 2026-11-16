@@ -70,7 +70,7 @@ impl LlmProvider for CodexCliProvider {
         let schema_file = match &request.json_schema {
             Some(schema) => {
                 let p = dir.path().join("schema.json");
-                tokio::fs::write(&p, schema.to_string()).await?;
+                tokio::fs::write(&p, wire_schema(schema).to_string()).await?;
                 Some(p)
             }
             None => None,
@@ -174,6 +174,31 @@ echo "ruido de progreso en stdout"
         let stdin = std::fs::read_to_string(out.join("stdin.txt")).expect("stdin");
         assert!(stdin.starts_with("SISTEMA") && stdin.ends_with("pregunta"));
         assert!(std::fs::read_to_string(out.join("schema-copy.json")).expect("schema").contains("integer"));
+    }
+
+    #[tokio::test]
+    async fn output_schema_file_never_carries_meta_schema() {
+        let dir = tempfile::tempdir().expect("dir");
+        let bin = fake_script(
+            dir.path(),
+            "codex",
+            r#"
+while [ $# -gt 0 ]; do
+  if [ "$1" = "-o" ]; then OUTFILE="$2"; fi
+  if [ "$1" = "--output-schema" ]; then cp "$2" "$OUT/schema-copy.json"; fi
+  shift
+done
+cat > /dev/null
+printf '{"a": 1}' > "$OUTFILE"
+"#,
+        );
+        let out = dir.path().join("out");
+        std::fs::create_dir(&out).expect("mkdir");
+        let mut r = req();
+        r.json_schema = Some(serde_json::json!({"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"a":{"type":"integer"}}}));
+        provider(bin, None, &[("OUT", out.to_str().expect("utf8"))]).complete(r).await.expect("complete");
+        let copy = std::fs::read_to_string(out.join("schema-copy.json")).expect("schema");
+        assert!(!copy.contains("$schema"), "{copy}");
     }
 
     #[tokio::test]

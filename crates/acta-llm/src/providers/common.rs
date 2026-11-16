@@ -25,11 +25,38 @@ pub fn flatten_messages(messages: &[LlmMessage]) -> String {
         .join("\n\n")
 }
 
+/// Esquema tal como se envía a un proveedor: sin `$schema`.
+///
+/// `claude --json-schema` valida con ajv en modo draft-07 y rechaza el
+/// meta-esquema 2020-12 ("no schema with key or ref …"); los modos estrictos de
+/// OpenAI/Codex y el `input_schema` de Anthropic tampoco lo necesitan. `$defs`
+/// y `$ref` locales (recursivos) sí funcionan en los cuatro, así que se dejan.
+pub fn wire_schema(schema: &serde_json::Value) -> serde_json::Value {
+    use serde_json::Value;
+    match schema {
+        Value::Object(map) => Value::Object(
+            map.iter().filter(|(k, _)| k.as_str() != "$schema").map(|(k, v)| (k.clone(), wire_schema(v))).collect(),
+        ),
+        Value::Array(items) => Value::Array(items.iter().map(wire_schema).collect()),
+        other => other.clone(),
+    }
+}
+
+/// ¿Aparece la clave `key` en algún objeto del valor?
+pub fn contains_key(value: &serde_json::Value, key: &str) -> bool {
+    use serde_json::Value;
+    match value {
+        Value::Object(map) => map.contains_key(key) || map.values().any(|v| contains_key(v, key)),
+        Value::Array(items) => items.iter().any(|v| contains_key(v, key)),
+        _ => false,
+    }
+}
+
 /// Texto que describe el esquema para proveedores sin salida estructurada nativa.
 pub fn schema_instruction(schema: &serde_json::Value) -> String {
     format!(
         "Responde SOLO con un objeto JSON que cumpla este JSON Schema, sin texto adicional ni bloques de código:\n{}",
-        serde_json::to_string_pretty(schema).unwrap_or_default()
+        serde_json::to_string_pretty(&wire_schema(schema)).unwrap_or_default()
     )
 }
 
@@ -94,6 +121,21 @@ mod tests {
     fn multi_turn_is_labelled() {
         let s = flatten_messages(&[m(Role::User, "a"), m(Role::Assistant, "b"), m(Role::User, "c")]);
         assert_eq!(s, "[Usuario]\na\n\n[Asistente]\nb\n\n[Usuario]\nc");
+    }
+
+    #[test]
+    fn wire_schema_strips_meta_schema_everywhere_and_keeps_defs() {
+        let raw = serde_json::json!({
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {"t": {"$ref": "#/$defs/t"}, "x": {"$schema": "x", "type": "string"}},
+            "$defs": {"t": {"type": "object", "properties": {"sub": {"type": "array", "items": {"$ref": "#/$defs/t"}}}}}
+        });
+        let w = wire_schema(&raw);
+        assert!(!contains_key(&w, "$schema"));
+        assert_eq!(w["$defs"]["t"]["type"], "object");
+        assert_eq!(w["properties"]["t"]["$ref"], "#/$defs/t");
+        assert_eq!(w["properties"]["x"]["type"], "string");
     }
 
     #[tokio::test]

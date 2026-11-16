@@ -54,7 +54,7 @@ impl OpenAiCompatibleProvider {
         if native_schema && let Some(schema) = &request.json_schema {
             body["response_format"] = json!({
                 "type": "json_schema",
-                "json_schema": {"name": "acta_output", "strict": true, "schema": schema}
+                "json_schema": {"name": "acta_output", "strict": true, "schema": wire_schema(schema)}
             });
         }
         body
@@ -164,6 +164,17 @@ mod tests {
 
     fn ok_body(content: &str) -> Value {
         json!({"model":"llama3","choices":[{"message":{"role":"assistant","content":content}}],"usage":{"prompt_tokens":7,"completion_tokens":3}})
+    }
+
+    #[test]
+    fn schema_never_carries_meta_schema_native_or_in_prompt() {
+        let mut r = req(false);
+        r.json_schema = Some(serde_json::json!({"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"a":{"type":"integer"}}}));
+        let p = provider("http://127.0.0.1:9", None);
+        for native in [true, false] {
+            let b = p.build_body(&r, false, native);
+            assert!(!b.to_string().contains("$schema"), "{b}");
+        }
     }
 
     #[tokio::test]

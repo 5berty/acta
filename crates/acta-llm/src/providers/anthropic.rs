@@ -1,6 +1,7 @@
 //! Anthropic Messages API. Salida estructurada vía herramienta forzada.
 //! La clave se resuelve del Llavero fuera de este crate (`SecretResolver`).
 
+use super::common::wire_schema;
 use super::http::{map_reqwest, map_status};
 use super::sse::text_stream;
 use acta_core::ids::ProviderId;
@@ -68,7 +69,7 @@ impl AnthropicProvider {
             body["tools"] = json!([{
                 "name": TOOL_NAME,
                 "description": "Devuelve la respuesta estructurada.",
-                "input_schema": schema,
+                "input_schema": wire_schema(schema),
             }]);
             body["tool_choice"] = json!({"type": "tool", "name": TOOL_NAME});
         }
@@ -198,6 +199,15 @@ mod tests {
         assert_eq!(b["tools"][0]["input_schema"]["type"], "object");
         assert_eq!(b["system"], "sys");
         assert_eq!(b["max_tokens"], 8192);
+    }
+
+    #[test]
+    fn tool_input_schema_never_carries_meta_schema() {
+        let mut r = req(false);
+        r.json_schema = Some(serde_json::json!({"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"a":{"type":"integer"}}}));
+        let b = provider("http://127.0.0.1:9").build_body(&r, false);
+        assert!(!b.to_string().contains("$schema"), "{b}");
+        assert_eq!(b["tools"][0]["input_schema"]["type"], "object");
     }
 
     #[tokio::test]

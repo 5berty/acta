@@ -35,3 +35,16 @@ pub mod prompts {
     pub const CHAT_SYSTEM: &str = include_str!("../prompts/chat.system.md");
     pub const GROUP_NAME_SYSTEM: &str = include_str!("../prompts/group_name.system.md");
 }
+
+#[cfg(test)]
+mod tests {
+    /// `claude --json-schema` (ajv) rechaza el meta-esquema draft 2020-12:
+    /// los esquemas embebidos NO llevan `$schema` (bug real del 16-nov-2026).
+    #[test]
+    fn shipped_schemas_have_no_meta_schema_keyword() {
+        for raw in [super::schemas::MINUTES_V1, super::schemas::GROUP_NAME_V1] {
+            let v: serde_json::Value = serde_json::from_str(raw).expect("json");
+            assert!(!crate::providers::common::contains_key(&v, "$schema"), "{raw}");
+        }
+    }
+}

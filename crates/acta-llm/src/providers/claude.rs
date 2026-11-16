@@ -48,7 +48,7 @@ impl ClaudeCliProvider {
             .collect();
         if let Some(schema) = &request.json_schema {
             args.push("--json-schema".into());
-            args.push(schema.to_string());
+            args.push(wire_schema(schema).to_string());
         }
         if let Some(sys) = &request.system {
             args.push("--system-prompt".into());
@@ -161,6 +161,17 @@ mod tests {
         assert!(!args.iter().any(|a| a == "--bare"));
         let no_schema = p.build_args(&req(false));
         assert!(!no_schema.iter().any(|a| a == "--json-schema"));
+    }
+
+    #[test]
+    fn json_schema_arg_never_carries_meta_schema() {
+        let p = provider("/x/claude".into(), None, &[]);
+        let mut r = req(false);
+        r.json_schema = Some(serde_json::json!({"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"a":{"type":"integer"}}}));
+        let args = p.build_args(&r);
+        let i = args.iter().position(|a| a == "--json-schema").expect("flag");
+        assert!(!args[i + 1].contains("$schema"), "{}", args[i + 1]);
+        assert!(args[i + 1].contains("integer"));
     }
 
     #[test]

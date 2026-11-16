@@ -1,0 +1,25 @@
+/* Logotipos: mosaico con el símbolo de una app o un proveedor (ventana principal y pastilla). */
+.brand-tile {
+  --c: #8e8e93; --ink: #fff; --logo-scale: 0.6; --s: 40px;
+  width: var(--s); height: var(--s); border-radius: calc(var(--s) * 0.26); flex: none;
+  display: grid; place-items: center; overflow: hidden; color: var(--ink);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--c) 86%, #fff), var(--c));
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.45), 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.14);
+}
+.brand-glyph {
+  width: calc(var(--s) * var(--logo-scale)); height: calc(var(--s) * var(--logo-scale));
+  background: var(--ink);
+  -webkit-mask: var(--logo) center / contain no-repeat; mask: var(--logo) center / contain no-repeat;
+}
+.brand-image { width: calc(var(--s) * var(--logo-scale)); height: calc(var(--s) * var(--logo-scale)); object-fit: contain; }
+.brand-generic svg { width: 52%; height: 52%; }
+.brand-xs { --s: 20px; }
+.brand-sm { --s: 28px; }
+.brand-md { --s: 40px; }
+.brand-lg { --s: 48px; }
+.brand-xl { --s: 64px; }
+.acta-mark { flex: none; display: block; filter: drop-shadow(0 4px 10px color-mix(in srgb, var(--accent) 38%, transparent)); }
+@media (prefers-color-scheme: dark) {
+  /* Los mosaicos negros (OpenAI, Anthropic, NaN) necesitan un borde para no fundirse con el fondo. */
+  .brand-tile { box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.3), 0 0 0 0.5px rgba(255, 255, 255, 0.2); }
+}

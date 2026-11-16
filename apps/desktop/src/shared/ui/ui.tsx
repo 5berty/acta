@@ -1,6 +1,8 @@
-import { ChevronDown, ChevronRight, Minus, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, Mic, Minus, Plus } from "lucide-react";
 import { useEffect, useId, useState, type ButtonHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
 import type { Platform } from "../../api";
+import { BrandLogo } from "../brand/BrandLogo";
+import { platformBrand } from "../brand/brands";
 import { colorForName, initials } from "../format";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger" | "glass";
@@ -228,39 +230,13 @@ export function AvatarStack({ names, max = 4 }: { names: string[]; max?: number 
   );
 }
 
-const PLATFORM_COLOR: Record<Platform, string> = {
-  teams: "#5059c9",
-  meet: "#0f9d58",
-  zoom: "#2d8cff",
-  slack: "#611f69",
-  other: "#8e8e93",
-};
-
-/** Mosaico con el símbolo de la app de la reunión. */
+/** Mosaico de la app de la reunión: su logotipo, o un micro si no se conoce. */
 export function PlatformIcon({ platform, size }: { platform: Platform; size?: "sm" | "lg" }) {
+  const brand = platformBrand(platform);
+  if (brand) return <BrandLogo brand={brand} size={size ?? "md"} />;
   return (
-    <span className={`app-tile${size ? ` app-tile-${size}` : ""}`} style={{ ["--c" as string]: PLATFORM_COLOR[platform] }} aria-hidden>
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        {platform === "teams" ? (
-          <>
-            <path d="M4.5 6h8M8.5 6v9" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-            <circle cx="15" cy="6.2" r="1.7" fill="currentColor" opacity="0.85" />
-            <path d="M12.8 9.4h4.4v3.4a2.2 2.2 0 0 1-4.4 0z" fill="currentColor" opacity="0.6" />
-          </>
-        ) : platform === "meet" || platform === "zoom" ? (
-          <>
-            <rect x="3" y="6" width="9.5" height="8" rx="2.2" fill="currentColor" />
-            <path d="M13.6 9.2 17 7v6l-3.4-2.2z" fill="currentColor" opacity="0.75" />
-          </>
-        ) : platform === "slack" ? (
-          <path d="M8 3.5v13M12 3.5v13M3.5 8h13M3.5 12h13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-        ) : (
-          <>
-            <rect x="8" y="3" width="4" height="8.5" rx="2" fill="currentColor" />
-            <path d="M5.5 9.5a4.5 4.5 0 0 0 9 0M10 14v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          </>
-        )}
-      </svg>
+    <span className={`brand-tile brand-${size ?? "md"} brand-generic`} aria-hidden>
+      <Mic strokeWidth={2} />
     </span>
   );
 }

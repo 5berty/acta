@@ -2,6 +2,7 @@
    En Tauri el material es nativo (NSGlassEffectView detrás del webview) y la cápsula
    ocupa toda la ventana; en el navegador se imita con el cristal CSS. */
 @import "../../styles/tokens.css";
+@import "../../styles/brand.css";
 
 /* La pastilla es siempre cristal ahumado oscuro, como la Dynamic Island: flota sobre
    cualquier app y así el texto se lee igual sobre fondos claros u oscuros. */
@@ -100,7 +101,6 @@ html[data-native] .pill { background: rgba(16, 16, 20, 0.66); }
 .done-mark-warn { background: var(--warn); }
 
 /* Mosaico de la app detectada (misma pieza que en la ventana principal). */
-.app-tile { --c: #8e8e93; width: 36px; height: 36px; border-radius: 9px; flex: none; display: grid; place-items: center; color: #fff; background: linear-gradient(160deg, color-mix(in srgb, var(--c) 80%, #fff), var(--c)); box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.5), 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.14); }
 
 @media (prefers-reduced-motion: reduce) {
   .rec-dot { animation: none; }

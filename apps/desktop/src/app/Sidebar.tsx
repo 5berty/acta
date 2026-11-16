@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { Levels, SessionSnapshot } from "../api";
 import { STEP_LABEL } from "../features/meetings/ProcessingStatus";
 import { dbToLevel, formatClock, platformLabel } from "../shared/format";
+import { ActaMark } from "../shared/brand/ActaMark";
 import { IconButton, Spinner } from "../shared/ui/ui";
 import { useApi, useApiEvent } from "./ApiContext";
 
@@ -101,6 +102,10 @@ function RecordControl() {
 export function Sidebar({ view, onView, onSearch }: { view: View; onView(v: View): void; onSearch(): void }) {
   return (
     <aside className="sidebar">
+      <div className="side-brand" aria-hidden>
+        <ActaMark size={22} />
+        <span>acta</span>
+      </div>
       <button type="button" className="search-trigger" aria-label="Búsqueda rápida" onClick={onSearch}>
         <Search size={14} strokeWidth={2.1} aria-hidden />
         <span>Buscar</span>

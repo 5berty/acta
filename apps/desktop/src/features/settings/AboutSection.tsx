@@ -1,4 +1,5 @@
 import type { AppInfo } from "../../api";
+import { ActaMark } from "../../shared/brand/ActaMark";
 import { Disclosure } from "../../shared/ui/ui";
 import { Field, Group, Row, Section } from "./fields";
 
@@ -6,9 +7,7 @@ export function AboutSection({ info }: { info: AppInfo | null }) {
   return (
     <Section title="Acerca de">
       <div className="about-hero card">
-        <span className="about-mark" aria-hidden>
-          a
-        </span>
+        <ActaMark size={64} />
         <div>
           <p className="about-name">acta</p>
           <p className="muted">Tus reuniones, transcritas y resumidas en tu Mac.</p>

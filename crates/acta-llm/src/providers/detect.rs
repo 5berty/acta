@@ -27,6 +27,48 @@ pub async fn detect_cli(shell: &Path, name: &str) -> PortResult<Option<DetectedC
     Ok(parse_command_v(&String::from_utf8_lossy(&out.stdout)))
 }
 
+/// Como [`detect_cli`] pero, si un shell de login no lo encuentra, prueba un
+/// shell INTERACTIVO (`-ic`), que sí lee `~/.zshrc` y por tanto ve los alias
+/// (p. ej. `alias claude='CLAUDE_CONFIG_DIR="$HOME/.claude-personal" …'`).
+/// `$HOME`, `${HOME}` y `~` se expanden con `home`.
+pub async fn detect_cli_any(shell: &Path, name: &str, home: &Path) -> PortResult<Option<DetectedCli>> {
+    for flag in ["-lc", "-ic"] {
+        let mut cmd = Command::new(shell);
+        cmd.arg(flag).arg(format!("command -v {name}"));
+        let out = match run_supervised(cmd, None, Duration::from_secs(10)).await {
+            Ok(o) => o,
+            Err(e) => {
+                tracing::warn!("{shell:?} {flag}: {e}");
+                continue;
+            }
+        };
+        if !out.status.success() {
+            continue;
+        }
+        if let Some(d) = parse_command_v(&String::from_utf8_lossy(&out.stdout)) {
+            return Ok(Some(expand_home(d, home)));
+        }
+    }
+    Ok(None)
+}
+
+/// Expande `$HOME`, `${HOME}` y un `~` inicial en la ruta y en las variables.
+pub fn expand_home(d: DetectedCli, home: &Path) -> DetectedCli {
+    let h = home.to_string_lossy();
+    let exp = |s: &str| -> String {
+        let s = s.replace("${HOME}", &h).replace("$HOME", &h);
+        match s.strip_prefix("~/") {
+            Some(rest) => format!("{h}/{rest}"),
+            None if s == "~" => h.to_string(),
+            None => s,
+        }
+    };
+    DetectedCli {
+        path: PathBuf::from(exp(&d.path.to_string_lossy())),
+        env: d.env.into_iter().map(|(k, v)| (k, exp(&v))).collect(),
+    }
+}
+
 /// Interpreta la salida de `command -v`: ruta absoluta o definición de alias.
 pub fn parse_command_v(output: &str) -> Option<DetectedCli> {
     for line in output.lines().rev() {
@@ -34,7 +76,7 @@ pub fn parse_command_v(output: &str) -> Option<DetectedCli> {
         if line.is_empty() {
             continue;
         }
-        if line.starts_with('/') && !line.contains(' ') {
+        if (line.starts_with('/') || line.starts_with("~/")) && !line.contains(' ') {
             return Some(DetectedCli { path: line.into(), env: BTreeMap::new() });
         }
         // `alias claude='CLAUDE_CONFIG_DIR=/x /abs/claude'` (zsh) o `claude=...` (bash `alias`).
@@ -54,7 +96,7 @@ pub fn parse_command_v(output: &str) -> Option<DetectedCli> {
                     && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
                 {
                     env.insert(k.to_owned(), v.to_owned());
-                } else if path.is_none() && w.starts_with('/') {
+                } else if path.is_none() && (w.starts_with('/') || w.starts_with("~/")) {
                     path = Some(PathBuf::from(w));
                 }
             }
@@ -134,6 +176,34 @@ mod tests {
         assert_eq!(parse_command_v("Welcome!\n/usr/local/bin/codex\n").expect("d").path, PathBuf::from("/usr/local/bin/codex"));
         assert!(parse_command_v("").is_none());
         assert!(parse_command_v("claude: not found").is_none());
+    }
+
+    #[test]
+    fn home_is_expanded_in_alias_env() {
+        let d = parse_command_v("alias claude='CLAUDE_CONFIG_DIR=\"$HOME/.claude-personal\" /opt/homebrew/bin/claude'").expect("d");
+        let d = expand_home(d, Path::new("/Users/edu"));
+        assert_eq!(d.env.get("CLAUDE_CONFIG_DIR").map(String::as_str), Some("/Users/edu/.claude-personal"));
+        let d = expand_home(
+            DetectedCli { path: "~/bin/x".into(), env: [("A".to_string(), "${HOME}/a".to_string()), ("B".to_string(), "~/b".to_string())].into() },
+            Path::new("/h"),
+        );
+        assert_eq!(d.path, PathBuf::from("/h/bin/x"));
+        assert_eq!(d.env["A"], "/h/a");
+        assert_eq!(d.env["B"], "/h/b");
+    }
+
+    #[tokio::test]
+    async fn falls_back_to_interactive_shell_for_aliases() {
+        let dir = tempfile::tempdir().expect("dir");
+        // -lc no ve el alias (sale 1); -ic sí (lo define ~/.zshrc).
+        let shell = fake_script(
+            dir.path(),
+            "zsh",
+            "if [ \"$1\" = \"-ic\" ]; then echo \"alias claude='CLAUDE_CONFIG_DIR=\\\"\\$HOME/.c\\\" /opt/x/claude'\"; else exit 1; fi\n",
+        );
+        let d = detect_cli_any(&shell, "claude", Path::new("/Users/e")).await.expect("ok").expect("found");
+        assert_eq!(d.path, PathBuf::from("/opt/x/claude"));
+        assert_eq!(d.env.get("CLAUDE_CONFIG_DIR").map(String::as_str), Some("/Users/e/.c"));
     }
 
     #[tokio::test]

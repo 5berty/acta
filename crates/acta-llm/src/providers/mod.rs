@@ -65,13 +65,10 @@ impl LlmProviderFactory for DefaultProviderFactory {
         let timeout = Duration::from_secs(u64::from(config.timeout_s.max(1)));
         let id = config.id.clone();
         Ok(match &config.kind {
-            ProviderKind::ClaudeCli { binary_path, model, extra_env } => Arc::new(ClaudeCliProvider::new(
-                id,
-                binary_path.clone(),
-                model.clone(),
-                extra_env.clone(),
-                timeout,
-            )),
+            ProviderKind::ClaudeCli { binary_path, model, effort, extra_env } => Arc::new(
+                ClaudeCliProvider::new(id, binary_path.clone(), model.clone(), extra_env.clone(), timeout)
+                    .with_effort(effort.clone()),
+            ),
             ProviderKind::CodexCli { binary_path, model, extra_env } => Arc::new(CodexCliProvider::new(
                 id,
                 binary_path.clone(),
@@ -147,7 +144,7 @@ mod tests {
         let f = factory(true);
         let bin = std::path::PathBuf::from("/bin/claude");
         let kinds = vec![
-            ProviderKind::ClaudeCli { binary_path: bin.clone(), model: None, extra_env: BTreeMap::new() },
+            ProviderKind::ClaudeCli { binary_path: bin.clone(), model: None, effort: Some("high".into()), extra_env: BTreeMap::new() },
             ProviderKind::CodexCli { binary_path: bin, model: None, extra_env: BTreeMap::new() },
             ProviderKind::OpenAiCompatible { base_url: "http://localhost:11434/v1".into(), model: "m".into(), api_key: None },
             ProviderKind::Anthropic { model: "m".into(), api_key: secret() },

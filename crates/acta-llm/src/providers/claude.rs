@@ -18,6 +18,7 @@ pub struct ClaudeCliProvider {
     id: ProviderId,
     binary: PathBuf,
     model: Option<String>,
+    effort: Option<String>,
     env: BTreeMap<String, String>,
     timeout: Duration,
 }
@@ -30,7 +31,13 @@ impl ClaudeCliProvider {
         env: BTreeMap<String, String>,
         timeout: Duration,
     ) -> Self {
-        Self { id, binary, model, env, timeout }
+        Self { id, binary, model, effort: None, env, timeout }
+    }
+
+    /// `--effort <nivel>` (low, medium, high, xhigh, max). Vacío = sin flag.
+    pub fn with_effort(mut self, effort: Option<String>) -> Self {
+        self.effort = effort.map(|e| e.trim().to_owned()).filter(|e| !e.is_empty());
+        self
     }
 
     /// Argumentos exactos (docs/01-arquitectura.md §7.2). El prompt va por stdin.
@@ -50,6 +57,10 @@ impl ClaudeCliProvider {
         if let Some(m) = &self.model {
             args.push("--model".into());
             args.push(m.clone());
+        }
+        if let Some(e) = &self.effort {
+            args.push("--effort".into());
+            args.push(e.clone());
         }
         args
     }
@@ -150,6 +161,16 @@ mod tests {
         assert!(!args.iter().any(|a| a == "--bare"));
         let no_schema = p.build_args(&req(false));
         assert!(!no_schema.iter().any(|a| a == "--json-schema"));
+    }
+
+    #[test]
+    fn effort_is_passed_only_when_configured() {
+        let p = provider("/x/claude".into(), None, &[]).with_effort(Some("high".into()));
+        assert!(p.build_args(&req(false)).windows(2).any(|w| w == ["--effort", "high"]));
+        let p = provider("/x/claude".into(), None, &[]).with_effort(Some("  ".into()));
+        assert!(!p.build_args(&req(false)).iter().any(|a| a == "--effort"));
+        let p = provider("/x/claude".into(), None, &[]);
+        assert!(!p.build_args(&req(false)).iter().any(|a| a == "--effort"));
     }
 
     #[test]

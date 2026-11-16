@@ -27,12 +27,13 @@ pub async fn detect_cli(shell: &Path, name: &str) -> PortResult<Option<DetectedC
     Ok(parse_command_v(&String::from_utf8_lossy(&out.stdout)))
 }
 
-/// Como [`detect_cli`] pero, si un shell de login no lo encuentra, prueba un
-/// shell INTERACTIVO (`-ic`), que sí lee `~/.zshrc` y por tanto ve los alias
-/// (p. ej. `alias claude='CLAUDE_CONFIG_DIR="$HOME/.claude-personal" …'`).
+/// Primero un shell INTERACTIVO (`-ic`), que lee `~/.zshrc` y ve los alias
+/// (p. ej. `alias claude='CLAUDE_CONFIG_DIR="$HOME/.claude-personal" …'`): es
+/// lo que ejecuta el usuario en su terminal, así que manda aunque el binario
+/// también esté en el PATH. Si falla, un shell de login (`-lc`).
 /// `$HOME`, `${HOME}` y `~` se expanden con `home`.
 pub async fn detect_cli_any(shell: &Path, name: &str, home: &Path) -> PortResult<Option<DetectedCli>> {
-    for flag in ["-lc", "-ic"] {
+    for flag in ["-ic", "-lc"] {
         let mut cmd = Command::new(shell);
         cmd.arg(flag).arg(format!("command -v {name}"));
         let out = match run_supervised(cmd, None, Duration::from_secs(10)).await {
@@ -204,6 +205,31 @@ mod tests {
         let d = detect_cli_any(&shell, "claude", Path::new("/Users/e")).await.expect("ok").expect("found");
         assert_eq!(d.path, PathBuf::from("/opt/x/claude"));
         assert_eq!(d.env.get("CLAUDE_CONFIG_DIR").map(String::as_str), Some("/Users/e/.c"));
+    }
+
+    /// Caso real de Edu (16-nov-2026): `/opt/homebrew/bin` está en el PATH del
+    /// shell de login, así que `-lc` encuentra el binario SIN el alias y se
+    /// perdía `CLAUDE_CONFIG_DIR`. En su terminal manda el alias: gana `-ic`.
+    #[tokio::test]
+    async fn interactive_alias_wins_over_login_path() {
+        let dir = tempfile::tempdir().expect("dir");
+        let shell = fake_script(
+            dir.path(),
+            "zsh",
+            "if [ \"$1\" = \"-ic\" ]; then echo \"alias claude='CLAUDE_CONFIG_DIR=\\\"\\$HOME/.c\\\" /opt/x/claude'\"; else echo /opt/x/claude; fi\n",
+        );
+        let d = detect_cli_any(&shell, "claude", Path::new("/Users/e")).await.expect("ok").expect("found");
+        assert_eq!(d.path, PathBuf::from("/opt/x/claude"));
+        assert_eq!(d.env.get("CLAUDE_CONFIG_DIR").map(String::as_str), Some("/Users/e/.c"));
+    }
+
+    #[tokio::test]
+    async fn login_path_is_used_when_interactive_shell_fails() {
+        let dir = tempfile::tempdir().expect("dir");
+        let shell = fake_script(dir.path(), "zsh", "if [ \"$1\" = \"-ic\" ]; then exit 1; else echo /opt/y/codex; fi\n");
+        let d = detect_cli_any(&shell, "codex", Path::new("/Users/e")).await.expect("ok").expect("found");
+        assert_eq!(d.path, PathBuf::from("/opt/y/codex"));
+        assert!(d.env.is_empty());
     }
 
     #[tokio::test]

@@ -15,13 +15,17 @@
 #![deny(clippy::zombie_processes)]
 
 pub mod chat;
+pub(crate) mod codec;
 pub mod clustering;
 pub mod db;
 pub mod embeddings;
 pub mod groups;
 pub mod meetings;
 pub mod search;
+pub mod secrets;
 pub mod settings;
+pub mod text;
+pub mod vectors;
 pub mod voiceprints;
 
 pub use db::SqliteStore;

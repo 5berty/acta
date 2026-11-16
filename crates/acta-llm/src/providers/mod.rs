@@ -12,7 +12,9 @@ pub mod codex;
 pub mod common;
 pub mod detect;
 mod http;
+pub mod models;
 pub mod openai;
+pub mod presets;
 pub mod sse;
 
 pub use anthropic::AnthropicProvider;

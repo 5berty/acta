@@ -1,0 +1,50 @@
+/* Pastilla: ventana transparente, sin fondo propio. Tokens propios (no comparte styles.css). */
+:root {
+  --p-bg: rgba(250, 250, 252, 0.86);
+  --p-fg: #1b1c22;
+  --p-muted: #6a6d78;
+  --p-border: rgba(20, 22, 30, 0.12);
+  --p-btn: rgba(20, 22, 30, 0.07);
+  --p-accent: #4f5bd5;
+  --p-rec: #e5484d;
+  --p-warn: #b25e09;
+  --p-track: rgba(20, 22, 30, 0.12);
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --p-bg: rgba(30, 31, 38, 0.86);
+    --p-fg: #f1f2f6;
+    --p-muted: #a0a3b1;
+    --p-border: rgba(255, 255, 255, 0.14);
+    --p-btn: rgba(255, 255, 255, 0.1);
+    --p-accent: #8a93ff;
+    --p-warn: #f5a524;
+    --p-track: rgba(255, 255, 255, 0.16);
+  }
+}
+html, body, #root { margin: 0; background: transparent; overflow: hidden; font: 13px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; color: var(--p-fg); -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; }
+.pill { box-sizing: border-box; margin: 4px; padding: 8px 12px; border-radius: 18px; background: var(--p-bg); border: 1px solid var(--p-border); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22); backdrop-filter: blur(22px) saturate(1.4); -webkit-backdrop-filter: blur(22px) saturate(1.4); cursor: grab; display: flex; flex-direction: column; gap: 8px; }
+.pill-row { display: flex; align-items: center; gap: 10px; min-height: 32px; }
+.rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--p-rec); flex: none; animation: pulse 1.6s ease-in-out infinite; }
+.rec-dot-paused { background: var(--p-warn); animation: none; }
+@keyframes pulse { 0%, 100% { opacity: 1; box-shadow: 0 0 0 0 color-mix(in srgb, var(--p-rec) 50%, transparent); } 50% { opacity: 0.75; box-shadow: 0 0 0 5px transparent; } }
+@media (prefers-reduced-motion: reduce) { .rec-dot { animation: none; } }
+.timer { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 44px; }
+.meter { display: flex; flex-direction: column; gap: 3px; width: 44px; }
+.meter-label { font-size: 10px; color: var(--p-muted); line-height: 1; }
+.meter-track { display: block; height: 4px; border-radius: 2px; background: var(--p-track); overflow: hidden; }
+.meter-fill { display: block; height: 100%; width: 100%; transform-origin: left; background: var(--p-accent); transition: transform 90ms linear; }
+.pbtn { font: inherit; font-weight: 500; color: var(--p-fg); background: var(--p-btn); border: 0; border-radius: 10px; padding: 6px 12px; cursor: pointer; }
+.pbtn:hover { background: color-mix(in srgb, var(--p-btn) 70%, var(--p-fg) 14%); }
+.pbtn:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 1px; }
+.pbtn-primary { background: var(--p-accent); color: #fff; }
+.pbtn-primary:hover { background: color-mix(in srgb, var(--p-accent) 88%, #000); }
+.pbtn-icon { width: 30px; height: 30px; padding: 0; border-radius: 50%; display: grid; place-items: center; font-size: 11px; flex: none; }
+.pbtn-stop { color: var(--p-rec); }
+.ask { display: flex; flex-direction: column; gap: 6px; }
+.ask-text { margin: 0; font-weight: 600; }
+.ask-note { margin: 0; color: var(--p-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.ask-actions { display: flex; gap: 8px; }
+.status { margin: 0; font-weight: 500; }
+.warn { margin: 0; color: var(--p-warn); font-weight: 500; }

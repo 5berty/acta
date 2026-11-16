@@ -340,3 +340,12 @@ async fn a_denied_permission_fails_fast_and_granted_ones_never_prompt() {
     assert!(tcc.requested.lock().unwrap().is_empty());
     assert_eq!(r.core.meetings_list(MeetingQuery::default()).await.unwrap().items.len(), 1);
 }
+
+/// Los comandos de la pantalla de proveedores también están en el contrato.
+#[test]
+fn provider_ui_commands_are_in_the_contract() {
+    use acta_core::api::command_names as c;
+    assert_eq!(c::LLM_LIST_MODELS, "llm_list_models");
+    assert_eq!(c::LLM_DETECT_LOCAL, "llm_detect_local");
+    assert_eq!(c::OPEN_EXTERNAL_URL, "open_external_url");
+}

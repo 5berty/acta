@@ -61,6 +61,14 @@ describe("mock api", () => {
     expect(local.lmStudio).toEqual({ running: false, baseUrl: "http://127.0.0.1:1234/v1", models: [] });
   });
 
+  it("lists the microphones with exactly one default (audio_inputs_list)", async () => {
+    const { api } = createMockApi();
+    const inputs = await api.audioInputsList();
+    expect(COMMANDS.audioInputsList).toBe("audio_inputs_list");
+    expect(inputs.filter((i) => i.isDefault)).toHaveLength(1);
+    expect(inputs[0]).toEqual({ uid: expect.any(String), name: expect.any(String), isDefault: expect.any(Boolean), transport: expect.any(String) });
+  });
+
   it("lists the models of a server by its base url and rejects an unknown one", async () => {
     const { api } = createMockApi({ remoteModels: { "https://api.nan.builders/v1": ["gemma4", "qwen3.6"] } });
     expect(await api.llmListModels("https://api.nan.builders/v1/", "nan")).toEqual(["gemma4", "qwen3.6"]);

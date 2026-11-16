@@ -489,6 +489,15 @@ export interface LocalDetection {
   lmStudio: LocalRuntime;
 }
 
+/** Un micrófono del sistema (`audio_inputs_list`). */
+export interface AudioInput {
+  uid: string;
+  name: string;
+  isDefault: boolean;
+  /** "builtin" | "bluetooth" | "usb" | "virtual" | "other" */
+  transport: string;
+}
+
 export interface ModelStatus {
   name: string;
   downloaded: boolean;

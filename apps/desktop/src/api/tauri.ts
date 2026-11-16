@@ -57,6 +57,7 @@ export function createTauriApi(): ActaApi {
     secretSet: (providerId, value) => invoke(C.secretSet, { providerId, value }),
     secretDelete: (providerId) => invoke(C.secretDelete, { providerId }),
     modelsStatus: () => invoke(C.modelsStatus),
+    audioInputsList: () => invoke(C.audioInputsList),
     modelsDownload: (name) => invoke(C.modelsDownload, { name }),
     permissionsStatus: () => invoke(C.permissionsStatus),
     permissionsRequest: (kind) => invoke(C.permissionsRequest, { kind }),

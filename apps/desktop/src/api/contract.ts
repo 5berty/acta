@@ -46,6 +46,7 @@ export const COMMANDS = {
   secretSet: "secret_set",
   secretDelete: "secret_delete",
   modelsStatus: "models_status",
+  audioInputsList: "audio_inputs_list",
   modelsDownload: "models_download",
   permissionsStatus: "permissions_status",
   permissionsRequest: "permissions_request",
@@ -152,6 +153,8 @@ export interface ActaApi {
   secretSet(providerId: T.ProviderId, value: string): Promise<T.SecretRef>;
   secretDelete(providerId: T.ProviderId): Promise<void>;
   modelsStatus(): Promise<T.ModelStatus[]>;
+  /** Micrófonos del sistema, para elegir `settings.recording.micDeviceUid`. */
+  audioInputsList(): Promise<T.AudioInput[]>;
   modelsDownload(name: string): Promise<void>;
   permissionsStatus(): Promise<T.PermissionState[]>;
   permissionsRequest(kind: T.PermissionKind): Promise<T.PermissionStatus>;

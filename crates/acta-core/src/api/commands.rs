@@ -108,6 +108,9 @@ pub mod command_names {
     pub const APP_INFO: &str = "app_info";
     pub const OVERLAY_SET_EXPANDED: &str = "overlay_set_expanded";
     pub const MAIN_WINDOW_SHOW: &str = "main_window_show";
+    pub const LLM_LIST_MODELS: &str = "llm_list_models";
+    pub const LLM_DETECT_LOCAL: &str = "llm_detect_local";
+    pub const OPEN_EXTERNAL_URL: &str = "open_external_url";
 }
 
 /// Estado de la sesión tal como lo ve la UI (comandos `session_*` y evento

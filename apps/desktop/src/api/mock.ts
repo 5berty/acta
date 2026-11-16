@@ -510,6 +510,12 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     async modelsStatus() {
       return state.models.map((m) => ({ ...m }));
     },
+    async audioInputsList() {
+      return [
+        { uid: "BuiltInMicrophoneDevice", name: "Micrófono del MacBook Pro", isDefault: true, transport: "builtin" },
+        { uid: "AirPods-input", name: "AirPods", isDefault: false, transport: "bluetooth" },
+      ];
+    },
     async modelsDownload(name) {
       const model = state.models.find((m) => m.name === name);
       if (!model) throw notFound(`modelo ${name}`);

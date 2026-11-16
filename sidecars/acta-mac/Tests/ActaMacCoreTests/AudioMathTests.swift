@@ -155,3 +155,56 @@ private func withBufferList(_ buffers: [[Float]], channelsPerBuffer: Int, _ body
     #expect(r.process([0.1, 0.2]) == [0.1, 0.2])
 }
 
+
+// MARK: - Frecuencia real de entrega
+
+/// Entrega `seconds` de audio a `rate` Hz en trozos de 20 ms y devuelve las
+/// correcciones que propone el estimador.
+private func feed(_ e: inout RateEstimator, rate: Double, seconds: Double, fromUs: UInt64 = 0) -> [Double] {
+    var out: [Double] = []
+    let chunks = Int(seconds * 50)
+    for i in 0..<chunks {
+        let us = fromUs + UInt64(i) * 20_000
+        if let r = e.observe(count: Int(rate / 50), firstHostUs: us, dropped: 0) { out.append(r) }
+    }
+    return out
+}
+
+@Test func `rate estimator corrects a device that delivers half of what it announced`() {
+    // AirPods: al abrir el micro pasan a HFP y el agregado del tap, que se
+    // creó a 48 kHz, entrega en realidad 24 kHz.
+    var e = RateEstimator(assumed: 48_000)
+    #expect(feed(&e, rate: 24_000, seconds: 5) == [24_000])
+    #expect(e.assumed == 24_000)
+}
+
+@Test func `rate estimator stays quiet when the announced rate is right`() {
+    for rate in [16_000.0, 24_000, 44_100, 48_000] {
+        var e = RateEstimator(assumed: rate)
+        #expect(feed(&e, rate: rate, seconds: 6).isEmpty, "rate=\(rate)")
+    }
+}
+
+@Test func `a single stalled window is not a rate change`() {
+    var e = RateEstimator(assumed: 48_000)
+    #expect(feed(&e, rate: 48_000, seconds: 2).isEmpty)
+    // Un segundo a medio gas (cortes del dispositivo) entre dos normales.
+    #expect(feed(&e, rate: 24_000, seconds: 1.2, fromUs: 2_000_000).isEmpty)
+    #expect(feed(&e, rate: 48_000, seconds: 3, fromUs: 3_200_000).isEmpty)
+    #expect(e.assumed == 48_000)
+}
+
+@Test func `rates far from any standard one are ignored`() {
+    var e = RateEstimator(assumed: 48_000)
+    #expect(feed(&e, rate: 28_000, seconds: 6).isEmpty)
+}
+
+@Test func `overruns restart the measurement window`() {
+    var e = RateEstimator(assumed: 48_000)
+    var got: [Double] = []
+    for i in 0..<400 {
+        // Mitad de samples, pero con descartes en cada lectura: no es fiable.
+        if let r = e.observe(count: 480, firstHostUs: UInt64(i) * 20_000, dropped: 480) { got.append(r) }
+    }
+    #expect(got.isEmpty)
+}

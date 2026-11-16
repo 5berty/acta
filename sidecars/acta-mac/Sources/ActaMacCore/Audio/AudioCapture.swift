@@ -21,6 +21,7 @@ actor TrackPipeline {
     private let frameMs: Int
     private var source: HALInput?
     private var resampler: MonoResampler?
+    private var rate: RateEstimator?
     private var assembler: FrameAssembler
     private var zero = ZeroWatch(seconds: 10)
     private var paused = false
@@ -49,6 +50,7 @@ actor TrackPipeline {
         await flushPartial()
         source = input
         resampler = MonoResampler(inRate: input.sampleRate)
+        rate = RateEstimator(assumed: input.sampleRate)
         lastData = Date()
         if drain == nil {
             drain = Task { [weak self] in
@@ -95,6 +97,11 @@ actor TrackPipeline {
                 await output.emit(.audioOverrun(AudioOverrunEvent(track: track, droppedFrames: frames)))
             }
             if chunk.samples.isEmpty { continue }
+            if let real = rate?.observe(count: chunk.samples.count, firstHostUs: chunk.firstHostUs, dropped: chunk.dropped) {
+                await output.log("warn", "\(track.rawValue): device announced \(Int(src.sampleRate)) Hz but delivers \(Int(real)) Hz; resampling from \(Int(real)) Hz")
+                resampler = MonoResampler(inRate: real)
+                src.ring.setSampleRate(real)
+            }
             if paused { continue }
             let mono16k = resampler?.process(chunk.samples) ?? chunk.samples
             if mono16k.isEmpty { continue }

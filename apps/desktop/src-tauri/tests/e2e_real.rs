@@ -275,7 +275,14 @@ async fn e2e_live_recording_with_system_tap() {
             .status()
             .await;
     }
-    tokio::time::sleep(Duration::from_secs(9)).await;
+    // Voz por la salida del sistema: con AirPods el micro abierto los pasa a
+    // HFP y el tap entrega a 24 kHz aunque anunció 48 kHz (salía ininteligible).
+    let _ = tokio::process::Command::new("say")
+        .args(["-v", "Mónica", "Vamos a revisar el presupuesto del proyecto y la fecha de entrega de la próxima semana."])
+        .kill_on_drop(true)
+        .status()
+        .await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
     let health = r.core.health_get().await.unwrap();
     eprintln!("health tras 12 s: {health:?}");
     let snap = r.core.session_stop().await.unwrap();
@@ -288,6 +295,9 @@ async fn e2e_live_recording_with_system_tap() {
     let nonzero = sys[44..].chunks_exact(2).filter(|c| c != &[0, 0]).count();
     eprintln!("system.wav: {} muestras, {nonzero} no nulas", (sys.len() - 44) / 2);
     assert!(nonzero > 1_000, "el tap del sistema no grabó el sonido");
+    let said: Vec<String> = detail.transcript.utterances.iter().map(|u| u.text.to_lowercase()).collect();
+    eprintln!("transcript: {said:?}");
+    assert!(said.iter().any(|t| t.contains("presupuesto")), "la voz del sistema no se entiende: {said:?}");
     let names = seen.lock().unwrap().clone();
     eprintln!("eventos: {names:?}");
     for ev in ["session:state", "session:levels", "processing:progress", "meeting:updated"] {

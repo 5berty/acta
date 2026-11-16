@@ -58,7 +58,9 @@ final class SampleRing: @unchecked Sendable {
     }
 
     let capacity: Int
-    let sampleRate: Double
+    /// Solo sirve para fechar lo leído; se corrige si el dispositivo entrega
+    /// a otra frecuencia de la anunciada (ver `RateEstimator`).
+    private(set) var sampleRate: Double
     private let storage: UnsafeMutablePointer<Float>
     private let lock = OSAllocatedUnfairLock()
     private var writeAbs: UInt64 = 0
@@ -75,6 +77,11 @@ final class SampleRing: @unchecked Sendable {
     }
 
     deinit { storage.deallocate() }
+
+    func setSampleRate(_ rate: Double) {
+        guard rate > 0 else { return }
+        lock.withLockUnchecked { sampleRate = rate }
+    }
 
     /// Hilo de tiempo real: sin reservas de memoria.
     func write(_ src: UnsafePointer<Float>, count: Int, hostUs: UInt64) {
@@ -275,6 +282,66 @@ private final class InputFeed: @unchecked Sendable {
     func take() -> AVAudioPCMBuffer? {
         defer { buffer = nil }
         return buffer
+    }
+}
+
+// MARK: - Frecuencia real de entrega
+
+/// Mide a qué frecuencia entrega samples el dispositivo de verdad y avisa si
+/// no es la que anunció al abrirlo. Pasa con auriculares Bluetooth: al abrir
+/// su micro cambian a HFP unos segundos DESPUÉS de crear el agregado del tap,
+/// que se queda anunciando 48 kHz mientras entrega 24 kHz. Remuestreado como
+/// 48 kHz, el audio sale al doble de velocidad y con un hueco tras cada trozo.
+struct RateEstimator {
+    static let standard: [Double] = [8_000, 11_025, 12_000, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000, 88_200, 96_000]
+
+    private(set) var assumed: Double
+    var windowUs: UInt64 = 1_000_000
+    /// La medida debe caer así de cerca de una frecuencia estándar.
+    var tolerance = 0.04
+    private var startUs: UInt64?
+    private var samples: UInt64 = 0
+    private var candidate: Double?
+
+    init(assumed: Double) { self.assumed = assumed }
+
+    /// Apunta un trozo leído del ring. Devuelve la frecuencia corregida cuando
+    /// dos ventanas seguidas coinciden en una estándar distinta de la asumida
+    /// (un corte suelto del dispositivo no basta).
+    mutating func observe(count: Int, firstHostUs: UInt64, dropped: UInt64) -> Double? {
+        if dropped > 0 {
+            startUs = nil
+            candidate = nil
+            return nil
+        }
+        guard count > 0 else { return nil }
+        guard let start = startUs, firstHostUs > start else {
+            startUs = firstHostUs
+            samples = UInt64(count)
+            return nil
+        }
+        let elapsed = firstHostUs - start
+        if elapsed < windowUs {
+            samples += UInt64(count)
+            return nil
+        }
+        let measured = Double(samples) * 1_000_000 / Double(elapsed)
+        startUs = firstHostUs
+        samples = UInt64(count)
+        guard let snapped = Self.standard.min(by: { abs($0 - measured) < abs($1 - measured) }),
+              abs(snapped - measured) <= snapped * tolerance,
+              abs(snapped - assumed) > assumed * 0.1
+        else {
+            candidate = nil
+            return nil
+        }
+        if candidate == snapped {
+            candidate = nil
+            assumed = snapped
+            return snapped
+        }
+        candidate = snapped
+        return nil
     }
 }
 

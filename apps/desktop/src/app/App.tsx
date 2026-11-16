@@ -5,7 +5,7 @@ import { GroupsContainer } from "../features/groups/GroupsContainer";
 import { MeetingDetailContainer } from "../features/meetings/MeetingDetailContainer";
 import { MeetingListContainer } from "../features/meetings/MeetingListContainer";
 import { SettingsContainer } from "../features/settings/SettingsContainer";
-import { ApiProvider } from "./ApiContext";
+import { ApiProvider, useApiEvent } from "./ApiContext";
 import { Sidebar, type View } from "./Sidebar";
 
 interface Open {
@@ -21,6 +21,7 @@ function Shell() {
     setOpen({ id, at: at ?? null });
     setView("meetings");
   };
+  useApiEvent("main:navigate", ({ meetingId }) => openMeeting(meetingId));
 
   return (
     <div className="app">

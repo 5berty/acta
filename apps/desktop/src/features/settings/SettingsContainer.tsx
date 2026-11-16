@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ModelDownload, PermissionState, ProviderTestResult, Settings, VoiceprintSummary } from "../../api";
+import type { ModelDownload, ModelStatus, PermissionState, ProviderTestResult, Settings, VoiceprintSummary } from "../../api";
 import { useApi, useApiEvent } from "../../app/ApiContext";
 import { Button, errorMessage } from "../../shared/ui/ui";
 import { AutoStopSection, DetectionSection, ScreenSection, TranscriptionSection } from "./GeneralSections";
+import { ModelsSection } from "./ModelsSection";
 import { PermissionsSection } from "./PermissionsSection";
 import { ProvidersSection, newProvider } from "./ProvidersSection";
 
@@ -12,6 +13,7 @@ export function SettingsContainer() {
   const [draft, setDraft] = useState<Settings | null>(null);
   const [permissions, setPermissions] = useState<PermissionState[]>([]);
   const [voiceprints, setVoiceprints] = useState<VoiceprintSummary[]>([]);
+  const [models, setModels] = useState<ModelStatus[]>([]);
   const [downloads, setDownloads] = useState<Record<string, ModelDownload>>({});
   const [tests, setTests] = useState<Record<string, ProviderTestResult | "pending" | undefined>>({});
   const [message, setMessage] = useState<string | null>(null);
@@ -23,9 +25,18 @@ export function SettingsContainer() {
     });
     void api.permissionsStatus().then(setPermissions);
     void api.voiceprintsList().then(setVoiceprints);
+    void api.modelsStatus().then(setModels);
   }, [api]);
 
-  useApiEvent("model:download", (d) => setDownloads((prev) => ({ ...prev, [d.name]: d })));
+  useApiEvent("model:download", (d) => {
+    setDownloads((prev) => ({ ...prev, [d.name]: d }));
+    if (d.done) void api.modelsStatus().then((m) => setModels([...m]));
+  });
+
+  const download = (name: string) => {
+    setDownloads((prev) => ({ ...prev, [name]: { name, fraction: 0, done: false, error: null } }));
+    api.modelsDownload(name).catch((e: unknown) => setDownloads((prev) => ({ ...prev, [name]: { name, fraction: 0, done: false, error: errorMessage(e) } })));
+  };
   useApiEvent("session:state", () => {}); // reservado: refrescar permisos al volver a la app
 
   const refreshPermissions = useCallback(() => void api.permissionsStatus().then((p) => setPermissions([...p])), [api]);
@@ -67,12 +78,13 @@ export function SettingsContainer() {
       for (const [type, path] of [["claudeCli", found.claude], ["codexCli", found.codex]] as const) {
         if (!path) continue;
         const existing = providers.find((p) => p.kind.type === type);
-        if (existing && (existing.kind.type === "claudeCli" || existing.kind.type === "codexCli")) existing.kind.binaryPath = path;
-        else {
-          const created = newProvider(type, providers);
-          if (created.kind.type === "claudeCli" || created.kind.type === "codexCli") created.kind.binaryPath = path;
-          providers = [...providers, created];
+        const env = type === "claudeCli" ? found.claudeEnv : found.codexEnv;
+        const target = existing ?? newProvider(type, providers);
+        if (target.kind.type === "claudeCli" || target.kind.type === "codexCli") {
+          target.kind.binaryPath = path;
+          target.kind.extraEnv = { ...target.kind.extraEnv, ...env };
         }
+        if (!existing) providers = [...providers, target];
       }
       return { ...d, llm: { ...d.llm, providers } };
     });
@@ -92,11 +104,14 @@ export function SettingsContainer() {
           </Button>
         </div>
       </header>
-      <ProvidersSection llm={draft.llm} tests={tests} onChange={(llm) => setDraft({ ...draft, llm })} onTest={(id) => void testProvider(id)} onDetect={() => void detect()} />
+      <ProvidersSection llm={draft.llm} tests={tests} onChange={(llm) => setDraft({ ...draft, llm })} onTest={(id) => void testProvider(id)} onDetect={() => void detect()}
+        onSecretSet={(id, value) => api.secretSet(id, value)}
+        onSecretDelete={(id) => api.secretDelete(id)}
+      />
+      <ModelsSection models={models} downloads={downloads} onDownload={download} />
       <TranscriptionSection
         value={draft.transcription}
         onChange={(transcription) => setDraft({ ...draft, transcription })}
-        downloads={downloads}
         voiceprints={voiceprints}
         onForget={(id) => void api.voiceprintDelete(id).then(() => api.voiceprintsList().then((v) => setVoiceprints([...v])))}
       />

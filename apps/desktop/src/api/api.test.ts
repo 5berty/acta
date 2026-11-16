@@ -23,6 +23,36 @@ describe("mock api", () => {
     await expect(api.sessionPause()).rejects.toMatchObject({ code: "invalidState" });
   });
 
+  it("stores a secret as a keychain ref and reports models", async () => {
+    const { api } = createMockApi();
+    expect(await api.secretSet("openrouter", "sk-x")).toEqual({ service: "acta", account: "provider:openrouter" });
+    await api.secretDelete("openrouter");
+    const status = await api.modelsStatus();
+    expect(status.map((m) => m.name)).toEqual(["asr", "diarizer", "vad"]);
+  });
+
+  it("emits download progress then done and marks the model downloaded", async () => {
+    const { api } = createMockApi();
+    const seen: number[] = [];
+    let done = false;
+    await api.on("model:download", (d) => {
+      seen.push(d.fraction);
+      done = d.done;
+    });
+    await api.modelsDownload("vad");
+    expect(seen.length).toBeGreaterThanOrEqual(3);
+    expect(done).toBe(true);
+    expect((await api.modelsStatus()).find((m) => m.name === "vad")?.downloaded).toBe(true);
+  });
+
+  it("has Rust-equal defaults for effort and denylist", async () => {
+    const { api } = createMockApi();
+    const s = await api.settingsGet();
+    expect(s.detection.denylist).toEqual([]);
+    const k = s.llm.providers[0]!.kind;
+    expect(k.type === "claudeCli" && k.effort).toBeNull();
+  });
+
   it("lists the sample meeting with my open tasks", async () => {
     const { api } = createMockApi();
     const page = await api.meetingsList({});

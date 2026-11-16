@@ -20,6 +20,7 @@ export interface MockState {
   messages: T.ChatMessage[];
   voiceprints: T.VoiceprintSummary[];
   settings: T.Settings;
+  models: T.ModelStatus[];
   permissions: T.PermissionState[];
 }
 
@@ -45,6 +46,7 @@ export function defaultSettings(): T.Settings {
     detection: {
       enabled: true,
       rules: [{ bundleId: "com.microsoft.teams2", platform: "teams", isBrowser: false }],
+      denylist: [],
       meetUrlPatterns: ["meet.google.com/"],
       startPromptTimeoutS: 90,
       pollMs: 1_000,
@@ -68,7 +70,7 @@ export function defaultSettings(): T.Settings {
           id: "claude-cli",
           label: "Claude Code (CLI)",
           enabled: true,
-          kind: { type: "claudeCli", binaryPath: "/opt/homebrew/bin/claude", model: null, extraEnv: {} },
+          kind: { type: "claudeCli", binaryPath: "/opt/homebrew/bin/claude", model: null, effort: null, extraEnv: {} },
           timeoutS: 600,
         },
       ],
@@ -199,6 +201,11 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     messages: [],
     voiceprints: [],
     settings: defaultSettings(),
+    models: [
+      { name: "asr", downloaded: true, bytes: 600_000_000 },
+      { name: "diarizer", downloaded: false, bytes: null },
+      { name: "vad", downloaded: false, bytes: null },
+    ],
     permissions: [
       { kind: "microphone", status: "granted", target: null },
       { kind: "systemAudio", status: "unknown", target: null },
@@ -466,7 +473,22 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
       return { ok: true, message: "OK (mock)", latencyMs: 1 };
     },
     async llmCliDetect() {
-      return { claude: "/opt/homebrew/bin/claude", codex: null };
+      return { claude: "/opt/homebrew/bin/claude", codex: null, claudeEnv: {}, codexEnv: {} };
+    },
+    async secretSet(providerId) {
+      return { service: "acta", account: `provider:${providerId}` };
+    },
+    async secretDelete() {},
+    async modelsStatus() {
+      return state.models.map((m) => ({ ...m }));
+    },
+    async modelsDownload(name) {
+      const model = state.models.find((m) => m.name === name);
+      if (!model) throw notFound(`modelo ${name}`);
+      for (const fraction of [0.4, 0.8]) emit("model:download", { name, fraction, done: false, error: null });
+      model.downloaded = true;
+      model.bytes = model.bytes ?? 100_000_000;
+      emit("model:download", { name, fraction: 1, done: true, error: null });
     },
     async permissionsStatus() {
       return state.permissions;
@@ -483,7 +505,9 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     },
 
     async overlaySetExpanded() {},
-    async mainWindowShow() {},
+    async mainWindowShow(meetingId) {
+      if (meetingId) emit("main:navigate", { meetingId });
+    },
 
     async on(event, handler): Promise<Unsubscribe> {
       const set = listeners.get(event) ?? new Set();

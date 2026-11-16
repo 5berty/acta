@@ -43,6 +43,10 @@ export const COMMANDS = {
   settingsUpdate: "settings_update",
   llmProviderTest: "llm_provider_test",
   llmCliDetect: "llm_cli_detect",
+  secretSet: "secret_set",
+  secretDelete: "secret_delete",
+  modelsStatus: "models_status",
+  modelsDownload: "models_download",
   permissionsStatus: "permissions_status",
   permissionsRequest: "permissions_request",
   openSystemSettings: "open_system_settings",
@@ -62,6 +66,7 @@ export const EVENTS = {
   chatDelta: "chat:delta",
   livePartial: "live:partial",
   modelDownload: "model:download",
+  mainNavigate: "main:navigate",
 } as const;
 
 /** Payload de cada evento. */
@@ -75,6 +80,7 @@ export interface EventPayloads {
   "chat:delta": T.ChatDelta;
   "live:partial": T.LivePartial;
   "model:download": T.ModelDownload;
+  "main:navigate": T.MainNavigate;
 }
 
 export type EventName = keyof EventPayloads;
@@ -135,6 +141,10 @@ export interface ActaApi {
   settingsUpdate(settings: T.Settings): Promise<T.Settings>;
   llmProviderTest(providerId: T.ProviderId): Promise<T.ProviderTestResult>;
   llmCliDetect(): Promise<T.CliDetection>;
+  secretSet(providerId: T.ProviderId, value: string): Promise<T.SecretRef>;
+  secretDelete(providerId: T.ProviderId): Promise<void>;
+  modelsStatus(): Promise<T.ModelStatus[]>;
+  modelsDownload(name: string): Promise<void>;
   permissionsStatus(): Promise<T.PermissionState[]>;
   permissionsRequest(kind: T.PermissionKind): Promise<T.PermissionStatus>;
   openSystemSettings(kind: T.PermissionKind): Promise<void>;

@@ -1,6 +1,6 @@
-import { useState } from "react";
-import type { ProviderConfig, ProviderKind, ProviderTestResult, Settings } from "../../api";
-import { Badge, Button } from "../../shared/ui/ui";
+import { useEffect, useState } from "react";
+import type { ProviderConfig, SecretRef, ProviderKind, ProviderTestResult, Settings } from "../../api";
+import { Badge, Button, errorMessage } from "../../shared/ui/ui";
 import { Field, NumberField, Section, Toggle } from "./fields";
 
 type KindType = ProviderKind["type"];
@@ -19,28 +19,104 @@ export function newProvider(type: KindType, existing: ProviderConfig[]): Provide
   const base = { id, enabled: true, timeoutS: 600 };
   switch (type) {
     case "claudeCli":
-      return { ...base, label: "Claude Code (CLI)", kind: { type, binaryPath: "", model: null, extraEnv: {} } };
+      return { ...base, label: "Claude Code (CLI)", kind: { type, binaryPath: "", model: null, effort: null, extraEnv: {} } };
     case "codexCli":
       return { ...base, label: "Codex (CLI)", kind: { type, binaryPath: "", model: null, extraEnv: {} } };
     case "openAiCompatible":
       return { ...base, label: "OpenAI compatible", kind: { type, baseUrl: "http://localhost:11434/v1", model: "", apiKey: null } };
     case "anthropic":
-      return { ...base, label: "Anthropic", kind: { type, model: "", apiKey: { service: "acta", account: id } } };
+      return { ...base, label: "Anthropic", kind: { type, model: "", apiKey: { service: "acta", account: `provider:${id}` } } };
   }
 }
 
-const envToText = (env: Record<string, string>): string =>
-  Object.entries(env)
-    .map(([k, v]) => `${k}=${v}`)
-    .join("\n");
-const textToEnv = (t: string): Record<string, string> =>
-  Object.fromEntries(
-    t
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.includes("="))
-      .map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)] as [string, string]),
+const EFFORTS: { v: string; l: string }[] = [
+  { v: "", l: "Por defecto" },
+  { v: "low", l: "Bajo" },
+  { v: "medium", l: "Medio" },
+  { v: "high", l: "Alto" },
+  { v: "xhigh", l: "Muy alto" },
+  { v: "max", l: "Máximo" },
+];
+
+type EnvRow = [string, string];
+const envToRows = (env: Record<string, string>): EnvRow[] => Object.entries(env);
+const rowsToEnv = (rows: EnvRow[]): Record<string, string> => Object.fromEntries(rows.filter(([k]) => k.trim() !== "").map(([k, v]) => [k.trim(), v]));
+
+/** Filas clave/valor. Las filas sin nombre viven solo en local hasta que se rellenan. */
+function EnvEditor({ label, env, onChange }: { label: string; env: Record<string, string>; onChange(env: Record<string, string>): void }) {
+  const [rows, setRows] = useState<EnvRow[]>(() => envToRows(env));
+  const serialized = JSON.stringify(env);
+  useEffect(() => {
+    setRows((current) => (JSON.stringify(rowsToEnv(current)) === serialized ? current : envToRows(env)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serialized]);
+  const commit = (next: EnvRow[]) => {
+    setRows(next);
+    onChange(rowsToEnv(next));
+  };
+  return (
+    <Field label="Variables de entorno extra" hint="Las que fija tu alias, p. ej. CLAUDE_CONFIG_DIR=/Users/tú/.claude-personal. Nunca se tocan las credenciales del CLI.">
+      <ul className="plain env-rows">
+        {rows.map(([k, v], i) => (
+          <li key={i} className="inline-form">
+            <input aria-label={`Nombre de la variable ${i + 1} de ${label}`} placeholder="NOMBRE" value={k} onChange={(e) => commit(rows.map((r, j) => (j === i ? [e.target.value, r[1]] : r)))} />
+            <input aria-label={`Valor de la variable ${i + 1} de ${label}`} placeholder="valor" value={v} onChange={(e) => commit(rows.map((r, j) => (j === i ? [r[0], e.target.value] : r)))} />
+            <Button small variant="ghost" aria-label={`Quitar variable ${k || i + 1} de ${label}`} onClick={() => commit(rows.filter((_, j) => j !== i))}>
+              Quitar
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <div>
+        <Button small aria-label={`Añadir variable a ${label}`} onClick={() => commit([...rows, ["", ""]])}>
+          Añadir variable
+        </Button>
+      </div>
+    </Field>
   );
+}
+
+/** Clave de API: nunca se guarda en los ajustes, solo la referencia al Llavero. */
+function ApiKeyField({ label, ref_, onSave, onDelete }: { label: string; ref_: SecretRef | null; onSave(value: string): Promise<void>; onDelete(): Promise<void> }) {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const run = async (fn: () => Promise<void>) => {
+    setError(null);
+    try {
+      await fn();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+  return (
+    <Field label="Clave de API" hint={ref_ ? `Referencia en el Llavero: ${ref_.account}. El valor nunca se muestra.` : "Sin clave guardada. Vive en el Llavero de macOS, nunca en los ajustes."}>
+      <div className="inline-form">
+        <input type="password" autoComplete="off" aria-label={`Clave de API de ${label}`} value={value} onChange={(e) => setValue(e.target.value)} />
+        <Button
+          small
+          aria-label={`Guardar en el Llavero ${label}`}
+          disabled={!value}
+          onClick={() =>
+            void run(async () => {
+              await onSave(value);
+              setValue("");
+            })
+          }
+        >
+          Guardar en el Llavero
+        </Button>
+        <Button small variant="ghost" aria-label={`Borrar clave ${label}`} onClick={() => void run(onDelete)}>
+          Borrar clave
+        </Button>
+      </div>
+      {error ? (
+        <span role="alert" className="error">
+          {error}
+        </span>
+      ) : null}
+    </Field>
+  );
+}
 
 interface Props {
   llm: Settings["llm"];
@@ -48,9 +124,11 @@ interface Props {
   onChange(llm: Settings["llm"]): void;
   onTest(id: string): void;
   onDetect(): void;
+  onSecretSet(providerId: string, value: string): Promise<SecretRef>;
+  onSecretDelete(providerId: string): Promise<void>;
 }
 
-function ProviderCard({ p, result, onChange, onRemove, onTest }: { p: ProviderConfig; result: ProviderTestResult | "pending" | undefined; onChange(p: ProviderConfig): void; onRemove(): void; onTest(): void }) {
+function ProviderCard({ p, result, onChange, onRemove, onTest, onSecretSet, onSecretDelete }: { p: ProviderConfig; result: ProviderTestResult | "pending" | undefined; onChange(p: ProviderConfig): void; onRemove(): void; onTest(): void; onSecretSet: Props["onSecretSet"]; onSecretDelete: Props["onSecretDelete"] }) {
   const k = p.kind;
   const setKind = (kind: ProviderKind) => onChange({ ...p, kind });
   return (
@@ -62,15 +140,24 @@ function ProviderCard({ p, result, onChange, onRemove, onTest }: { p: ProviderCo
       </div>
       {k.type === "claudeCli" || k.type === "codexCli" ? (
         <>
-          <Field label="Ruta del binario">
-            <input aria-label={`Ruta del binario de ${p.label}`} value={k.binaryPath} placeholder="/opt/homebrew/bin/claude" onChange={(e) => setKind({ ...k, binaryPath: e.target.value })} />
+          <Field label="Ruta del binario" hint="Ruta absoluta: las apps de escritorio no heredan el PATH de tu terminal. Si usas un alias, pulsa Detectar.">
+            <input aria-label={`Ruta del binario de ${p.label}`} value={k.binaryPath} placeholder="/opt/homebrew/bin/claude" spellCheck={false} onChange={(e) => setKind({ ...k, binaryPath: e.target.value })} />
           </Field>
           <Field label="Modelo (opcional)">
             <input aria-label={`Modelo de ${p.label}`} value={k.model ?? ""} onChange={(e) => setKind({ ...k, model: e.target.value || null })} />
           </Field>
-          <Field label="Variables de entorno extra" hint="Una por línea, p. ej. CLAUDE_CONFIG_DIR=/ruta. Nunca se tocan las credenciales del CLI.">
-            <textarea aria-label={`Variables de entorno de ${p.label}`} rows={2} defaultValue={envToText(k.extraEnv)} onBlur={(e) => setKind({ ...k, extraEnv: textToEnv(e.target.value) })} />
-          </Field>
+          {k.type === "claudeCli" ? (
+            <Field label="Esfuerzo (effort)" hint="Por defecto usa el del propio CLI.">
+              <select aria-label={`Esfuerzo de ${p.label}`} value={k.effort ?? ""} onChange={(e) => setKind({ ...k, effort: e.target.value || null })}>
+                {EFFORTS.map((o) => (
+                  <option key={o.v} value={o.v}>
+                    {o.l}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          ) : null}
+          <EnvEditor label={p.label} env={k.extraEnv} onChange={(extraEnv) => setKind({ ...k, extraEnv })} />
         </>
       ) : null}
       {k.type === "openAiCompatible" ? (
@@ -81,14 +168,15 @@ function ProviderCard({ p, result, onChange, onRemove, onTest }: { p: ProviderCo
           <Field label="Modelo">
             <input aria-label={`Modelo de ${p.label}`} value={k.model} onChange={(e) => setKind({ ...k, model: e.target.value })} />
           </Field>
-          <Field label="Referencia de la clave (Llavero)" hint="La clave vive en el Llavero de macOS, nunca en los ajustes.">
-            <input
-              aria-label={`Cuenta del Llavero de ${p.label}`}
-              value={k.apiKey?.account ?? ""}
-              placeholder="Sin clave (p. ej. Ollama)"
-              onChange={(e) => setKind({ ...k, apiKey: e.target.value ? { service: k.apiKey?.service ?? "acta", account: e.target.value } : null })}
-            />
-          </Field>
+          <ApiKeyField
+            label={p.label}
+            ref_={k.apiKey}
+            onSave={async (value) => setKind({ ...k, apiKey: await onSecretSet(p.id, value) })}
+            onDelete={async () => {
+              await onSecretDelete(p.id);
+              if (k.type === "openAiCompatible") setKind({ ...k, apiKey: null });
+            }}
+          />
         </>
       ) : null}
       {k.type === "anthropic" ? (
@@ -96,9 +184,14 @@ function ProviderCard({ p, result, onChange, onRemove, onTest }: { p: ProviderCo
           <Field label="Modelo">
             <input aria-label={`Modelo de ${p.label}`} value={k.model} onChange={(e) => setKind({ ...k, model: e.target.value })} />
           </Field>
-          <Field label="Referencia de la clave (Llavero)" hint="La clave vive en el Llavero de macOS, nunca en los ajustes.">
-            <input aria-label={`Cuenta del Llavero de ${p.label}`} value={k.apiKey.account} onChange={(e) => setKind({ ...k, apiKey: { ...k.apiKey, account: e.target.value } })} />
-          </Field>
+          <ApiKeyField
+            label={p.label}
+            ref_={k.apiKey}
+            onSave={async (value) => setKind({ ...k, apiKey: await onSecretSet(p.id, value) })}
+            onDelete={async () => {
+              await onSecretDelete(p.id);
+            }}
+          />
         </>
       ) : null}
       <NumberField label={`Tiempo máximo de ${p.label} (s)`} value={p.timeoutS} min={5} onChange={(timeoutS) => onChange({ ...p, timeoutS })} />
@@ -121,7 +214,7 @@ function ProviderCard({ p, result, onChange, onRemove, onTest }: { p: ProviderCo
   );
 }
 
-export function ProvidersSection({ llm, tests, onChange, onTest, onDetect }: Props) {
+export function ProvidersSection({ llm, tests, onChange, onTest, onDetect, onSecretSet, onSecretDelete }: Props) {
   const [kind, setKind] = useState<KindType>("claudeCli");
   const enabled = llm.providers.filter((p) => p.enabled);
   const task = (label: string, aria: string, key: "minutesProvider" | "chatProvider" | "namingProvider") => (
@@ -157,6 +250,8 @@ export function ProvidersSection({ llm, tests, onChange, onTest, onDetect }: Pro
               })
             }
             onTest={() => onTest(p.id)}
+            onSecretSet={onSecretSet}
+            onSecretDelete={onSecretDelete}
           />
         ))}
       </div>

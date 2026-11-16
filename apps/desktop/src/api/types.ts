@@ -449,7 +449,7 @@ export interface SecretRef {
 }
 
 export type ProviderKind =
-  | { type: "claudeCli"; binaryPath: string; model: string | null; extraEnv: Record<string, string> }
+  | { type: "claudeCli"; binaryPath: string; model: string | null; effort: string | null; extraEnv: Record<string, string> }
   | { type: "codexCli"; binaryPath: string; model: string | null; extraEnv: Record<string, string> }
   | { type: "openAiCompatible"; baseUrl: string; model: string; apiKey: SecretRef | null }
   | { type: "anthropic"; model: string; apiKey: SecretRef };
@@ -471,6 +471,14 @@ export interface ProviderTestResult {
 export interface CliDetection {
   claude: string | null;
   codex: string | null;
+  claudeEnv: Record<string, string>;
+  codexEnv: Record<string, string>;
+}
+
+export interface ModelStatus {
+  name: string;
+  downloaded: boolean;
+  bytes: number | null;
 }
 
 export interface UserIdentity {
@@ -501,6 +509,7 @@ export interface Settings {
   detection: {
     enabled: boolean;
     rules: AppRule[];
+    denylist: string[];
     meetUrlPatterns: string[];
     startPromptTimeoutS: number;
     pollMs: number;
@@ -545,6 +554,11 @@ export interface MeetingUpdated {
   meetingId: MeetingId;
   status: MeetingStatus;
   title: string;
+}
+
+/** `main:navigate`: la ventana principal abre esa reunión (`main_window_show{meetingId}`). */
+export interface MainNavigate {
+  meetingId: MeetingId;
 }
 
 export interface ModelDownload {

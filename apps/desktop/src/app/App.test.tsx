@@ -30,6 +30,14 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Ajustes" })).toBeInTheDocument();
   });
 
+  it("abre la reunión que pide la pastilla (main:navigate)", async () => {
+    const { api } = setup();
+    await screen.findByRole("button", { name: /Daily del equipo/ });
+    const list = await api.meetingsList({});
+    await api.mainWindowShow(list.items[0]?.id);
+    expect(await screen.findByRole("heading", { name: "Daily del equipo" })).toBeInTheDocument();
+  });
+
   it("permite empezar a grabar a mano y refleja el estado", async () => {
     const { api } = setup();
     const spy = vi.spyOn(api, "sessionStart");

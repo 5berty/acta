@@ -1,6 +1,6 @@
 import { useState } from "react";
-import type { AppRule, ModelDownload, Platform, Settings, VoiceprintSummary } from "../../api";
-import { Button, ProgressBar } from "../../shared/ui/ui";
+import type { AppRule, Platform, Settings, VoiceprintSummary } from "../../api";
+import { Button } from "../../shared/ui/ui";
 import { Field, NumberField, Section, Toggle } from "./fields";
 
 interface SectionProps<K extends keyof Settings> {
@@ -14,10 +14,9 @@ const HOUR = 3_600_000;
 export function TranscriptionSection({
   value,
   onChange,
-  downloads,
   voiceprints,
   onForget,
-}: SectionProps<"transcription"> & { downloads: Record<string, ModelDownload>; voiceprints: VoiceprintSummary[]; onForget(id: string): void }) {
+}: SectionProps<"transcription"> & { voiceprints: VoiceprintSummary[]; onForget(id: string): void }) {
   return (
     <Section title="Transcripción" hint="Todo se procesa en tu Mac. Los modelos se descargan la primera vez que hacen falta.">
       <div className="three-col">
@@ -32,26 +31,6 @@ export function TranscriptionSection({
       </div>
       <Toggle label="Separar hablantes" hint="Diariza la pista de los demás." checked={value.diarization} onChange={(diarization) => onChange({ ...value, diarization })} />
       <Toggle label="Transcripción en vivo" hint="Vista previa mientras grabas y detección de momentos importantes." checked={value.livePreview} onChange={(livePreview) => onChange({ ...value, livePreview })} />
-      <h3>Modelos</h3>
-      {Object.keys(downloads).length === 0 ? <p className="muted">Sin descargas en curso.</p> : null}
-      <ul className="plain">
-        {Object.values(downloads).map((d) => (
-          <li key={d.name}>
-            {d.error ? (
-              <span className="error" role="alert">
-                {d.name}: error ({d.error})
-              </span>
-            ) : d.done ? (
-              <span className="ok">{d.name}: listo</span>
-            ) : (
-              <>
-                <span>Descargando {d.name}</span>
-                <ProgressBar fraction={d.fraction} label={`Descargando ${d.name}`} />
-              </>
-            )}
-          </li>
-        ))}
-      </ul>
       <h3>Voces recordadas</h3>
       {voiceprints.length === 0 ? <p className="muted">Todavía no recuerdo ninguna voz. Confirma un nombre en un transcript para guardarla.</p> : null}
       <ul className="plain">
@@ -95,6 +74,13 @@ export function DetectionSection({ value, onChange }: SectionProps<"detection">)
   const [bundleId, setBundleId] = useState("");
   const [platform, setPlatform] = useState<Platform>("teams");
   const [browser, setBrowser] = useState(false);
+  const [ignored, setIgnored] = useState("");
+  const addIgnored = () => {
+    const id = ignored.trim();
+    if (!id || value.denylist.includes(id)) return;
+    onChange({ ...value, denylist: [...value.denylist, id] });
+    setIgnored("");
+  };
   const add = () => {
     const id = bundleId.trim();
     if (!id || value.rules.some((r) => r.bundleId === id)) return;
@@ -134,6 +120,24 @@ export function DetectionSection({ value, onChange }: SectionProps<"detection">)
         </label>
         <Button small onClick={add}>
           Añadir regla
+        </Button>
+      </div>
+      <h3>Apps ignoradas</h3>
+      <p className="muted">Apps de dictado (Typeless, Orca…) que nunca deben disparar la detección.</p>
+      <ul className="plain rules">
+        {value.denylist.map((id) => (
+          <li key={id} className="rule">
+            <code>{id}</code>
+            <Button small variant="ghost" aria-label={`Dejar de ignorar ${id}`} onClick={() => onChange({ ...value, denylist: value.denylist.filter((x) => x !== id) })}>
+              Quitar
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <div className="inline-form">
+        <input aria-label="Bundle id a ignorar" placeholder="com.ejemplo.dictado" value={ignored} onChange={(e) => setIgnored(e.target.value)} />
+        <Button small onClick={addIgnored}>
+          Añadir a ignoradas
         </Button>
       </div>
       <Field label="URLs de Meet (una por línea)">

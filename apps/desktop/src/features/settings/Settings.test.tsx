@@ -15,12 +15,147 @@ function setup(seed: Parameters<typeof createMockApi>[0] = {}) {
   return mock;
 }
 
+/** Abre una sección desde la lista de la izquierda (como en Ajustes del Sistema). */
+async function goTo(name: string) {
+  const nav = await screen.findByRole("navigation", { name: "Secciones de ajustes" });
+  await userEvent.click(within(nav).getByRole("button", { name }));
+}
+const advanced = (name = "Avanzado") => userEvent.click(screen.getByRole("button", { name }));
+
 describe("SettingsContainer", () => {
+  it("empieza en General y lista las secciones como Ajustes del Sistema", async () => {
+    setup();
+    expect(await screen.findByRole("region", { name: "General" })).toBeInTheDocument();
+    const nav = screen.getByRole("navigation", { name: "Secciones de ajustes" });
+    expect(within(nav).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "General",
+      "Grabación y autoparada",
+      "Detección",
+      "Capturas",
+      "Proveedores de IA",
+      "Modelos",
+      "Permisos",
+      "Acerca de",
+    ]);
+    await goTo("Permisos");
+    expect(screen.queryByRole("region", { name: "General" })).not.toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: "Permisos" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("la barra de guardado solo aparece cuando hay cambios", async () => {
+    setup();
+    await goTo("Capturas");
+    expect(screen.queryByRole("button", { name: "Guardar cambios" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("checkbox", { name: "Capturar la pantalla compartida" }));
+    expect(screen.getByText("Tienes cambios sin guardar")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Descartar" }));
+    expect(screen.queryByRole("button", { name: "Guardar cambios" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Capturar la pantalla compartida" })).not.toBeChecked();
+  });
+
+  it("confirma que se ha guardado", async () => {
+    setup();
+    await goTo("Capturas");
+    await userEvent.click(screen.getByRole("checkbox", { name: "Capturar la pantalla compartida" }));
+    await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Cambios guardados");
+  });
+
+  it("guarda tu nombre y tus alias", async () => {
+    const { controls } = setup();
+    const name = await screen.findByLabelText("Tu nombre");
+    expect(name).toHaveValue("Edu");
+    await userEvent.clear(name);
+    await userEvent.type(name, "Eduardo");
+    const aliases = screen.getByLabelText("Otros nombres");
+    await userEvent.clear(aliases);
+    await userEvent.type(aliases, "Edu, Navajas");
+    await userEvent.tab();
+    await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await waitFor(() => expect(controls.state.settings.user).toEqual({ displayName: "Eduardo", aliases: ["Edu", "Navajas"] }));
+  });
+
+  it("esconde lo técnico de un proveedor tras «Avanzado»", async () => {
+    setup();
+    await goTo("Proveedores de IA");
+    const section = await screen.findByRole("region", { name: "Proveedores de IA" });
+    expect(within(section).getByText("Instalado en tu Mac")).toBeInTheDocument();
+    expect(within(section).queryByLabelText("Ruta del binario de Claude Code (CLI)")).not.toBeInTheDocument();
+    expect(within(section).queryByText(/Variables de entorno/)).not.toBeInTheDocument();
+    await advanced("Avanzado de Claude Code (CLI)");
+    expect(within(section).getByLabelText("Ruta del binario de Claude Code (CLI)")).toHaveValue("/opt/homebrew/bin/claude");
+    expect(within(section).getByText(/Variables de entorno/)).toBeInTheDocument();
+  });
+
+  it("avisa si falta localizar el CLI", async () => {
+    const mock = createMockApi();
+    const k = mock.controls.state.settings.llm.providers[0]!.kind;
+    if (k.type === "claudeCli") k.binaryPath = "";
+    render(
+      <ApiProvider api={mock.api}>
+        <SettingsContainer />
+      </ApiProvider>,
+    );
+    await goTo("Proveedores de IA");
+    expect(await screen.findByText(/Sin localizar/)).toBeInTheDocument();
+  });
+
+  it("enseña las apps por su nombre, no por su identificador", async () => {
+    setup();
+    await goTo("Detección");
+    const section = await screen.findByRole("region", { name: "Detección" });
+    expect(within(section).getByText("Microsoft Teams")).toBeInTheDocument();
+    expect(within(section).queryByText("com.microsoft.teams2")).not.toBeInTheDocument();
+    expect(within(section).queryByLabelText("Identificador de la app")).not.toBeInTheDocument();
+  });
+
+  it("añade una app habitual con un toque", async () => {
+    const { controls } = setup();
+    await goTo("Detección");
+    await userEvent.click(await screen.findByRole("button", { name: "Añadir Zoom" }));
+    expect(screen.queryByRole("button", { name: "Añadir Zoom" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await waitFor(() => expect(controls.state.settings.detection.rules).toContainEqual({ bundleId: "us.zoom.xos", platform: "zoom", isBrowser: false }));
+  });
+
+  it("edita las palabras clave como fichas", async () => {
+    const { controls } = setup();
+    await goTo("Capturas");
+    await userEvent.type(await screen.findByLabelText("Palabras clave"), "urgente{Enter}");
+    await userEvent.click(screen.getByRole("button", { name: "Quitar «importante»" }));
+    await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await waitFor(() => expect(controls.state.settings.screen.keywords).toEqual(["apuntad", "esto es clave", "deadline", "fecha", "urgente"]));
+  });
+
+  it("los contadores suben y bajan con sus botones", async () => {
+    const { controls } = setup();
+    await goTo("Grabación y autoparada");
+    await userEvent.click(await screen.findByRole("button", { name: "Aumentar: Minutos de silencio antes de preguntar" }));
+    expect(screen.getByLabelText("Minutos de silencio antes de preguntar")).toHaveValue(4);
+    await userEvent.click(screen.getByRole("button", { name: "Reducir: Duración máxima (horas)" }));
+    expect(screen.getByLabelText("Duración máxima (horas)")).toHaveValue(3.5);
+    await advanced();
+    expect(screen.getByLabelText("Umbral de silencio (dBFS)")).toHaveValue(-50);
+    await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await waitFor(() => expect(controls.state.settings.autoStop).toMatchObject({ silencePromptAfterMs: 240_000, maxDurationMs: 12_600_000 }));
+  });
+
+  it("acerca de: versión a la vista y la carpeta de datos en Avanzado", async () => {
+    setup();
+    await goTo("Acerca de");
+    const section = await screen.findByRole("region", { name: "Acerca de" });
+    expect(await within(section).findByText("0.1.0-mock")).toBeInTheDocument();
+    expect(within(section).queryByText("/tmp/acta")).not.toBeInTheDocument();
+    await advanced();
+    expect(within(section).getByText("/tmp/acta")).toBeInTheDocument();
+  });
+
   it("muestra el proveedor por defecto y prueba la conexión", async () => {
     const { api } = setup();
+    await goTo("Proveedores de IA");
     const spy = vi.spyOn(api, "llmProviderTest");
     const section = await screen.findByRole("region", { name: "Proveedores de IA" });
-    expect(within(section).getByDisplayValue("/opt/homebrew/bin/claude")).toBeInTheDocument();
+    expect(within(section).getByLabelText("Nombre de Claude Code (CLI)")).toHaveValue("Claude Code (CLI)");
     await userEvent.click(within(section).getByRole("button", { name: "Probar conexión Claude Code (CLI)" }));
     expect(await within(section).findByText(/OK \(mock\)/)).toBeInTheDocument();
     expect(spy).toHaveBeenCalledWith("claude-cli");
@@ -28,6 +163,8 @@ describe("SettingsContainer", () => {
 
   it("guarda la ruta del binario editada", async () => {
     const { controls } = setup();
+    await goTo("Proveedores de IA");
+    await advanced("Avanzado de Claude Code (CLI)");
     const input = await screen.findByLabelText("Ruta del binario de Claude Code (CLI)");
     await userEvent.clear(input);
     await userEvent.type(input, "/usr/local/bin/claude");
@@ -40,8 +177,11 @@ describe("SettingsContainer", () => {
 
   it("detecta los CLI y añade Codex", async () => {
     const { api } = setup();
+    await goTo("Proveedores de IA");
     vi.spyOn(api, "llmCliDetect").mockResolvedValue({ claude: "/x/claude", codex: "/x/codex", claudeEnv: { CLAUDE_CONFIG_DIR: "/h/.claude-personal" }, codexEnv: {} });
     await userEvent.click(await screen.findByRole("button", { name: "Detectar CLI instalados" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Avanzado de Codex (CLI)" }));
+    await advanced("Avanzado de Claude Code (CLI)");
     expect(await screen.findByDisplayValue("/x/codex")).toBeInTheDocument();
     expect(screen.getByDisplayValue("/x/claude")).toBeInTheDocument();
     expect(screen.getByDisplayValue("CLAUDE_CONFIG_DIR")).toBeInTheDocument();
@@ -50,6 +190,8 @@ describe("SettingsContainer", () => {
 
   it("edita el esfuerzo y las variables de entorno de Claude", async () => {
     const { controls } = setup();
+    await goTo("Proveedores de IA");
+    await advanced("Avanzado de Claude Code (CLI)");
     await userEvent.selectOptions(await screen.findByLabelText("Esfuerzo de Claude Code (CLI)"), "high");
     await userEvent.click(screen.getByRole("button", { name: "Añadir variable a Claude Code (CLI)" }));
     await userEvent.type(screen.getByLabelText("Nombre de la variable 1 de Claude Code (CLI)"), "FOO");
@@ -72,6 +214,7 @@ describe("SettingsContainer", () => {
 
   it("guarda y borra la clave de API en el Llavero", async () => {
     const { api, controls } = setup();
+    await goTo("Proveedores de IA");
     const set = vi.spyOn(api, "secretSet");
     const del = vi.spyOn(api, "secretDelete");
     await userEvent.selectOptions(await screen.findByLabelText("Tipo de proveedor nuevo"), "openAiCompatible");
@@ -94,6 +237,7 @@ describe("SettingsContainer", () => {
 
   it("lista los modelos y descarga uno con progreso", async () => {
     const { api } = setup();
+    await goTo("Modelos");
     const dl = vi.spyOn(api, "modelsDownload");
     const section = await screen.findByRole("region", { name: "Modelos" });
     const diar = await within(section).findByRole("listitem", { name: "Diarización" });
@@ -105,6 +249,7 @@ describe("SettingsContainer", () => {
 
   it("muestra el error de descarga de un modelo", async () => {
     const { controls } = setup();
+    await goTo("Modelos");
     const section = await screen.findByRole("region", { name: "Modelos" });
     await within(section).findByRole("listitem", { name: "Detección de voz" });
     act(() => controls.emit("model:download", { name: "vad", fraction: 0.2, done: false, error: "sin red" }));
@@ -113,17 +258,21 @@ describe("SettingsContainer", () => {
 
   it("edita la lista de apps que nunca disparan la detección", async () => {
     const { controls } = setup();
-    await userEvent.type(await screen.findByLabelText("Bundle id a ignorar"), "com.typeless.app");
-    await userEvent.click(screen.getByRole("button", { name: "Añadir a ignoradas" }));
+    await goTo("Detección");
+    await advanced();
+    await userEvent.type(await screen.findByLabelText("Identificador de la app a ignorar"), "com.typeless.app");
+    await userEvent.click(screen.getByRole("button", { name: "Ignorar app" }));
+    expect(screen.getByText("Typeless")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
     await waitFor(() => expect(controls.state.settings.detection.denylist).toEqual(["com.typeless.app"]));
-    await userEvent.click(screen.getByRole("button", { name: "Dejar de ignorar com.typeless.app" }));
+    await userEvent.click(screen.getByRole("button", { name: "Dejar de ignorar Typeless" }));
     await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
     await waitFor(() => expect(controls.state.settings.detection.denylist).toEqual([]));
   });
 
   it("añade un proveedor compatible con OpenAI", async () => {
     setup();
+    await goTo("Proveedores de IA");
     await userEvent.selectOptions(await screen.findByLabelText("Tipo de proveedor nuevo"), "openAiCompatible");
     await userEvent.click(screen.getByRole("button", { name: "Añadir proveedor" }));
     expect(await screen.findByLabelText("URL base de OpenAI compatible")).toBeInTheDocument();
@@ -131,6 +280,7 @@ describe("SettingsContainer", () => {
 
   it("elige el proveedor por tarea", async () => {
     const { controls } = setup();
+    await goTo("Proveedores de IA");
     const sel = await screen.findByLabelText("Proveedor para el acta");
     expect(sel).toHaveValue("claude-cli");
     await userEvent.selectOptions(sel, "");
@@ -140,6 +290,7 @@ describe("SettingsContainer", () => {
 
   it("autoparada en minutos y horas", async () => {
     const { controls } = setup();
+    await goTo("Grabación y autoparada");
     const silence = await screen.findByLabelText("Minutos de silencio antes de preguntar");
     expect(silence).toHaveValue(3);
     await userEvent.clear(silence);
@@ -152,6 +303,7 @@ describe("SettingsContainer", () => {
 
   it("permisos: estado y acciones", async () => {
     const { api } = setup();
+    await goTo("Permisos");
     const req = vi.spyOn(api, "permissionsRequest");
     const open = vi.spyOn(api, "openSystemSettings");
     const section = await screen.findByRole("region", { name: "Permisos" });
@@ -166,6 +318,7 @@ describe("SettingsContainer", () => {
 
   it("muestra el progreso de descarga de modelos", async () => {
     const { controls } = setup();
+    await goTo("Modelos");
     const section = await screen.findByRole("region", { name: "Modelos" });
     await within(section).findByRole("listitem", { name: "Transcripción" });
     act(() => controls.emit("model:download", { name: "asr", fraction: 0.5, done: false, error: null }));
@@ -176,6 +329,7 @@ describe("SettingsContainer", () => {
 
   it("activar las capturas es opt-in explícito", async () => {
     const { controls } = setup();
+    await goTo("Capturas");
     const toggle = await screen.findByRole("checkbox", { name: "Capturar la pantalla compartida" });
     expect(toggle).not.toBeChecked();
     await userEvent.click(toggle);
@@ -185,16 +339,19 @@ describe("SettingsContainer", () => {
 
   it("añade y quita reglas de detección", async () => {
     const { controls } = setup();
-    await userEvent.type(await screen.findByLabelText("Bundle id de la regla nueva"), "us.zoom.xos");
-    await userEvent.selectOptions(screen.getByLabelText("Plataforma de la regla nueva"), "zoom");
-    await userEvent.click(screen.getByRole("button", { name: "Añadir regla" }));
-    await userEvent.click(screen.getByRole("button", { name: "Quitar com.microsoft.teams2" }));
+    await goTo("Detección");
+    await advanced();
+    await userEvent.type(await screen.findByLabelText("Identificador de la app"), "us.zoom.xos");
+    await userEvent.selectOptions(screen.getByLabelText("Tipo de reunión"), "zoom");
+    await userEvent.click(screen.getByRole("button", { name: "Añadir app" }));
+    await userEvent.click(screen.getByRole("button", { name: "Quitar Microsoft Teams" }));
     await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
     await waitFor(() => expect(controls.state.settings.detection.rules.map((r) => r.bundleId)).toEqual(["us.zoom.xos"]));
   });
 
   it("borra una huella de voz", async () => {
     const { controls } = setup({ voiceprints: [{ id: "v1", displayName: "Ana", samples: 3, meetings: 2, updatedAt: 0 }] });
+    await goTo("General");
     await userEvent.click(await screen.findByRole("button", { name: "Olvidar la voz de Ana" }));
     await waitFor(() => expect(controls.state.voiceprints).toHaveLength(0));
   });

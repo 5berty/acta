@@ -1,11 +1,23 @@
+import { AudioLines, Download, Ear, Users } from "lucide-react";
+import type { ReactNode } from "react";
 import type { ModelDownload, ModelStatus } from "../../api";
-import { Button, ProgressBar } from "../../shared/ui/ui";
-import { Section } from "./fields";
+import { Button, ProgressBar, StatusDot } from "../../shared/ui/ui";
+import { Group, Section } from "./fields";
 
 const LABEL: Record<string, string> = {
   asr: "Transcripción",
   diarizer: "Diarización",
   vad: "Detección de voz",
+};
+const WHAT: Record<string, string> = {
+  asr: "Convierte el audio en texto.",
+  diarizer: "Distingue quién habla en cada momento.",
+  vad: "Detecta cuándo hay voz y cuándo silencio.",
+};
+const ICON: Record<string, ReactNode> = {
+  asr: <AudioLines size={16} strokeWidth={1.9} aria-hidden />,
+  diarizer: <Users size={16} strokeWidth={1.9} aria-hidden />,
+  vad: <Ear size={16} strokeWidth={1.9} aria-hidden />,
 };
 
 const formatBytes = (b: number): string => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1e6))} MB`);
@@ -18,33 +30,54 @@ interface Props {
 
 export function ModelsSection({ models, downloads, onDownload }: Props) {
   return (
-    <Section title="Modelos" hint="Modelos locales de voz. Se descargan una vez y todo se procesa en tu Mac.">
-      <ul className="plain">
-        {models.map((m) => {
-          const label = LABEL[m.name] ?? m.name;
-          const d = downloads[m.name];
-          const running = !!d && !d.done && !d.error;
-          return (
-            <li key={m.name} aria-label={label} className="voiceprint">
-              <span>
-                {label}{" "}
-                <span className="muted">
-                  · {m.downloaded ? `Descargado${m.bytes != null ? ` (${formatBytes(m.bytes)})` : ""}` : "Sin descargar"}
+    <Section title="Modelos" hint="Los modelos de voz viven en tu Mac. Se descargan una sola vez y después todo funciona sin conexión.">
+      <div className="settings-group">
+        <ul className="plain group">
+          {models.map((m) => {
+            const label = LABEL[m.name] ?? m.name;
+            const d = downloads[m.name];
+            const running = !!d && !d.done && !d.error;
+            return (
+              <li key={m.name} aria-label={label} className="row model-row">
+                <span className="row-icon-tile" aria-hidden>
+                  {ICON[m.name] ?? <AudioLines size={16} strokeWidth={1.9} />}
                 </span>
-              </span>
-              {running ? <ProgressBar fraction={d.fraction} label={`Descargando ${label}`} /> : null}
-              {d?.error ? (
-                <span className="error" role="alert">
-                  {label}: error ({d.error})
+                <span className="row-text">
+                  <span className="row-label">{label}</span>
+                  <span className="row-hint">{WHAT[m.name] ?? "Modelo local."}</span>
+                  {running ? (
+                    <span className="model-progress">
+                      <ProgressBar fraction={d.fraction} label={`Descargando ${label}`} />
+                      <span className="num">{Math.round(d.fraction * 100)} %</span>
+                    </span>
+                  ) : null}
+                  {d?.error ? (
+                    <span className="error" role="alert">
+                      No se ha podido descargar: {d.error}
+                    </span>
+                  ) : null}
                 </span>
-              ) : null}
-              <Button small disabled={running} aria-label={`Descargar ${label}`} onClick={() => onDownload(m.name)}>
-                {m.downloaded ? "Volver a descargar" : "Descargar"}
-              </Button>
-            </li>
-          );
-        })}
-      </ul>
+                <span className="row-control">
+                  <span className="model-status">
+                    <StatusDot tone={m.downloaded ? "ok" : "neutral"} />
+                    <span>{m.downloaded ? `Descargado${m.bytes != null ? ` · ${formatBytes(m.bytes)}` : ""}` : "Sin descargar"}</span>
+                  </span>
+                  <Button small variant={m.downloaded ? "ghost" : "primary"} capsule disabled={running} aria-label={`Descargar ${label}`} icon={m.downloaded ? null : <Download size={12} strokeWidth={2.4} aria-hidden />} onClick={() => onDownload(m.name)}>
+                    {running ? "Descargando…" : m.downloaded ? "Volver a descargar" : "Descargar"}
+                  </Button>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+      <Group>
+        <div className="row">
+          <span className="row-text">
+            <span className="row-hint">Se guardan en la carpeta de datos de acta. Puedes borrarlos y volver a descargarlos cuando quieras.</span>
+          </span>
+        </div>
+      </Group>
     </Section>
   );
 }

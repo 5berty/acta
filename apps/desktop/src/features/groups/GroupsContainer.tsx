@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Group, GroupSuggestion } from "../../api";
 import { useApi } from "../../app/ApiContext";
+import { FolderOpen } from "lucide-react";
 import { EmptyState } from "../../shared/ui/ui";
 import { GroupDetailContainer } from "./GroupDetailContainer";
 import { GroupsView } from "./GroupsView";
@@ -24,7 +25,7 @@ export function GroupsContainer({ onOpenMeeting }: { onOpenMeeting(id: string, a
   const selected = groups.find((g) => g.id === selectedId) ?? null;
 
   return (
-    <div className="groups">
+    <div className="page groups">
       <GroupsView
         groups={groups}
         suggestions={suggestions}
@@ -48,7 +49,15 @@ export function GroupsContainer({ onOpenMeeting }: { onOpenMeeting(id: string, a
             onOpenMeeting={onOpenMeeting}
           />
         ) : (
-          <EmptyState title="Elige un grupo" hint="Verás sus reuniones y podrás preguntarles a todas a la vez." />
+          <EmptyState
+            icon={<FolderOpen size={28} strokeWidth={1.7} />}
+            title={groups.length === 0 ? "Crea tu primer grupo" : "Elige un grupo"}
+            hint={
+              groups.length === 0
+                ? "Por ejemplo «Proyecto Atlas» o «Uno a uno con Ana». Después podrás preguntar a todas sus reuniones de golpe."
+                : "Verás sus reuniones y podrás preguntarles a todas a la vez."
+            }
+          />
         )}
       </div>
     </div>

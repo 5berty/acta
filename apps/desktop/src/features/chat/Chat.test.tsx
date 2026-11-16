@@ -84,3 +84,35 @@ describe("ChatContainer", () => {
     expect(await screen.findByText("Pensando")).toBeInTheDocument();
   });
 });
+
+describe("chat vacío", () => {
+  it("propone preguntas de ejemplo y las envía de un toque", async () => {
+    const onSend = vi.fn();
+    render(<ChatView messages={[]} streams={{}} busy={false} placeholder="este grupo" suggestions={["¿Qué se decidió?", "¿Qué sigue pendiente?"]} onSend={onSend} onCitation={() => {}} />);
+    expect(screen.getByText("Pregunta lo que quieras sobre este grupo.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "¿Qué sigue pendiente?" }));
+    expect(onSend).toHaveBeenCalledWith("¿Qué sigue pendiente?");
+  });
+
+  it("las sugerencias desaparecen cuando ya hay conversación", () => {
+    render(<ChatView messages={[assistant("Hola")]} streams={{}} busy={false} suggestions={["¿Qué se decidió?"]} onSend={() => {}} onCitation={() => {}} />);
+    expect(screen.queryByRole("button", { name: "¿Qué se decidió?" })).not.toBeInTheDocument();
+  });
+
+  it("mientras llega la respuesta enseña que está pensando", () => {
+    const user: ChatMessage = { ...assistant("¿Y bien?"), id: "u1", role: "user" };
+    render(<ChatView messages={[user]} streams={{}} busy onSend={() => {}} onCitation={() => {}} />);
+    expect(screen.getByLabelText("Pensando")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled();
+  });
+
+  it("Intro envía y Mayús+Intro no", async () => {
+    const onSend = vi.fn();
+    render(<ChatView messages={[]} streams={{}} busy={false} onSend={onSend} onCitation={() => {}} />);
+    const box = screen.getByRole("textbox", { name: "Pregunta" });
+    await userEvent.type(box, "uno{Shift>}{Enter}{/Shift}dos");
+    expect(onSend).not.toHaveBeenCalled();
+    await userEvent.type(box, "{Enter}");
+    expect(onSend).toHaveBeenCalledTimes(1);
+  });
+});

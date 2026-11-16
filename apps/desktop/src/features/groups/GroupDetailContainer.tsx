@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Group, MeetingSummary } from "../../api";
 import { useApi } from "../../app/ApiContext";
-import { formatDate, formatDuration } from "../../shared/format";
-import { Button } from "../../shared/ui/ui";
+import { AudioLines, FolderOpen, Trash2, X } from "lucide-react";
+import { EmptyState, IconButton, Select } from "../../shared/ui/ui";
+import { MeetingRow } from "../meetings/MeetingRow";
 import { ChatContainer } from "../chat/ChatContainer";
 
 interface Props {
@@ -40,61 +41,72 @@ export function GroupDetailContainer({ group, onChanged, onDeleted, onOpenMeetin
 
   return (
     <section className="group-detail" aria-label={`Grupo ${group.name}`}>
-      <header>
-        <input className="title-input" aria-label="Nombre del grupo" value={name} onChange={(e) => setName(e.target.value)} onBlur={save} />
-        <input aria-label="Descripción" placeholder="Descripción" value={description} onChange={(e) => setDescription(e.target.value)} onBlur={save} />
-        <Button
-          variant="ghost"
-          small
+      <header className="group-head">
+        <span className="group-head-icon" aria-hidden>
+          <FolderOpen size={20} strokeWidth={1.8} />
+        </span>
+        <div className="group-head-text">
+          <input className="title-input" aria-label="Nombre del grupo" value={name} onChange={(e) => setName(e.target.value)} onBlur={save} />
+          <input className="subtitle-input" aria-label="Descripción" placeholder="Añade una descripción" value={description} onChange={(e) => setDescription(e.target.value)} onBlur={save} />
+        </div>
+        <IconButton
+          label="Eliminar grupo"
+          variant="glass"
           onClick={() => {
             if (window.confirm(`¿Eliminar el grupo «${group.name}»? Las reuniones se conservan.`)) void api.groupDelete(group.id).then(onDeleted);
           }}
         >
-          Eliminar grupo
-        </Button>
+          <Trash2 size={15} strokeWidth={1.9} aria-hidden />
+        </IconButton>
       </header>
       <div className="group-body">
-        <div>
-          <h3>Reuniones</h3>
-          {members.length === 0 ? <p className="muted">Este grupo aún no tiene reuniones.</p> : null}
-          <ul className="rows">
-            {members.map((m) => (
-              <li key={m.id} className="row">
-                <button type="button" className="row-main" onClick={() => onOpenMeeting(m.id)}>
-                  <span className="row-title">{m.title}</span>
-                  <span className="row-meta">
-                    {formatDate(m.startedAt)} · {formatDuration(m.duration)}
-                  </span>
-                </button>
-                <Button
-                  small
-                  variant="ghost"
-                  aria-label={`Quitar ${m.title} del grupo`}
-                  onClick={() => void api.groupRemoveMeeting(group.id, m.id).then(() => Promise.all([load(), Promise.resolve(onChanged())]))}
-                >
-                  Quitar
-                </Button>
-              </li>
-            ))}
-          </ul>
-          {candidates.length > 0 ? (
-            <select
-              aria-label="Añadir reunión"
-              value=""
-              onChange={(e) => e.target.value && void api.groupAddMeeting(group.id, e.target.value).then(() => Promise.all([load(), Promise.resolve(onChanged())]))}
-            >
-              <option value="">Añadir reunión…</option>
-              {candidates.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.title}
-                </option>
+        <div className="group-col">
+          <div className="col-head">
+            <h3>Reuniones</h3>
+            {candidates.length > 0 ? (
+              <Select
+                label="Añadir reunión"
+                capsule
+                value=""
+                onChange={(e) => e.target.value && void api.groupAddMeeting(group.id, e.target.value).then(() => Promise.all([load(), Promise.resolve(onChanged())]))}
+              >
+                <option value="">Añadir reunión…</option>
+                {candidates.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.title}
+                  </option>
+                ))}
+              </Select>
+            ) : null}
+          </div>
+          {members.length === 0 ? (
+            <EmptyState compact icon={<AudioLines size={20} strokeWidth={1.8} />} title="Este grupo aún no tiene reuniones" hint="Añade la primera con el selector de arriba." />
+          ) : (
+            <ul className="group m-rows">
+              {members.map((m) => (
+                <MeetingRow key={m.id} meeting={m} onOpen={() => onOpenMeeting(m.id)}>
+                  <IconButton
+                    small
+                    label={`Quitar ${m.title} del grupo`}
+                    onClick={() => void api.groupRemoveMeeting(group.id, m.id).then(() => Promise.all([load(), Promise.resolve(onChanged())]))}
+                  >
+                    <X size={13} strokeWidth={2.2} aria-hidden />
+                  </IconButton>
+                </MeetingRow>
               ))}
-            </select>
-          ) : null}
+            </ul>
+          )}
         </div>
-        <div>
-          <h3>Pregunta al grupo</h3>
-          <ChatContainer scope={{ kind: "group", groupId: group.id }} placeholder="este grupo" onCitation={(c) => onOpenMeeting(c.meetingId, c.at)} />
+        <div className="group-col group-chat">
+          <div className="col-head">
+            <h3>Pregunta al grupo</h3>
+          </div>
+          <ChatContainer
+            scope={{ kind: "group", groupId: group.id }}
+            placeholder="este grupo"
+            suggestions={["¿En qué hemos avanzado?", "¿Qué sigue pendiente?"]}
+            onCitation={(c) => onOpenMeeting(c.meetingId, c.at)}
+          />
         </div>
       </div>
     </section>

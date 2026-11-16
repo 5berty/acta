@@ -7,10 +7,11 @@ import { ChatView } from "./ChatView";
 interface Props {
   scope: ChatScope;
   placeholder?: string;
+  suggestions?: string[];
   onCitation(c: Citation): void;
 }
 
-export function ChatContainer({ scope, placeholder, onCitation }: Props) {
+export function ChatContainer({ scope, placeholder, suggestions, onCitation }: Props) {
   const api = useApi();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streams, setStreams] = useState<Record<string, string>>({});
@@ -65,7 +66,7 @@ export function ChatContainer({ scope, placeholder, onCitation }: Props) {
     }
   };
 
-  return <ChatView messages={messages} streams={streams} busy={busy} error={error} placeholder={placeholder} onSend={(t) => void send(t)} onCitation={onCitation} />;
+  return <ChatView messages={messages} streams={streams} busy={busy} error={error} placeholder={placeholder} suggestions={suggestions} onSend={(t) => void send(t)} onCitation={onCitation} />;
 }
 
 function omit(rec: Record<string, string>, key: string): Record<string, string> {

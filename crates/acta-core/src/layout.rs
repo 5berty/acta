@@ -6,6 +6,8 @@
 //!   acta.db  (+ -wal, -shm)
 //!   logs/acta.log, logs/acta-mac.log
 //!   models/                                   <- caché de modelos (fastembed, FluidAudio)
+//!   models/llm/<modelo>.gguf (+ .part)        <- modelo local integrado (opcional)
+//!   runtime/llama/<versión>/llama-server      <- llama.cpp descargado por acta
 //!   meetings/<meeting_id>/
 //!     manifest.json                           <- manifiesto de sesión (recuperable)
 //!     audio/mic/seg-000000.wav                <- segmentos finalizados
@@ -53,6 +55,14 @@ impl DataLayout {
     }
     pub fn models_dir(&self) -> PathBuf {
         self.root.join("models")
+    }
+    /// Modelos GGUF del modelo local integrado: `models/llm/<fichero>.gguf`.
+    pub fn llm_models_dir(&self) -> PathBuf {
+        self.models_dir().join("llm")
+    }
+    /// `llama-server` descargado por acta: `runtime/llama/<versión>/`.
+    pub fn llama_runtime_dir(&self) -> PathBuf {
+        self.root.join("runtime").join("llama")
     }
     pub fn meetings_dir(&self) -> PathBuf {
         self.root.join("meetings")

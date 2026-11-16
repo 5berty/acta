@@ -43,6 +43,11 @@
 //! | `llm_cli_detect` | — | `CliDetection` |
 //! | `secret_set` | `{ providerId, value }` | `SecretRef` (Llavero; nunca se guarda en SQLite) |
 //! | `secret_delete` | `{ providerId }` | `null` |
+//! | `local_llm_status` | — | `LocalLlmStatus` (hardware, runtime, niveles y recomendación) |
+//! | `local_llm_download` | `{ modelId }` | `null` (+ eventos `local-llm:download`; reanuda) |
+//! | `local_llm_cancel` | `{ modelId }` | `null` (la descarga queda a medias y se puede reanudar) |
+//! | `local_llm_delete` | `{ modelId }` | `null` |
+//! | `local_llm_test` | `{ modelId }` | `ProviderTestResult` |
 //! | `models_status` | — | `ModelStatus[]` |
 //! | `audio_inputs_list` | — | `AudioInput[]` (micros para `Settings.recording.micDeviceUid`) |
 //! | `models_download` | `{ name }` (`asr` \| `diarizer` \| `vad`) | `null` (+ eventos `model:download`) |
@@ -116,6 +121,11 @@ pub mod command_names {
     pub const LLM_LIST_MODELS: &str = "llm_list_models";
     pub const LLM_DETECT_LOCAL: &str = "llm_detect_local";
     pub const OPEN_EXTERNAL_URL: &str = "open_external_url";
+    pub const LOCAL_LLM_STATUS: &str = "local_llm_status";
+    pub const LOCAL_LLM_DOWNLOAD: &str = "local_llm_download";
+    pub const LOCAL_LLM_CANCEL: &str = "local_llm_cancel";
+    pub const LOCAL_LLM_DELETE: &str = "local_llm_delete";
+    pub const LOCAL_LLM_TEST: &str = "local_llm_test";
     pub const MEETING_SET_FAVOURITE: &str = "meeting_set_favourite";
     pub const GROUP_SET_FAVOURITE: &str = "group_set_favourite";
     pub const CLEANUP_SUGGESTIONS: &str = "cleanup_suggestions";

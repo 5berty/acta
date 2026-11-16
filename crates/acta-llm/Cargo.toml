@@ -9,7 +9,7 @@ publish.workspace = true
 
 [dependencies]
 acta-core = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["net"] }
 futures = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
@@ -20,6 +20,9 @@ async-trait = { workspace = true }
 unicode-normalization = { workspace = true }
 regex = { workspace = true }
 tempfile = { workspace = true }
+sha2 = { workspace = true }
+flate2 = { workspace = true }
+tar = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }

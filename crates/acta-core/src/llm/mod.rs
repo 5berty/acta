@@ -1,5 +1,6 @@
 //! Proveedores LLM detrás de un puerto. Ver docs/01-arquitectura.md §7.
 
+pub mod local;
 pub mod model;
 pub mod ports;
 

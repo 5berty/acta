@@ -11,7 +11,7 @@ pub mod claude;
 pub mod codex;
 pub mod common;
 pub mod detect;
-mod http;
+pub(crate) mod http;
 pub mod models;
 pub mod openai;
 pub mod presets;
@@ -54,11 +54,18 @@ impl SecretResolver for StaticSecrets {
 
 pub struct DefaultProviderFactory {
     secrets: Arc<dyn SecretResolver>,
+    /// Quien ejecuta el modelo local integrado (`ProviderKind::BuiltIn`).
+    local: Option<Arc<dyn crate::local::LocalRuntime>>,
 }
 
 impl DefaultProviderFactory {
     pub fn new(secrets: Arc<dyn SecretResolver>) -> Self {
-        Self { secrets }
+        Self { secrets, local: None }
+    }
+
+    pub fn with_local(mut self, local: Arc<dyn crate::local::LocalRuntime>) -> Self {
+        self.local = Some(local);
+        self
     }
 }
 
@@ -88,6 +95,12 @@ impl LlmProviderFactory for DefaultProviderFactory {
             ProviderKind::Anthropic { model, api_key } => {
                 let key = self.secrets.resolve(api_key)?;
                 Arc::new(AnthropicProvider::new(id, model.clone(), key, timeout))
+            }
+            ProviderKind::BuiltIn { model_id } => {
+                let local = self.local.clone().ok_or_else(|| {
+                    PortError::Unavailable("El modelo local integrado no está disponible en esta instalación.".into())
+                })?;
+                Arc::new(crate::local::BuiltInProvider::new(id, model_id.clone(), local, timeout))
             }
         })
     }
@@ -168,6 +181,27 @@ mod tests {
             .err()
             .expect("err");
         assert!(matches!(e, PortError::InvalidInput(_)));
+    }
+
+    #[test]
+    fn built_in_needs_a_local_runtime() {
+        use crate::local::{LocalEndpoint, LocalRuntime};
+        struct Rt;
+        #[async_trait::async_trait]
+        impl LocalRuntime for Rt {
+            async fn acquire(&self, _m: &str) -> PortResult<LocalEndpoint> {
+                Err(PortError::Unavailable("x".into()))
+            }
+            fn context_tokens(&self, _m: &str) -> u32 {
+                4_096
+            }
+        }
+        let kind = ProviderKind::BuiltIn { model_id: "qwen3.5-2b-q4_k_m".into() };
+        let e = factory(true).build(&cfg(kind.clone())).err().expect("err");
+        assert!(matches!(e, PortError::Unavailable(m) if m.contains("modelo local integrado")));
+        let p = factory(true).with_local(Arc::new(Rt)).build(&cfg(kind)).expect("provider");
+        assert_eq!(p.capabilities().context_tokens, 4_096);
+        assert!(p.capabilities().native_json_schema);
     }
 
     #[tokio::test]

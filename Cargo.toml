@@ -66,6 +66,10 @@ reqwest = { version = "0.12.24", default-features = false, features = ["json", "
 unicode-normalization = "0.1.24"
 regex = "1.12"
 schemars = "1.0"
+# Modelo local integrado: SHA-256 de las descargas y extracción del .tar.gz de llama.cpp.
+sha2 = "0.10.9"
+flate2 = "1.1"
+tar = { version = "0.4.44", default-features = false }
 
 # --- app / integración (WP6) ---
 tauri = { version = "2.9", features = ["macos-private-api", "protocol-asset"] }

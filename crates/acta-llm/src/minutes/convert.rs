@@ -115,8 +115,14 @@ fn speaker_for(name: &str, input: &MinutesInput, mine: bool) -> Option<SpeakerId
 
 fn convert_task(t: TareaV1, ctx: &ConvertCtx, map: &HashMap<String, CaptureId>) -> ActionItem {
     let input = ctx.input;
-    let responsable = t.responsable.map(|r| r.trim().to_owned()).filter(|r| !r.is_empty());
-    let is_user = responsable.as_deref().is_some_and(|r| matches_user(r, &input.me));
+    // "Edu (yo)" es la etiqueta del transcript, no un nombre: fuera el marcador.
+    let raw = t.responsable.map(|r| r.trim().to_owned()).filter(|r| !r.is_empty());
+    let marked_me = raw.as_deref().is_some_and(|r| r.to_lowercase().ends_with("(yo)"));
+    let responsable = raw
+        .map(|r| if marked_me { r[..r.len() - "(yo)".len()].trim().to_owned() } else { r })
+        .filter(|r| !r.is_empty())
+        .or_else(|| marked_me.then(|| input.me.display_name.clone()));
+    let is_user = marked_me || responsable.as_deref().is_some_and(|r| matches_user(r, &input.me));
     let is_other_known = responsable.as_deref().is_some_and(|r| {
         !is_user && input.speakers.iter().any(|s| !s.is_me && names_match(r, s.shown_name()))
     });
@@ -227,6 +233,19 @@ mod tests {
 
     fn ctx(input: &MinutesInput) -> ConvertCtx<'_> {
         ConvertCtx { input, provider: "fake".into(), model: Some("m".into()), now: UnixMs(99) }
+    }
+
+    #[test]
+    fn the_transcript_marker_never_leaks_into_the_owner_name() {
+        // Visto con el modelo local pequeño: copia la etiqueta "Edu (yo)" del transcript.
+        let input = sample_input();
+        let map = cap_map(&input);
+        let mine = convert_task(tarea("Enviar el informe", Some("Edu (yo)"), false), &ctx(&input), &map);
+        assert_eq!((mine.owner_name.as_deref(), mine.is_mine), (Some("Edu"), true));
+        let only_marker = convert_task(tarea("Revisar", Some("(yo)"), false), &ctx(&input), &map);
+        assert_eq!((only_marker.owner_name.as_deref(), only_marker.is_mine), (Some("Edu"), true));
+        let other = convert_task(tarea("Demo", Some("Ana García"), true), &ctx(&input), &map);
+        assert_eq!((other.owner_name.as_deref(), other.is_mine), (Some("Ana García"), false));
     }
 
     #[test]

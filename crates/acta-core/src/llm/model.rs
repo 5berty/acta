@@ -48,6 +48,10 @@ pub enum ProviderKind {
         model: String,
         api_key: SecretRef,
     },
+    /// Modelo local integrado: acta lo descarga y lo ejecuta con su propio
+    /// `llama-server` (sin Ollama). `model_id` es un id de `llm::local::catalog`.
+    #[serde(rename_all = "camelCase")]
+    BuiltIn { model_id: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

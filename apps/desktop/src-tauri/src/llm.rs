@@ -24,6 +24,7 @@ pub fn model_of(cfg: &ProviderConfig) -> Option<String> {
     match &cfg.kind {
         ProviderKind::ClaudeCli { model, .. } | ProviderKind::CodexCli { model, .. } => model.clone(),
         ProviderKind::OpenAiCompatible { model, .. } | ProviderKind::Anthropic { model, .. } => Some(model.clone()),
+        ProviderKind::BuiltIn { model_id } => Some(model_id.clone()),
     }
 }
 

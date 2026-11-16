@@ -12,7 +12,9 @@ use acta_core::detection::MeetingApp;
 use acta_core::ids::*;
 use acta_core::layout::DataLayout;
 use acta_core::library::*;
+use acta_core::llm::local::{HardwareInfo, LocalLlmDownload, LocalLlmStatus, ModelFit};
 use acta_core::llm::{LlmProviderFactory, ProviderTestResult, SecretRef};
+use acta_llm::local::{BuiltInProvider, LocalLlm, LocalLlmConfig};
 use acta_core::minutes::GroupNamer;
 use acta_core::permissions::{PermissionKind, PermissionState, PermissionStatus};
 use acta_core::processing::ReprocessRequest;
@@ -51,6 +53,10 @@ pub struct AppCore {
     /// Shell para detectar los CLI (`/bin/zsh`) y `$HOME`.
     pub shell: PathBuf,
     pub home: PathBuf,
+    /// Modelo local integrado (descargas + `llama-server` supervisado).
+    pub local_llm: Arc<LocalLlm>,
+    /// Hardware fijo en vez del de este Mac (pruebas).
+    pub hardware_override: Option<HardwareInfo>,
 }
 
 pub struct CoreDeps {
@@ -60,6 +66,8 @@ pub struct CoreDeps {
     pub secrets: Arc<dyn SecretStore>,
     /// `None` = `DefaultProviderFactory` con el Llavero.
     pub factory: Option<Arc<dyn LlmProviderFactory>>,
+    /// `None` = el real, en la carpeta de datos.
+    pub local_llm: Option<Arc<LocalLlm>>,
     pub native: NativePorts,
     pub emitter: Arc<dyn Emit>,
     pub supervisor_config: SupervisorConfig,
@@ -75,9 +83,14 @@ impl AppCore {
         use acta_core::library::SettingsStore;
         let settings = deps.store.load_settings().await?;
         let shared: SharedSettings = Arc::new(RwLock::new(settings.clone()));
-        let factory = deps
-            .factory
-            .unwrap_or_else(|| Arc::new(DefaultProviderFactory::new(Arc::new(KeychainResolver(deps.secrets.clone())))));
+        let local_llm = deps.local_llm.unwrap_or_else(|| Arc::new(LocalLlm::new(LocalLlmConfig::for_layout(&deps.layout))));
+        // Un cierre brusco pudo dejar un llama-server huérfano ocupando memoria.
+        local_llm.kill_stale().await;
+        let factory = deps.factory.unwrap_or_else(|| {
+            Arc::new(
+                DefaultProviderFactory::new(Arc::new(KeychainResolver(deps.secrets.clone()))).with_local(local_llm.clone()),
+            )
+        });
         let pipeline = DynamicPipeline {
             layout: deps.layout.clone(),
             settings: shared.clone(),
@@ -116,6 +129,8 @@ impl AppCore {
             emitter: deps.emitter,
             shell: PathBuf::from("/bin/zsh"),
             home: dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")),
+            local_llm,
+            hardware_override: None,
         })
     }
 
@@ -654,6 +669,81 @@ impl AppCore {
         self.secrets.delete(&secret_ref_for_provider(&provider_id.0))
     }
 
+    // ------------------------------------------------------------------
+    // Modelo local integrado (opcional)
+    // ------------------------------------------------------------------
+
+    async fn hardware(&self) -> HardwareInfo {
+        match &self.hardware_override {
+            Some(h) => h.clone(),
+            None => crate::system::hardware_info(self.layout.root()).await,
+        }
+    }
+
+    pub async fn local_llm_status(&self) -> PortResult<LocalLlmStatus> {
+        Ok(self.local_llm.status(self.hardware().await).await)
+    }
+
+    /// Lanza la descarga (llama.cpp + modelo); el progreso llega como
+    /// `local-llm:download`. Se niega si el modelo no cabe en este Mac.
+    pub async fn local_llm_download(&self, model_id: String) -> PortResult<()> {
+        let status = self.local_llm_status().await?;
+        let entry = status
+            .models
+            .iter()
+            .find(|m| m.model.id == model_id)
+            .ok_or_else(|| PortError::NotFound(format!("No existe el modelo local «{model_id}».")))?;
+        match entry.fit {
+            ModelFit::TooBig => {
+                return Err(PortError::InvalidInput(format!(
+                    "{} necesita al menos {} GB de memoria y este Mac tiene {}.",
+                    entry.model.name,
+                    entry.model.min_ram_gb,
+                    status.hardware.ram_gb()
+                )));
+            }
+            ModelFit::NoDisk => {
+                return Err(PortError::InvalidInput(format!(
+                    "No hay espacio en el disco para {}: ocupa {:.1} GB y hay que dejar 2 GB libres.",
+                    entry.model.name,
+                    entry.model.size_bytes as f64 / 1e9
+                )));
+            }
+            ModelFit::Comfortable | ModelFit::Tight => {}
+        }
+        if entry.downloading {
+            return Ok(());
+        }
+        let (local, emitter) = (self.local_llm.clone(), self.emitter.clone());
+        tokio::spawn(async move {
+            let on_event = move |e: LocalLlmDownload| emitter.emit(event_names::LOCAL_LLM_DOWNLOAD, to_json(&e));
+            if let Err(e) = local.download(&model_id, &on_event).await {
+                tracing::warn!(%model_id, "descarga del modelo local: {e}");
+            }
+        });
+        Ok(())
+    }
+
+    pub async fn local_llm_cancel(&self, model_id: String) -> PortResult<()> {
+        self.local_llm.cancel(&model_id);
+        Ok(())
+    }
+
+    pub async fn local_llm_delete(&self, model_id: String) -> PortResult<()> {
+        self.local_llm.delete(&model_id).await.map(|_| ())
+    }
+
+    /// «Probar»: carga el modelo y le pide una palabra.
+    pub async fn local_llm_test(&self, model_id: String) -> PortResult<ProviderTestResult> {
+        let provider = BuiltInProvider::new(
+            acta_core::llm::local::BUILTIN_PROVIDER_ID.into(),
+            model_id,
+            self.local_llm.clone(),
+            std::time::Duration::from_secs(300),
+        );
+        Ok(test_provider(&provider).await)
+    }
+
     pub async fn models_status(&self) -> PortResult<Vec<ModelStatus>> {
         self.native.models.status().await
     }
@@ -696,6 +786,7 @@ impl AppCore {
     /// Cierre ordenado: para la grabación (se procesará al volver) y el sidecar.
     pub async fn shutdown(&self) {
         let _ = self.supervisor.shutdown().await;
+        self.local_llm.shutdown().await;
         #[cfg(target_os = "macos")]
         if let Some(c) = &self.native.client {
             let _ = c.shutdown().await;

@@ -3,6 +3,7 @@
 //! - `providers`: impl de `LlmProvider` — `claude -p`, `codex exec`,
 //!   OpenAI-compatible (Ollama/LM Studio/OpenRouter), Anthropic API — y la
 //!   `LlmProviderFactory`. Los CLI se lanzan con `process::run_supervised`.
+//! - `local`: modelo local integrado (descarga de GGUF + `llama-server` supervisado).
 //! - `transcript`: formato de transcript para prompts (`[mm:ss|ms] Nombre: texto`)
 //!   y troceo map-reduce si no cabe en contexto.
 //! - `minutes`: impl de `MinutesGenerator` (esquema `schemas/minutes.v1.json`).
@@ -12,6 +13,7 @@
 #![deny(clippy::zombie_processes)]
 
 pub mod chat;
+pub mod local;
 pub mod minutes;
 pub mod moments;
 pub mod naming;

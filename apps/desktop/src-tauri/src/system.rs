@@ -38,6 +38,20 @@ pub async fn dir_size(path: std::path::PathBuf) -> u64 {
     tokio::task::spawn_blocking(move || dir_size_sync(&path)).await.unwrap_or(0)
 }
 
+/// Memoria, chip y disco libre de este Mac, para recomendar un modelo local.
+/// `sysctl` se lanza supervisado; si falla, se devuelve un Mac "desconocido"
+/// de 8 GB (la opción prudente: solo se recomienda el modelo pequeño).
+pub async fn hardware_info(data_root: &Path) -> acta_core::llm::local::HardwareInfo {
+    use acta_core::llm::local::{GIB, HardwareInfo, parse_sysctl};
+    let free = disk_free(data_root);
+    let mut cmd = tokio::process::Command::new("/usr/sbin/sysctl");
+    cmd.args(["-n", "hw.memsize", "machdep.cpu.brand_string", "hw.optional.arm64"]);
+    let out = acta_llm::process::run_supervised(cmd, None, std::time::Duration::from_secs(5)).await;
+    out.ok()
+        .and_then(|o| parse_sysctl(&String::from_utf8_lossy(&o.stdout), free))
+        .unwrap_or(HardwareInfo { ram_bytes: 8 * GIB, chip: "Mac".into(), apple_silicon: cfg!(target_arch = "aarch64"), free_disk_bytes: free })
+}
+
 /// Variable para usar otra carpeta de datos (pruebas, sin tocar la real).
 pub const DATA_DIR_ENV: &str = "ACTA_DATA_DIR";
 

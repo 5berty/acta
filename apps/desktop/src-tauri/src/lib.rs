@@ -85,6 +85,7 @@ async fn build_core(layout: DataLayout, handle: AppHandle) -> PortResult<AppCore
         store: Arc::new(store),
         secrets: Arc::new(KeychainSecretStore::new()),
         factory: None,
+        local_llm: None,
         native,
         emitter: Arc::new(TauriEmit(handle)),
         supervisor_config: SupervisorConfig::default(),
@@ -158,6 +159,14 @@ pub fn run() {
                 tracing::error!("no se pudo crear el icono de la barra de menús: {e}");
             }
             forward_events(handle.clone(), core.clone());
+            // El modelo local se descarga de memoria cuando lleva un rato sin uso.
+            let idle_core = core.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    idle_core.local_llm.stop_if_idle().await;
+                }
+            });
             // Estado inicial (p. ej. recuperando una grabación tras un cierre).
             let h = handle.clone();
             tauri::async_runtime::spawn(async move {
@@ -224,6 +233,11 @@ pub fn run() {
             commands::llm_cli_detect,
             commands::secret_set,
             commands::secret_delete,
+            commands::local_llm_status,
+            commands::local_llm_download,
+            commands::local_llm_cancel,
+            commands::local_llm_delete,
+            commands::local_llm_test,
             commands::models_status,
             commands::audio_inputs_list,
             commands::models_download,

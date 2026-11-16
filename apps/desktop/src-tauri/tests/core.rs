@@ -78,6 +78,7 @@ async fn rig_with(native: NativePorts) -> Rig {
         store,
         secrets: secrets.clone(),
         factory: Some(Arc::new(EchoFactory)),
+        local_llm: None,
         native,
         emitter: events.clone(),
         supervisor_config: SupervisorConfig { tick: Duration::from_millis(30), stop_drain: Duration::from_millis(200) },
@@ -479,4 +480,153 @@ fn favourites_and_cleanup_commands_are_in_the_contract() {
         [c::MEETING_SET_FAVOURITE, c::GROUP_SET_FAVOURITE, c::CLEANUP_SUGGESTIONS, c::CLEANUP_DELETE, c::CLEANUP_KEEP],
         ["meeting_set_favourite", "group_set_favourite", "cleanup_suggestions", "cleanup_delete", "cleanup_keep"]
     );
+}
+
+// ----------------------------------------------------------------------
+// Modelo local integrado
+// ----------------------------------------------------------------------
+
+use acta_core::llm::local::{GIB, HardwareInfo, LocalDownloadStage, ModelFit, RuntimeSource};
+use acta_llm::local::{LocalLlm, LocalLlmConfig};
+
+/// `llama-server` de mentira (Perl): 200 en `/health` y una respuesta fija de chat.
+const FAKE_LLAMA_SERVER: &str = r#"#!/usr/bin/perl
+use strict; use IO::Socket::INET;
+my $port = 0;
+for (my $i = 0; $i < @ARGV; $i++) { $port = $ARGV[$i + 1] if $ARGV[$i] eq '--port'; }
+my $srv = IO::Socket::INET->new(LocalAddr => '127.0.0.1', LocalPort => $port, Listen => 16, ReuseAddr => 1) or die "bind: $!";
+while (my $c = $srv->accept) {
+  my ($head, $len) = ('', 0);
+  while (my $line = <$c>) { $head .= $line; $len = $1 if $line =~ /^content-length:\s*(\d+)/i; last if $line =~ /^\r?\n$/; }
+  my $body = ''; read($c, $body, $len) if $len > 0;
+  my $out = $head =~ m{^GET /health} ? '{"status":"ok"}'
+    : '{"model":"qwen-local","choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":3,"completion_tokens":1}}';
+  print $c "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " . length($out) . "\r\nConnection: close\r\n\r\n$out";
+  close($c);
+}
+"#;
+
+const TINY: &str = "qwen3.5-2b-q4_k_m";
+
+/// Core con un modelo "ya descargado" y un llama-server falso (sin red).
+async fn rig_with_local_model() -> Rig {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let layout = DataLayout::new(dir.path());
+    let server = dir.path().join("fake/llama-server");
+    std::fs::create_dir_all(server.parent().unwrap()).unwrap();
+    std::fs::write(&server, FAKE_LLAMA_SERVER).unwrap();
+    std::fs::set_permissions(&server, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut cfg = LocalLlmConfig::for_layout(&layout);
+    cfg.search.env_override = Some(server);
+    cfg.search.exe_dir = None;
+    cfg.search.homebrew = vec![];
+    std::fs::create_dir_all(&cfg.models_dir).unwrap();
+    std::fs::write(cfg.models_dir.join("Qwen3.5-2B-Q4_K_M.gguf"), b"gguf de mentira").unwrap();
+
+    let store = Arc::new(SqliteStore::open(&layout.db_path()).unwrap().with_layout(layout.clone()));
+    let events = Arc::new(Events::default());
+    let secrets = Arc::new(InMemorySecretStore::default());
+    let core = AppCore::start(CoreDeps {
+        layout: layout.clone(),
+        clock: Arc::new(SystemClock),
+        store,
+        secrets: secrets.clone(),
+        factory: None,
+        local_llm: Some(Arc::new(LocalLlm::new(cfg))),
+        native: NativePorts::unavailable("tests"),
+        emitter: events.clone(),
+        supervisor_config: SupervisorConfig { tick: Duration::from_millis(30), stop_drain: Duration::from_millis(200) },
+    })
+    .await
+    .unwrap();
+    Rig { _dir: dir, layout, core, events, secrets }
+}
+
+#[tokio::test]
+async fn local_model_status_reads_this_mac_and_offers_three_tiers() {
+    let r = rig().await;
+    let s = r.core.local_llm_status().await.unwrap();
+    assert!(s.hardware.ram_bytes >= GIB, "{:?}", s.hardware);
+    assert!(!s.hardware.chip.is_empty());
+    assert!(s.hardware.free_disk_bytes.is_some());
+    assert_eq!(s.models.len(), 3);
+    assert!(s.models.iter().all(|m| !m.downloaded));
+    assert_eq!(s.runtime.pinned_version, "b12444");
+}
+
+#[tokio::test]
+async fn a_model_that_does_not_fit_this_mac_is_never_downloaded() {
+    let mut r = rig().await;
+    r.core.hardware_override =
+        Some(HardwareInfo { ram_bytes: 6 * GIB, chip: "Apple M1".into(), apple_silicon: true, free_disk_bytes: Some(100 * GIB) });
+    let s = r.core.local_llm_status().await.unwrap();
+    assert_eq!(s.models.iter().map(|m| m.fit).collect::<Vec<_>>(), [ModelFit::Tight, ModelFit::TooBig, ModelFit::TooBig]);
+    assert_eq!(s.recommended.as_deref(), Some(TINY));
+    let err = r.core.local_llm_download("qwen3.5-9b-q4_k_m".into()).await.unwrap_err();
+    assert!(matches!(&err, PortError::InvalidInput(m) if m.contains("memoria")), "{err}");
+    // Y sin disco tampoco.
+    r.core.hardware_override =
+        Some(HardwareInfo { ram_bytes: 32 * GIB, chip: "Apple M2 Pro".into(), apple_silicon: true, free_disk_bytes: Some(GIB) });
+    let err = r.core.local_llm_download(TINY.into()).await.unwrap_err();
+    assert!(matches!(&err, PortError::InvalidInput(m) if m.contains("espacio")), "{err}");
+    assert!(matches!(r.core.local_llm_download("nope".into()).await, Err(PortError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn the_built_in_model_downloads_tests_runs_as_a_provider_and_deletes() {
+    let r = rig_with_local_model().await;
+    let s = r.core.local_llm_status().await.unwrap();
+    assert!(s.models[0].downloaded);
+    assert_eq!(s.runtime.source, Some(RuntimeSource::Env));
+
+    // «Descargar» con todo ya en disco termina enseguida y lo anuncia.
+    r.core.local_llm_download(TINY.into()).await.unwrap();
+    let mut done = None;
+    for _ in 0..200 {
+        done = r.events.0.lock().unwrap().iter().find(|(n, p)| n == "local-llm:download" && p["done"] == true).map(|(_, p)| p.clone());
+        if done.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let done = done.expect("evento final");
+    assert_eq!(done["modelId"], TINY);
+    assert_eq!(done["stage"], serde_json::to_value(LocalDownloadStage::Done).unwrap());
+    assert!(done["error"].is_null());
+
+    // «Probar» arranca el servidor y responde.
+    let t = r.core.local_llm_test(TINY.into()).await.unwrap();
+    assert!(t.ok, "{}", t.message);
+    assert!(t.message.contains("qwen-local"));
+    assert_eq!(r.core.local_llm_status().await.unwrap().running.as_deref(), Some(TINY));
+
+    // Como proveedor de Ajustes pasa por la fábrica de verdad.
+    let mut settings = r.core.settings_get().await.unwrap();
+    settings.llm.providers.push(ProviderConfig {
+        id: "builtin".into(),
+        label: "Modelo local integrado".into(),
+        enabled: true,
+        kind: ProviderKind::BuiltIn { model_id: TINY.into() },
+        timeout_s: 30,
+    });
+    r.core.settings_update(settings).await.unwrap();
+    assert!(r.core.llm_provider_test("builtin".into()).await.unwrap().ok);
+
+    r.core.local_llm_delete(TINY.into()).await.unwrap();
+    let s = r.core.local_llm_status().await.unwrap();
+    assert!(!s.models[0].downloaded && s.running.is_none());
+    let t = r.core.local_llm_test(TINY.into()).await.unwrap();
+    assert!(!t.ok && t.message.contains("no está descargado"), "{}", t.message);
+    r.core.shutdown().await;
+}
+
+#[test]
+fn local_model_commands_and_event_are_in_the_contract() {
+    use acta_core::api::{command_names as c, event_names as e};
+    assert_eq!(
+        [c::LOCAL_LLM_STATUS, c::LOCAL_LLM_DOWNLOAD, c::LOCAL_LLM_CANCEL, c::LOCAL_LLM_DELETE, c::LOCAL_LLM_TEST],
+        ["local_llm_status", "local_llm_download", "local_llm_cancel", "local_llm_delete", "local_llm_test"]
+    );
+    assert_eq!(e::LOCAL_LLM_DOWNLOAD, "local-llm:download");
 }

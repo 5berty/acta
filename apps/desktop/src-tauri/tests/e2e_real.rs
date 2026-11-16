@@ -73,6 +73,7 @@ async fn rig_with(root: &Path, patch: impl FnOnce(acta_desktop_lib::native::Nati
         store: Arc::new(store),
         secrets: Arc::new(InMemorySecretStore::default()),
         factory: None,
+        local_llm: None,
         native,
         emitter: events.clone(),
         supervisor_config: SupervisorConfig::default(),

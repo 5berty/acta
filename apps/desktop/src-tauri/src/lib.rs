@@ -119,7 +119,10 @@ fn forward_events(handle: AppHandle, core: Core) {
                 tracing::warn!("emit {name}: {e}");
             }
             match &ev {
-                SupervisorEvent::Snapshot(s) => set_overlay(&handle, overlay::overlay_visible(&s.state)),
+                SupervisorEvent::Snapshot(s) => {
+                    set_overlay(&handle, overlay::overlay_visible(&s.state));
+                    tray::update(&handle, s);
+                }
                 SupervisorEvent::MeetingUpdated(m) if m.status == MeetingStatus::Ready => {
                     let core = core.clone();
                     tauri::async_runtime::spawn(async move { core.after_processing().await });
@@ -160,6 +163,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 if let Ok(s) = core.session_get_state().await {
                     set_overlay(&h, overlay::overlay_visible(&s.state));
+                    tray::update(&h, &s);
                 }
                 core.after_processing().await;
             });

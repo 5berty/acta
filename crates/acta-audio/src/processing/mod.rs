@@ -348,7 +348,12 @@ impl DefaultPipeline {
 #[async_trait]
 impl ProcessingPipeline for DefaultPipeline {
     async fn run(&self, meeting_id: MeetingId, steps: &[ProcessingStep], progress: &dyn ProgressSink) -> PortResult<()> {
-        let mut wanted: BTreeSet<ProcessingStep> = steps.iter().copied().collect();
+        // Contrato de `ReprocessRequest`: vacío = todos desde `Transcribing`.
+        let mut wanted: BTreeSet<ProcessingStep> = if steps.is_empty() {
+            ProcessingStep::ORDER.iter().copied().filter(|s| *s != ProcessingStep::Concatenating).collect()
+        } else {
+            steps.iter().copied().collect()
+        };
         if wanted.contains(&ProcessingStep::Transcribing) || wanted.contains(&ProcessingStep::Diarizing) {
             wanted.insert(ProcessingStep::NamingSpeakers);
         }

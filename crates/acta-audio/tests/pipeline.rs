@@ -281,3 +281,21 @@ async fn confirmed_name_becomes_a_voiceprint_that_names_the_next_meeting() {
     let sug = t2.speakers.iter().find(|s| s.diarization_label.as_deref() == Some("S1")).unwrap();
     assert_eq!((sug.display_name.as_deref(), sug.name_source, sug.confirmed), (Some("Marta"), NameSource::Voiceprint, false));
 }
+
+/// Contrato (`ReprocessRequest.steps`): vacío = todos desde `Transcribing`.
+/// Antes no se ejecutaba NADA y la reunión seguía tal cual (visto en E2E real).
+#[tokio::test]
+async fn empty_steps_reprocess_everything_from_transcribing() {
+    let w = world().await;
+    let sink = Sink(Mutex::new(vec![]));
+    w.pipeline.run(w.id, &ProcessingStep::ORDER, &sink).await.unwrap();
+    assert_eq!(w.minutes.inputs.lock().unwrap().len(), 1);
+    sink.0.lock().unwrap().clear();
+    w.pipeline.run(w.id, &[], &sink).await.unwrap();
+    assert_eq!(w.minutes.inputs.lock().unwrap().len(), 2, "el resumen se rehace");
+    let steps: Vec<ProcessingStep> = sink.0.lock().unwrap().iter().filter(|(_, f)| *f == 1.0).map(|(s, _)| *s).collect();
+    assert!(!steps.contains(&ProcessingStep::Concatenating));
+    for s in [ProcessingStep::Transcribing, ProcessingStep::Diarizing, ProcessingStep::NamingSpeakers, ProcessingStep::Summarizing, ProcessingStep::Indexing] {
+        assert!(steps.contains(&s), "falta {s:?}: {steps:?}");
+    }
+}

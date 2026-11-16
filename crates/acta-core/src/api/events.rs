@@ -11,6 +11,7 @@
 //! | `chat:delta` | `ChatDelta` | streaming de respuestas |
 //! | `live:partial` | `LivePartial` | solo con previsualización en vivo |
 //! | `model:download` | `ModelDownload` | descarga de modelos ASR/embeddings |
+//! | `main:navigate` | `MainNavigate` | `main_window_show{meetingId}`: la ventana principal abre esa reunión |
 
 use crate::ids::MeetingId;
 use crate::library::MeetingStatus;
@@ -26,6 +27,13 @@ pub mod event_names {
     pub const CHAT_DELTA: &str = "chat:delta";
     pub const LIVE_PARTIAL: &str = "live:partial";
     pub const MODEL_DOWNLOAD: &str = "model:download";
+    pub const MAIN_NAVIGATE: &str = "main:navigate";
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MainNavigate {
+    pub meeting_id: MeetingId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

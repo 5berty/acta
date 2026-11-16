@@ -330,6 +330,9 @@ impl MeetingStore for FakeStore {
     async fn list_captures(&self, id: MeetingId) -> PortResult<Vec<Capture>> {
         Ok(lock(&self.captures).iter().filter(|c| c.meeting_id == id).cloned().collect())
     }
+    async fn get_capture(&self, id: CaptureId) -> PortResult<Option<Capture>> {
+        Ok(lock(&self.captures).iter().find(|c| c.id == id).cloned())
+    }
     async fn delete_capture(&self, _id: CaptureId) -> PortResult<()> { nope("delete_capture") }
     async fn save_screen_shares(&self, _m: MeetingId, _s: Vec<ScreenShare>) -> PortResult<()> { nope("shares") }
 }

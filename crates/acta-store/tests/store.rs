@@ -361,8 +361,10 @@ async fn capture_crud_orders_by_media_time() {
     c.topic_path = Some("2".into());
     s.update_capture(c.clone()).await.unwrap();
     assert_eq!(s.list_captures(mid(1)).await.unwrap()[0], c);
+    assert_eq!(s.get_capture(c.id).await.unwrap(), Some(c.clone()));
 
     s.delete_capture(c.id).await.unwrap();
+    assert_eq!(s.get_capture(c.id).await.unwrap(), None);
     assert_eq!(s.list_captures(mid(1)).await.unwrap().len(), 1);
     assert!(matches!(s.delete_capture(c.id).await, Err(PortError::NotFound(_))));
     assert!(matches!(s.update_capture(c).await, Err(PortError::NotFound(_))));

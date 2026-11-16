@@ -683,6 +683,24 @@ impl MeetingStore for SqliteStore {
         self.with_conn(move |conn| load_captures(conn, meeting_id)).await
     }
 
+    async fn get_capture(&self, id: CaptureId) -> PortResult<Option<Capture>> {
+        self.with_conn(move |conn| {
+            let Some(mut c) = conn
+                .query_row(&format!("SELECT {CAPTURE_COLS} FROM captures WHERE id = ?1"), [id.to_string()], capture_from_row)
+                .optional()
+                .map_err(sql_err)?
+            else {
+                return Ok(None);
+            };
+            c.action_item_ids = conn
+                .prepare("SELECT action_item_id FROM capture_action_items WHERE capture_id = ?1 ORDER BY action_item_id")
+                .and_then(|mut st| st.query_map([c.id.to_string()], |r| col_id::<ActionItemId>(r, 0))?.collect::<Result<Vec<_>, _>>())
+                .map_err(sql_err)?;
+            Ok(Some(c))
+        })
+        .await
+    }
+
     async fn delete_capture(&self, id: CaptureId) -> PortResult<()> {
         self.with_conn(move |conn| {
             let n = conn.execute("DELETE FROM captures WHERE id=?1", [id.to_string()]).map_err(sql_err)?;

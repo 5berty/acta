@@ -45,6 +45,7 @@ pub trait MeetingStore: Send + Sync {
     async fn add_capture(&self, capture: Capture) -> PortResult<()>;
     async fn update_capture(&self, capture: Capture) -> PortResult<()>;
     async fn list_captures(&self, meeting_id: MeetingId) -> PortResult<Vec<Capture>>;
+    async fn get_capture(&self, id: CaptureId) -> PortResult<Option<Capture>>;
     async fn delete_capture(&self, id: CaptureId) -> PortResult<()>;
 
     /// Reemplaza los tramos de pantalla compartida (aparecen en el timeline

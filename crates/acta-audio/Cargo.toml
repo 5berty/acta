@@ -19,6 +19,7 @@ tracing = { workspace = true }
 async-trait = { workspace = true }
 
 [dev-dependencies]
+acta-store = { workspace = true }
 tempfile = { workspace = true }
 pretty_assertions = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }

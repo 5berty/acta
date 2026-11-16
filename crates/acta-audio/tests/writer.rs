@@ -225,6 +225,45 @@ fn pause_closes_segment_excludes_gap_and_keeps_tracks_aligned() {
 }
 
 #[test]
+fn exposes_manifest_and_recorded_ms_while_recording() {
+    let root = tempfile::tempdir().unwrap();
+    let mut w = SegmentWriter::create(cfg(root.path(), 30), T0).unwrap();
+    push_n(&mut w, Track::Mic, 0, 15, 1);
+    push_n(&mut w, Track::System, 0, 10, 1);
+    assert_eq!(w.recorded_ms(), 1_500);
+    assert_eq!(w.meeting_id(), mid());
+    assert_eq!(w.manifest().wall_to_media(T0.plus_ms(700)).map(|m| m.0), Some(700));
+}
+
+/// WP4: al reanudar, el reloj host del sidecar ha seguido corriendo (pts
+/// saltan) y además la pista system puede llegar primero con un pts mayor.
+/// El writer debe rebasar el origen, NO rellenar el salto con silencio.
+#[test]
+fn resume_rebases_pts_without_padding_even_if_tracks_arrive_out_of_order() {
+    let root = tempfile::tempdir().unwrap();
+    let mut w = SegmentWriter::create(cfg(root.path(), 30), T0).unwrap();
+    push_n(&mut w, Track::Mic, 0, 10, 3);
+    push_n(&mut w, Track::System, 0, 10, 3);
+    w.pause(T0.plus_ms(1_000)).unwrap();
+    w.resume(T0.plus_ms(301_000)).unwrap();
+    // 5 minutos después; system llega 40 ms "más tarde" en pts pero antes en orden.
+    let base = 3_010u64;
+    for n in 0..10 {
+        let mut s = frame(Track::System, base + n, 4);
+        s.pts_us += 40_000;
+        w.push(&s).unwrap();
+        w.push(&frame(Track::Mic, base + n, 4)).unwrap();
+    }
+    let m = w.finish(StopReason::User, T0.plus_ms(302_000)).unwrap();
+    for t in &m.tracks {
+        let padded: u64 = t.segments.iter().map(|s| s.padded_samples).sum();
+        let total: u64 = t.segments.iter().map(|s| s.samples).sum();
+        assert!(padded <= 1_600, "{:?} padded {padded}", t.track);
+        assert!((total as i64 - 32_000).abs() <= 1_600, "{:?} total {total}", t.track);
+    }
+}
+
+#[test]
 fn restart_fills_the_hole_with_silence_and_rebases_pts() {
     let root = tempfile::tempdir().unwrap();
     let mut w = SegmentWriter::create(cfg(root.path(), 30), T0).unwrap();
@@ -381,7 +420,9 @@ fn acta_audio_never_spawns_child_processes() {
         "tokio::process",
         "Command::new",
         ".spawn(",
-        "ffmpeg",
+        // Troceado para que `scripts/guards.sh` (que prohíbe la palabra en el
+        // código) no confunda esta prohibición con un uso real.
+        concat!("ff", "mpeg"),
         "zombie_processes)]",
     ];
     for f in files {

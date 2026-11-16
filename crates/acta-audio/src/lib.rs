@@ -25,5 +25,6 @@ pub mod processing;
 pub mod recovery;
 pub mod resample;
 pub mod supervisor;
+pub mod vectors_math;
 pub mod watchdog;
 pub mod writer;

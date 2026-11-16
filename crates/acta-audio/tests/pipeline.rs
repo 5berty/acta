@@ -1,0 +1,283 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+//! `DefaultPipeline` de punta a punta con el store SQLite real y fakes de
+//! ASR, diarización y LLM.
+
+use acta_audio::processing::DefaultPipeline;
+use acta_audio::processing::voiceprints::rename_speaker;
+use acta_audio::supervisor::files::append_jsonl;
+use acta_audio::writer::{SegmentWriter, SegmentWriterConfig};
+use acta_core::detection::{Participant, Platform, SpeakerSignal};
+use acta_core::ids::*;
+use acta_core::layout::DataLayout;
+use acta_core::library::*;
+use acta_core::minutes::*;
+use acta_core::processing::{ProcessingPipeline, ProcessingStep, ProgressSink};
+use acta_core::recording::*;
+use acta_core::screen::{Capture, CaptureReason, ScreenEvent};
+use acta_core::settings::Settings;
+use acta_core::time::{MediaMs, UnixMs};
+use acta_core::transcription::*;
+use acta_core::{PortError, PortResult};
+use acta_store::SqliteStore;
+use acta_store::embeddings::HashEmbedder;
+use async_trait::async_trait;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+
+const T0: UnixMs = UnixMs(1_700_000_000_000);
+
+struct FakeAsr;
+#[async_trait]
+impl Transcriber for FakeAsr {
+    async fn transcribe(&self, r: TranscribeRequest, _p: Option<ProgressFn>) -> PortResult<Vec<AsrSegment>> {
+        assert!(r.wav_path.exists());
+        let s = |a, b, t: &str| AsrSegment { start_ms: a, end_ms: b, text: t.into(), confidence: Some(0.9), words: vec![] };
+        Ok(match r.track {
+            Track::Mic => vec![s(0, 2_000, "Hola, empezamos con el presupuesto")],
+            Track::System => vec![s(2_000, 4_000, "Yo me encargo del informe"), s(4_000, 6_000, "Perfecto, gracias")],
+        })
+    }
+}
+
+struct FakeDiar;
+#[async_trait]
+impl Diarizer for FakeDiar {
+    async fn diarize(&self, _wav: &Path, _o: DiarizeOptions, _p: Option<ProgressFn>) -> PortResult<DiarizationResult> {
+        Ok(DiarizationResult {
+            turns: vec![
+                DiarizationTurn { label: "S0".into(), start_ms: 2_000, end_ms: 4_000 },
+                DiarizationTurn { label: "S1".into(), start_ms: 4_000, end_ms: 6_000 },
+            ],
+            speakers: vec![
+                DiarizedSpeaker { label: "S0".into(), embedding: vec![1.0, 0.0, 0.0], total_ms: 2_000 },
+                DiarizedSpeaker { label: "S1".into(), embedding: vec![0.0, 1.0, 0.0], total_ms: 2_000 },
+            ],
+            embedding_model: "fluidaudio-wespeaker-community1-256".into(),
+        })
+    }
+}
+
+#[derive(Default)]
+struct FakeMinutes {
+    fail: Mutex<bool>,
+    inputs: Mutex<Vec<MinutesInput>>,
+}
+#[async_trait]
+impl MinutesGenerator for FakeMinutes {
+    async fn generate(&self, input: MinutesInput) -> PortResult<MinutesOutput> {
+        if *self.fail.lock().unwrap() {
+            return Err(PortError::Unavailable("claude terminó con error".into()));
+        }
+        self.inputs.lock().unwrap().push(input.clone());
+        Ok(MinutesOutput {
+            minutes: Minutes {
+                meeting_id: input.meeting_id,
+                summary_md: "Se habló del presupuesto.".into(),
+                decisions: vec![],
+                action_items: vec![ActionItem {
+                    id: ActionItemId::new(),
+                    meeting_id: input.meeting_id,
+                    text: "Preparar el informe".into(),
+                    owner_name: Some("Luis".into()),
+                    owner_speaker_id: None,
+                    is_mine: false,
+                    due: None,
+                    done: false,
+                    at: Some(MediaMs(2_500)),
+                    capture_ids: vec![],
+                }],
+                provider: "fake".into(),
+                model: None,
+                generated_at: T0,
+            },
+            escaleta: Escaleta {
+                temas: vec![Tema {
+                    titulo: "Presupuesto".into(),
+                    resumen: "r".into(),
+                    inicio_ms: 0,
+                    fin_ms: 6_000,
+                    subtemas: vec![],
+                    capturas: vec![],
+                }],
+            },
+            key_moments: vec![KeyMoment { at: MediaMs(3_000), reason: "encargo".into(), topic: None }],
+            suggested_title: Some("Presupuesto Q1".into()),
+        })
+    }
+}
+
+struct Sink(Mutex<Vec<(ProcessingStep, f32)>>);
+impl ProgressSink for Sink {
+    fn progress(&self, _m: MeetingId, step: ProcessingStep, f: f32) {
+        self.0.lock().unwrap().push((step, f));
+    }
+}
+
+struct World {
+    _dir: tempfile::TempDir,
+    layout: DataLayout,
+    store: Arc<SqliteStore>,
+    minutes: Arc<FakeMinutes>,
+    pipeline: DefaultPipeline,
+    id: MeetingId,
+}
+
+async fn world() -> World {
+    let dir = tempfile::tempdir().unwrap();
+    let layout = DataLayout::new(dir.path());
+    let store = Arc::new(
+        SqliteStore::open(&layout.db_path())
+            .unwrap()
+            .with_layout(layout.clone())
+            .with_embedder(Arc::new(HashEmbedder)),
+    );
+    let id = MeetingId::from_u128(5);
+    seed(&layout, &store, id).await;
+    let minutes = Arc::new(FakeMinutes::default());
+    let pipeline = DefaultPipeline {
+        layout: layout.clone(),
+        settings: Settings::default(),
+        store: store.clone(),
+        voiceprints: store.clone(),
+        search: store.clone(),
+        transcriber: Arc::new(FakeAsr),
+        diarizer: Arc::new(FakeDiar),
+        minutes: minutes.clone(),
+    };
+    World { _dir: dir, layout, store, minutes, pipeline, id }
+}
+
+async fn seed(layout: &DataLayout, store: &SqliteStore, id: MeetingId) {
+    store
+        .create_meeting(NewMeeting {
+            id,
+            title: "Reunión de Teams".into(),
+            platform: Platform::Teams,
+            app_bundle_id: Some("com.microsoft.teams2".into()),
+            started_at: T0,
+            language: "es".into(),
+        })
+        .await
+        .unwrap();
+    // 6 s de audio en las dos pistas.
+    let cfg = SegmentWriterConfig { layout: layout.clone(), meeting_id: id, format: AudioFormat::WORKING, segment_seconds: 30, flush_every_ms: 1_000 };
+    let mut w = SegmentWriter::create(cfg, T0).unwrap();
+    for n in 0..60u64 {
+        for track in Track::ALL {
+            w.push(&AudioFrame { track, seq: n, pts_us: n * 100_000, sample_rate: 16_000, samples: vec![500; 1600] }).unwrap();
+        }
+    }
+    w.finish(StopReason::User, T0.plus_ms(6_000)).unwrap();
+    // Señales en vivo: Teams marca a Luis hablando de 2 a 4 s; Edu es "yo".
+    let sp = layout.live_speakers_path(id);
+    append_jsonl(&sp, &SpeakerSignal::Roster { participants: vec![Participant { name: "Edu Navajas".into(), is_self: true }, Participant { name: "Luis".into(), is_self: false }], at: T0 }).unwrap();
+    append_jsonl(&sp, &SpeakerSignal::Active { names: vec!["Luis".into()], at: T0.plus_ms(2_000) }).unwrap();
+    append_jsonl(&sp, &SpeakerSignal::Active { names: vec![], at: T0.plus_ms(4_000) }).unwrap();
+    let sc = layout.live_screen_path(id);
+    append_jsonl(&sc, &ScreenEvent::ShareStarted { presenter: Some("Luis".into()), at: T0.plus_ms(1_000) }).unwrap();
+    append_jsonl(&sc, &ScreenEvent::ShareEnded { at: T0.plus_ms(5_000) }).unwrap();
+    // Una candidata cerca del momento clave (3 s) y otra lejos.
+    for (n, at) in [(1u128, 3_200u64), (2, 5_900)] {
+        let rel = format!("captures/candidates/{}.jpg", T0.0 + at as i64);
+        std::fs::create_dir_all(layout.capture_candidates_dir(id)).unwrap();
+        std::fs::write(layout.meeting_dir(id).join(&rel), b"jpg").unwrap();
+        store
+            .add_capture(Capture {
+                id: CaptureId::from_u128(id.0.as_u128() * 10 + n),
+                meeting_id: id,
+                at: MediaMs(at),
+                at_wall: T0.plus_ms(at as i64),
+                path: rel,
+                reason: CaptureReason::Candidate,
+                phash: "0".repeat(16),
+                width: 10,
+                height: 10,
+                keyword: None,
+                topic_path: None,
+                action_item_ids: vec![],
+            })
+            .await
+            .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn full_run_builds_transcript_minutes_index_and_captures() {
+    let w = world().await;
+    let sink = Sink(Mutex::new(vec![]));
+    w.pipeline.run(w.id, &ProcessingStep::ORDER, &sink).await.unwrap();
+
+    for t in Track::ALL {
+        assert!(w.layout.track_wav(w.id, t).exists());
+    }
+    assert!(w.layout.mix_wav(w.id).exists());
+    let steps: Vec<_> = sink.0.lock().unwrap().iter().filter(|(_, f)| *f == 1.0).map(|(s, _)| *s).collect();
+    assert_eq!(steps, ProcessingStep::ORDER.to_vec());
+
+    let d = w.store.get_meeting_detail(w.id).await.unwrap().unwrap();
+    assert_eq!(d.meeting.duration.0, 6_000);
+    assert_eq!(d.meeting.title, "Presupuesto Q1", "título sugerido (no editado)");
+    let names: Vec<_> = d.transcript.utterances.iter().map(|u| d.transcript.speakers.iter().find(|s| s.id == u.speaker_id).unwrap().shown_name().to_owned()).collect();
+    assert_eq!(names, vec!["Yo", "Luis", "Speaker 2"]);
+    let luis = d.transcript.speakers.iter().find(|s| s.display_name.as_deref() == Some("Luis")).unwrap();
+    assert_eq!(luis.name_source, NameSource::AppUi);
+    assert_eq!(d.minutes.unwrap().action_items.len(), 1);
+    assert!(d.timeline.iter().any(|e| e.kind == TimelineKind::ScreenShare && e.at.0 == 1_000));
+
+    // Capturas: la cercana al momento clave se promueve; la otra se poda.
+    assert_eq!(d.captures.len(), 1);
+    let c = &d.captures[0];
+    assert_eq!((c.reason, c.path.as_str(), c.topic_path.as_deref()), (CaptureReason::LlmPick, "captures/000003200-llm_pick.jpg", Some("1")));
+    assert!(w.layout.meeting_dir(w.id).join(&c.path).exists());
+    assert!(!w.layout.capture_candidates_dir(w.id).join(format!("{}.jpg", T0.0 + 5_900)).exists());
+
+    let hits = w.store.search(SearchQuery { text: "informe".into(), scope: SearchScope::All, limit: 5 }).await.unwrap();
+    assert!(hits.iter().any(|h| h.meeting_id == w.id));
+    // El LLM recibe a Edu como "yo".
+    let input = w.minutes.inputs.lock().unwrap()[0].clone();
+    assert!(input.speakers.iter().any(|s| s.is_me));
+}
+
+#[tokio::test]
+async fn failed_summary_still_indexes_and_reports_the_step() {
+    let w = world().await;
+    *w.minutes.fail.lock().unwrap() = true;
+    let sink = Sink(Mutex::new(vec![]));
+    let e = w.pipeline.run(w.id, &ProcessingStep::ORDER, &sink).await.unwrap_err();
+    assert!(e.to_string().contains("Resumen"), "{e}");
+    let hits = w.store.search(SearchQuery { text: "informe".into(), scope: SearchScope::All, limit: 5 }).await.unwrap();
+    assert!(!hits.is_empty(), "se indexa aunque falle el LLM");
+    assert_eq!(w.store.list_captures(w.id).await.unwrap().len(), 2, "sin acta no se poda");
+    // Reintento solo del resumen y la poda.
+    *w.minutes.fail.lock().unwrap() = false;
+    w.pipeline.run(w.id, &[ProcessingStep::Summarizing, ProcessingStep::PruningCaptures], &sink).await.unwrap();
+    assert!(w.store.get_minutes(w.id).await.unwrap().is_some());
+}
+
+#[tokio::test]
+async fn confirmed_name_becomes_a_voiceprint_that_names_the_next_meeting() {
+    let w = world().await;
+    let sink = Sink(Mutex::new(vec![]));
+    w.pipeline.run(w.id, &ProcessingStep::ORDER, &sink).await.unwrap();
+    let t = w.store.get_transcript(w.id).await.unwrap().unwrap();
+    let s2 = t.speakers.iter().find(|s| s.label == "Speaker 2").unwrap().clone();
+    let vp = rename_speaker(&w.layout, w.store.as_ref(), w.store.as_ref(), w.id, s2.id, "Marta".into(), true, T0)
+        .await
+        .unwrap()
+        .expect("huella");
+    assert_eq!(w.store.list_voiceprints().await.unwrap()[0].display_name, "Marta");
+
+    // Reprocesar los nombres: Marta sigue confirmada y con la huella.
+    w.pipeline.run(w.id, &[ProcessingStep::NamingSpeakers], &sink).await.unwrap();
+    let t = w.store.get_transcript(w.id).await.unwrap().unwrap();
+    let m = t.speakers.iter().find(|s| s.id == s2.id).unwrap();
+    assert_eq!((m.display_name.as_deref(), m.confirmed, m.voiceprint_id), (Some("Marta"), true, Some(vp)));
+
+    // Una reunión nueva con la misma voz se sugiere como Marta (sin confirmar).
+    let id2 = MeetingId::from_u128(6);
+    seed(&w.layout, &w.store, id2).await;
+    w.pipeline.run(id2, &ProcessingStep::ORDER, &sink).await.unwrap();
+    let t2 = w.store.get_transcript(id2).await.unwrap().unwrap();
+    let sug = t2.speakers.iter().find(|s| s.diarization_label.as_deref() == Some("S1")).unwrap();
+    assert_eq!((sug.display_name.as_deref(), sug.name_source, sug.confirmed), (Some("Marta"), NameSource::Voiceprint, false));
+}

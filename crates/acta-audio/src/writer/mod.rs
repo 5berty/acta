@@ -171,6 +171,21 @@ impl SegmentWriter {
         self.manifest.app = app;
     }
 
+    pub fn meeting_id(&self) -> MeetingId {
+        self.config.meeting_id
+    }
+
+    /// Manifiesto en memoria (tramos al día): sirve para `wall_to_media`
+    /// durante la grabación (capturas, señales en vivo).
+    pub fn manifest(&self) -> &SessionManifest {
+        &self.manifest
+    }
+
+    /// Tiempo grabado (sin pausas) en ms: la pista más larga.
+    pub fn recorded_ms(&self) -> u64 {
+        self.max_position() * 1000 / self.rate()
+    }
+
     /// Fallos acumulados desde la última llamada.
     pub fn take_failures(&mut self) -> Vec<WriteFailure> {
         std::mem::take(&mut self.failures)

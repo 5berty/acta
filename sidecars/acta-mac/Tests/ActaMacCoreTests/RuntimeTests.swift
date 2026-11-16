@@ -1,5 +1,6 @@
 import ActaMacProtocol
 import AVFoundation
+@preconcurrency import FluidAudio
 import Foundation
 import Testing
 @testable import ActaMacCore
@@ -202,4 +203,13 @@ private func dispatcher(_ lines: Lines) -> Dispatcher {
     await out.log("info", String(repeating: "a", count: 1_100_000))
     await out.log("info", "ok")
     #expect(lines.all.count == 1)
+}
+
+/// Caso real (16-nov-2026): reunión sin voz en la pista del sistema (solo
+/// pitidos) → FluidAudio lanza `noSpeechDetected` y el procesado entero
+/// fallaba en «Separar hablantes». Sin voz = cero hablantes, no un error.
+@Test func `no speech in the system track means zero speakers not an error`() {
+    #expect(DiarMapping.isNoSpeech(OfflineDiarizationError.noSpeechDetected))
+    #expect(!DiarMapping.isNoSpeech(OfflineDiarizationError.processingFailed("x")))
+    #expect(!DiarMapping.isNoSpeech(CancellationError()))
 }

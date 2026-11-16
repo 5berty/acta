@@ -35,7 +35,7 @@ let package = Package(
         // Lógica pura de ActaMacCore (sin hardware ni permisos TCC).
         .testTarget(
             name: "ActaMacCoreTests",
-            dependencies: ["ActaMacCore", "ActaMacProtocol"]
+            dependencies: ["ActaMacCore", "ActaMacProtocol", .product(name: "FluidAudio", package: "FluidAudio")]
         ),
     ]
 )

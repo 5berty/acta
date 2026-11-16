@@ -124,6 +124,13 @@ struct DiarSegment: Equatable, Sendable {
 }
 
 enum DiarMapping {
+    /// Sin voz en la pista (solo silencio, pitidos o música) no es un fallo:
+    /// la reunión se queda sin hablantes diarizados.
+    static func isNoSpeech(_ error: Error) -> Bool {
+        if case OfflineDiarizationError.noSpeechDetected = error { return true }
+        return false
+    }
+
     static func file(_ segs: [DiarSegment], database: [String: [Float]]?, model: String) -> DiarizationFile {
         let sorted = segs.filter { $0.end > $0.start }.sorted { $0.start < $1.start }
         let turns = sorted.map {
@@ -375,15 +382,19 @@ public actor TranscriptionService {
                 manager.initialize(models: models)
                 let jobId = a.jobId
                 let output = self.output
-                let r = try await manager.process(wav) { done, total in
-                    guard total > 0 else { return }
-                    let f = 0.05 + 0.9 * Double(done) / Double(total)
-                    Task { await output.emit(.jobProgress(JobProgressEvent(jobId: jobId, fraction: Float(f), stage: "diarizing"))) }
+                do {
+                    let r = try await manager.process(wav) { done, total in
+                        guard total > 0 else { return }
+                        let f = 0.05 + 0.9 * Double(done) / Double(total)
+                        Task { await output.emit(.jobProgress(JobProgressEvent(jobId: jobId, fraction: Float(f), stage: "diarizing"))) }
+                    }
+                    segs = r.segments.map {
+                        DiarSegment(label: $0.speakerId, start: Double($0.startTimeSeconds), end: Double($0.endTimeSeconds), embedding: $0.embedding)
+                    }
+                    database = r.speakerDatabase
+                } catch where DiarMapping.isNoSpeech(error) {
+                    Log.info("diarize: no speech in \(wav.lastPathComponent), 0 speakers")
                 }
-                segs = r.segments.map {
-                    DiarSegment(label: $0.speakerId, start: Double($0.startTimeSeconds), end: Double($0.endTimeSeconds), embedding: $0.embedding)
-                }
-                database = r.speakerDatabase
             }
             try Task.checkCancellation()
             let file = DiarMapping.file(segs, database: database, model: speakerEmbeddingModel)

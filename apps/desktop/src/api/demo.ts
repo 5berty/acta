@@ -3,7 +3,7 @@
 // Envuelve el mock en memoria con reuniones, grupos y un chat creíbles.
 
 import type { ActaApi } from "./contract";
-import { createMockApi, sampleMeeting, type MockControls } from "./mock";
+import { createMockApi, defaultSettings, noLocalRuntimes, sampleMeeting, type MockControls } from "./mock";
 import type * as T from "./types";
 
 const MIN = 60_000;
@@ -197,7 +197,14 @@ function silentWav(ms: number): string {
 
 export type DemoOverlay = "idle" | "recording" | "detected" | "stop" | "warning" | "processing" | "ready";
 
-export function createDemoApi(overlay: DemoOverlay = "idle"): { api: ActaApi; controls: MockControls } {
+export interface DemoOptions {
+  /** Enseña la bienvenida como en un primer arranque. */
+  onboarding?: boolean;
+  /** Sin Ollama ni LM Studio, para ver la ayuda de instalación. */
+  noLocal?: boolean;
+}
+
+export function createDemoApi(overlay: DemoOverlay = "idle", opts: DemoOptions = {}): { api: ActaApi; controls: MockControls } {
   const now = Date.now();
   const drafts: Draft[] = [
     { title: "Planificación del lanzamiento", platform: "teams", ago: 2 * HOUR, minutes: 47, people: ["Edu", "Ana García", "Luis Ortega", "Marta Ruiz"], rich: true },
@@ -277,6 +284,14 @@ export function createDemoApi(overlay: DemoOverlay = "idle"): { api: ActaApi; co
       { kind: "accessibility", status: "denied", target: null },
       { kind: "automation", status: "notDetermined", target: "com.google.Chrome" },
     ],
+    settings: { ...defaultSettings(), onboarding: { completed: !opts.onboarding } },
+    local: opts.noLocal
+      ? noLocalRuntimes()
+      : {
+          ollama: { running: true, baseUrl: "http://127.0.0.1:11434/v1", models: ["qwen2.5:14b", "gemma3:12b", "llama3.2:latest"] },
+          lmStudio: { running: false, baseUrl: "http://127.0.0.1:1234/v1", models: [] },
+        },
+    remoteModels: { "https://api.nan.builders/v1": ["deepseek-v4-flash", "glm5.3", "qwen3.8-flash", "kimi-k3.1-pro", "qwen3.6", "gemma4"] },
   });
 
   const processing = byTitle("Revisión de diseño");

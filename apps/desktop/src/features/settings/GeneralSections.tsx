@@ -20,9 +20,10 @@ interface GeneralProps {
   onTranscription(v: Settings["transcription"]): void;
   voiceprints: VoiceprintSummary[];
   onForget(id: string): void;
+  onReplayOnboarding?: () => void;
 }
 
-export function GeneralSection({ user, transcription, onUser, onTranscription, voiceprints, onForget }: GeneralProps) {
+export function GeneralSection({ user, transcription, onUser, onTranscription, voiceprints, onForget, onReplayOnboarding }: GeneralProps) {
   return (
     <Section title="General" hint="Todo se procesa en tu Mac. Lo único que sale es el texto que le mandas a tu proveedor de IA para escribir el acta.">
       <Group title="Tú" foot="acta usa tu nombre para saber qué tareas son tuyas.">
@@ -62,6 +63,16 @@ export function GeneralSection({ user, transcription, onUser, onTranscription, v
           </Row>
         ))}
       </Group>
+
+      {onReplayOnboarding ? (
+        <Group title="Primeros pasos">
+          <Row label="Bienvenida" hint="El recorrido inicial: permisos, modelos de voz, proveedor de IA y detección.">
+            <Button capsule onClick={onReplayOnboarding}>
+              Volver a ver la bienvenida
+            </Button>
+          </Row>
+        </Group>
+      ) : null}
 
       <Disclosure label="Avanzado">
         <Group>

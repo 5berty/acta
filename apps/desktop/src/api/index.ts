@@ -35,8 +35,9 @@ function pick(): ActaApi {
   const env = import.meta.env;
   const kind = apiKind({ mode: env.MODE, dev: env.DEV, demoFlag: env.VITE_ACTA_DEMO, tauri: isTauri() });
   if (kind === "demo") {
-    const overlay = (new URLSearchParams(window.location.search).get("state") ?? env.VITE_ACTA_DEMO_OVERLAY ?? "idle") as DemoOverlay;
-    return createDemoApi(overlay).api;
+    const params = new URLSearchParams(window.location.search);
+    const overlay = (params.get("state") ?? env.VITE_ACTA_DEMO_OVERLAY ?? "idle") as DemoOverlay;
+    return createDemoApi(overlay, { onboarding: params.has("onboarding"), noLocal: params.has("nolocal") }).api;
   }
   return kind === "tauri" ? createTauriApi() : createMockApi().api;
 }

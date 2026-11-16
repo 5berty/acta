@@ -5,6 +5,11 @@ import { appDisplayName } from "../../shared/format";
 import { Badge, Button, StatusDot, type Tone } from "../../shared/ui/ui";
 import { Section } from "./fields";
 
+/** Automatización llega una vez por navegador abierto: la fila dice cuál. */
+export const permissionKey = (p: PermissionState) => `${p.kind}:${p.target ?? ""}`;
+export const permissionName = (p: PermissionState) => (p.target ? `${PERMISSION_LABEL[p.kind]} (${appDisplayName(p.target)})` : PERMISSION_LABEL[p.kind]);
+export const permissionTargetHint = (p: PermissionState) => (p.target ? ` Se pide para ${appDisplayName(p.target)}.` : "");
+
 export const PERMISSION_LABEL: Record<PermissionKind, string> = {
   microphone: "Micrófono",
   systemAudio: "Audio del sistema",
@@ -59,7 +64,7 @@ export function PermissionsSection({ permissions, onRequest, onOpen, onRefresh }
       <div className="settings-group">
         <ul className="plain group permissions">
           {permissions.map((p) => (
-            <li key={p.kind} aria-label={PERMISSION_LABEL[p.kind]} className="row permission">
+            <li key={permissionKey(p)} aria-label={permissionName(p)} className="row permission">
               <span className="row-icon-tile" aria-hidden>
                 {PERMISSION_ICON[p.kind]}
               </span>
@@ -70,7 +75,7 @@ export function PermissionsSection({ permissions, onRequest, onOpen, onRefresh }
                 </span>
                 <span className="row-hint">
                   {PERMISSION_WHY[p.kind]}
-                  {p.target ? ` Se pide para ${appDisplayName(p.target)}.` : ""}
+                  {permissionTargetHint(p)}
                 </span>
               </span>
               <span className="row-control permission-actions">

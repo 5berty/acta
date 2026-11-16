@@ -5,7 +5,7 @@ import { ActaMark } from "../../shared/brand/ActaMark";
 import { BrandLogo } from "../../shared/brand/BrandLogo";
 import { Badge, Button, ProgressBar, StatusDot, Stepper, Switch } from "../../shared/ui/ui";
 import { MODEL_ICON, MODEL_LABEL, MODEL_WHAT, formatBytes } from "../settings/ModelsSection";
-import { PERMISSION_ICON, PERMISSION_LABEL, PERMISSION_REQUIRED, PERMISSION_STATUS, PERMISSION_TONE, PERMISSION_WHY } from "../settings/PermissionsSection";
+import { PERMISSION_ICON, PERMISSION_LABEL, PERMISSION_REQUIRED, PERMISSION_STATUS, PERMISSION_TONE, PERMISSION_WHY, permissionKey, permissionName, permissionTargetHint } from "../settings/PermissionsSection";
 
 /** Cabecera común de cada paso. */
 export function StepHead({ title, sub }: { title: string; sub: ReactNode }) {
@@ -62,7 +62,7 @@ export function PermissionsStep({ permissions, onRequest, onOpen, onRefresh }: P
       <StepHead title="Permisos de macOS" sub="macOS pide cada permiso por separado. Los dos primeros hacen falta para grabar; el resto mejoran el resultado y puedes darlos más adelante." />
       <ul className="plain group">
         {sorted.map((p) => (
-          <li key={p.kind} aria-label={PERMISSION_LABEL[p.kind]} className="row permission">
+          <li key={permissionKey(p)} aria-label={permissionName(p)} className="row permission">
             <span className="row-icon-tile" aria-hidden>
               {PERMISSION_ICON[p.kind]}
             </span>
@@ -71,7 +71,10 @@ export function PermissionsStep({ permissions, onRequest, onOpen, onRefresh }: P
                 {PERMISSION_LABEL[p.kind]}
                 {PERMISSION_REQUIRED[p.kind] ? <Badge tone="accent">Necesario</Badge> : <Badge>Opcional</Badge>}
               </span>
-              <span className="row-hint">{PERMISSION_WHY[p.kind]}</span>
+              <span className="row-hint">
+                {PERMISSION_WHY[p.kind]}
+                {permissionTargetHint(p)}
+              </span>
             </span>
             <span className="row-control permission-actions">
               <span className="permission-status">

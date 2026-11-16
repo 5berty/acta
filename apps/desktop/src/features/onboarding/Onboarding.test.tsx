@@ -53,6 +53,22 @@ describe("bienvenida de primer arranque", () => {
     expect(screen.queryByRole("dialog", { name: "Bienvenida a acta" })).not.toBeInTheDocument();
   });
 
+  it("permisos: con dos navegadores abiertos, cada fila de Automatización dice para cuál es", async () => {
+    const base = createMockApi().controls.state.permissions.filter((p) => p.kind !== "automation");
+    const { dialog } = await firstRun({
+      permissions: [
+        ...base,
+        { kind: "automation", status: "notDetermined", target: "com.google.Chrome" },
+        { kind: "automation", status: "notDetermined", target: "com.brave.Browser" },
+      ],
+    });
+    await goToStep(2);
+    const rows = await within(dialog).findAllByRole("listitem", { name: /^Automatización/ });
+    expect(rows.map((li) => li.getAttribute("aria-label"))).toEqual(["Automatización (Google Chrome)", "Automatización (Brave)"]);
+    expect(within(rows[0]!).getByText(/Se pide para Google Chrome\./)).toBeInTheDocument();
+    expect(within(rows[1]!).getByText(/Se pide para Brave\./)).toBeInTheDocument();
+  });
+
   it("permisos: dice para qué es cada uno, su estado al momento y cómo concederlo", async () => {
     const { dialog, api, controls } = await firstRun();
     const request = vi.spyOn(api, "permissionsRequest");
@@ -63,7 +79,7 @@ describe("bienvenida de primer arranque", () => {
     expect(within(mic).getByText("Para grabar tu voz.")).toBeInTheDocument();
     expect(within(mic).getByText("Concedido")).toBeInTheDocument();
     expect(within(dialog).getAllByRole("listitem").map((li) => li.getAttribute("aria-label"))).toEqual(
-      expect.arrayContaining(["Micrófono", "Audio del sistema", "Accesibilidad", "Automatización", "Grabación de pantalla"]),
+      expect.arrayContaining(["Micrófono", "Audio del sistema", "Accesibilidad", "Automatización (Google Chrome)", "Grabación de pantalla"]),
     );
     const screenRec = within(dialog).getByRole("listitem", { name: "Grabación de pantalla" });
     expect(within(screenRec).getByText("Opcional")).toBeInTheDocument();

@@ -1,0 +1,232 @@
+/* acta · sistema de diseño «cristal líquido».
+   Tokens compartidos por la ventana principal y la pastilla.
+   Capas, de atrás hacia delante:
+     0. Cristal nativo de la ventana (NSGlassEffectView / NSVisualEffectView).
+     1. Panel de contenido (casi opaco, para leer).
+     2. Tarjetas y filas agrupadas.
+     3. Cristal CSS flotante (barras, cápsulas, hojas): desenfoca lo que pasa por debajo. */
+:root {
+  color-scheme: light dark;
+
+  /* ---- tipografía ---- */
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-rounded: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --t-caption: 11px;
+  --t-small: 12px;
+  --t-body: 13px;
+  --t-callout: 14px;
+  --t-title3: 15px;
+  --t-title2: 17px;
+  --t-title1: 22px;
+  --t-large: 28px;
+
+  /* ---- geometría: radios concéntricos (hijo = padre − separación) ---- */
+  --inset: 8px;
+  --r-window: 18px;
+  --r-pane: calc(var(--r-window) - var(--inset) + 2px);
+  --r-card: 14px;
+  --r-row: 10px;
+  --r-control: 8px;
+  --r-chip: 6px;
+  --r-capsule: 999px;
+  --sidebar-w: 232px;
+  --titlebar-h: 28px;
+
+  /* ---- color ---- */
+  --fg: rgba(0, 0, 0, 0.88);
+  --fg-2: rgba(0, 0, 0, 0.58);
+  --fg-3: rgba(0, 0, 0, 0.4);
+  --fg-on-accent: #fff;
+  --accent: #4a4fe4;
+  --accent-strong: #3c40cf;
+  --accent-text: #3f43d6;
+  --accent-soft: rgba(74, 79, 228, 0.11);
+  --accent-softer: rgba(74, 79, 228, 0.06);
+  --rec: #ff3b30;
+  --ok: #34c759;
+  --ok-text: #1d8a3e;
+  --warn: #ff9f0a;
+  --warn-text: #a85f00;
+  --danger: #ff3b30;
+  --danger-text: #d12a20;
+  --ok-soft: rgba(52, 199, 89, 0.14);
+  --warn-soft: rgba(255, 159, 10, 0.16);
+  --danger-soft: rgba(255, 59, 48, 0.1);
+
+  /* superficies */
+  --window-fallback: #e9e9ee;
+  --sidebar-tint: rgba(244, 244, 247, 0.46);
+  --pane: rgba(247, 247, 249, 0.9);
+  --pane-solid: #f7f7f9;
+  --card: rgba(255, 255, 255, 0.86);
+  --card-solid: #ffffff;
+  --hairline: rgba(0, 0, 0, 0.08);
+  --hairline-strong: rgba(0, 0, 0, 0.14);
+  --fill: rgba(0, 0, 0, 0.05);
+  --fill-hover: rgba(0, 0, 0, 0.08);
+  --fill-press: rgba(0, 0, 0, 0.12);
+  --field: rgba(255, 255, 255, 0.9);
+  --scrim: rgba(20, 20, 30, 0.28);
+  --selection-glass: rgba(255, 255, 255, 0.86);
+
+  /* ---- material cristal (CSS) ---- */
+  --glass-bg: rgba(255, 255, 255, 0.58);
+  --glass-bg-thick: rgba(250, 250, 252, 0.78);
+  --glass-bg-thin: rgba(255, 255, 255, 0.42);
+  --glass-blur: 22px;
+  --glass-saturate: 180%;
+  --glass-rim: linear-gradient(145deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.3) 28%, rgba(255, 255, 255, 0.08) 55%, rgba(255, 255, 255, 0.55) 100%);
+  --glass-sheen: radial-gradient(120% 90% at 8% 0%, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0) 55%);
+  --glass-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06), 0 10px 30px -6px rgba(0, 0, 0, 0.18);
+  --glass-shadow-lg: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 2px 6px rgba(0, 0, 0, 0.08), 0 28px 70px -12px rgba(0, 0, 0, 0.34);
+  --card-shadow: 0 0 0 0.5px var(--hairline), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --pane-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.06), 0 8px 24px -8px rgba(0, 0, 0, 0.12);
+
+  /* ---- movimiento ---- */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  /* Muelles muestreados (amortiguación 1 y 0,78): sin duración «real», se asientan solos. */
+  --spring: linear(0, 0.025 2.8%, 0.126 7.2%, 0.285 12.5%, 0.462 18.4%, 0.622 24.9%, 0.75 31.9%, 0.844 39.2%, 0.907 47%, 0.946 55.1%, 0.97 63.5%, 0.984 72.2%, 0.992 81.2%, 0.997 95.2%, 1);
+  --spring-soft: linear(0, 0.022 2.8%, 0.121 7.2%, 0.289 12.5%, 0.488 18.4%, 0.677 24.9%, 0.827 31.9%, 0.929 39.2%, 0.988 47%, 1.014 55.1%, 1.02 63.5%, 1.017 72.2%, 1.011 81.2%, 1.003 95.2%, 1);
+  --d-press: 110ms;
+  --d-fast: 150ms;
+  --d-base: 200ms;
+  --d-slow: 250ms;
+  --d-spring: 480ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: rgba(255, 255, 255, 0.92);
+    --fg-2: rgba(255, 255, 255, 0.6);
+    --fg-3: rgba(255, 255, 255, 0.38);
+    --accent: #7d83ff;
+    --accent-strong: #6a70f5;
+    --accent-text: #a3a8ff;
+    --accent-soft: rgba(125, 131, 255, 0.2);
+    --accent-softer: rgba(125, 131, 255, 0.1);
+    --rec: #ff453a;
+    --ok: #30d158;
+    --ok-text: #4cd97b;
+    --warn: #ff9f0a;
+    --warn-text: #ffb340;
+    --danger: #ff453a;
+    --danger-text: #ff6961;
+    --ok-soft: rgba(48, 209, 88, 0.16);
+    --warn-soft: rgba(255, 159, 10, 0.18);
+    --danger-soft: rgba(255, 69, 58, 0.16);
+
+    --window-fallback: #1b1b1f;
+    --sidebar-tint: rgba(24, 24, 27, 0.42);
+    --pane: rgba(28, 28, 31, 0.84);
+    --pane-solid: #1c1c1f;
+    --card: rgba(255, 255, 255, 0.06);
+    --card-solid: #2a2a2e;
+    --hairline: rgba(255, 255, 255, 0.09);
+    --hairline-strong: rgba(255, 255, 255, 0.17);
+    --fill: rgba(255, 255, 255, 0.08);
+    --fill-hover: rgba(255, 255, 255, 0.12);
+    --fill-press: rgba(255, 255, 255, 0.17);
+    --field: rgba(255, 255, 255, 0.07);
+    --scrim: rgba(0, 0, 0, 0.5);
+    --selection-glass: rgba(255, 255, 255, 0.14);
+
+    --glass-bg: rgba(58, 58, 64, 0.56);
+    --glass-bg-thick: rgba(40, 40, 45, 0.8);
+    --glass-bg-thin: rgba(120, 120, 130, 0.24);
+    --glass-rim: linear-gradient(145deg, rgba(255, 255, 255, 0.42) 0%, rgba(255, 255, 255, 0.1) 28%, rgba(255, 255, 255, 0.03) 55%, rgba(255, 255, 255, 0.22) 100%);
+    --glass-sheen: radial-gradient(120% 90% at 8% 0%, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0) 55%);
+    --glass-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 32px -6px rgba(0, 0, 0, 0.55);
+    --glass-shadow-lg: 0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.4), 0 30px 80px -12px rgba(0, 0, 0, 0.7);
+    --card-shadow: 0 0 0 0.5px var(--hairline);
+    --pane-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 8px 24px -8px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* «Reducir transparencia»: materiales sólidos, sin desenfoque. */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --pane: var(--pane-solid);
+    --card: var(--card-solid);
+    --glass-bg: var(--card-solid);
+    --glass-bg-thick: var(--card-solid);
+    --glass-bg-thin: var(--card-solid);
+    --glass-blur: 0px;
+    --glass-saturate: 100%;
+    --glass-sheen: none;
+    --sidebar-tint: var(--window-fallback);
+  }
+}
+@media (prefers-contrast: more) {
+  :root {
+    --hairline: rgba(0, 0, 0, 0.3);
+    --hairline-strong: rgba(0, 0, 0, 0.5);
+    --fg-2: rgba(0, 0, 0, 0.78);
+    --fg-3: rgba(0, 0, 0, 0.64);
+  }
+}
+@media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+  :root {
+    --hairline: rgba(255, 255, 255, 0.36);
+    --hairline-strong: rgba(255, 255, 255, 0.56);
+    --fg-2: rgba(255, 255, 255, 0.82);
+    --fg-3: rgba(255, 255, 255, 0.68);
+  }
+}
+
+/* ---- material: una sola definición, tres grosores ---- */
+.glass,
+.glass-thin,
+.glass-thick {
+  position: relative;
+  isolation: isolate;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: var(--glass-shadow);
+}
+.glass-thin {
+  background: var(--glass-bg-thin);
+  box-shadow: 0 0 0 0.5px var(--hairline);
+}
+.glass-thick {
+  background: var(--glass-bg-thick);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 1.6)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(calc(var(--glass-blur) * 1.6)) saturate(var(--glass-saturate));
+  box-shadow: var(--glass-shadow-lg);
+}
+/* Borde especular: 1 px interior con degradado (la luz entra por arriba a la izquierda). */
+.glass::before,
+.glass-thin::before,
+.glass-thick::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--glass-rim);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  pointer-events: none;
+  z-index: 1;
+}
+/* Brillo de refracción: un reflejo suave que no depende del contenido. */
+.glass::after,
+.glass-thick::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--glass-sheen);
+  pointer-events: none;
+  z-index: -1;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass::before,
+  .glass-thin::before,
+  .glass-thick::before {
+    background: var(--hairline-strong);
+  }
+}

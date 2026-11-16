@@ -1,0 +1,39 @@
+/* Lista de reuniones: secciones por día, filas ricas, estados de procesado. */
+.day { margin-bottom: 24px; }
+.day-title { padding: 0 6px 8px; }
+.m-rows { list-style: none; margin: 0; padding: 0; }
+.m-row { display: flex; align-items: center; gap: 10px; padding-right: 14px; transition: background-color var(--d-fast) ease; }
+.m-row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 11px 4px 11px 14px; border: 0; background: none; text-align: left; }
+.m-row-main:focus-visible { outline-offset: -3px; border-radius: var(--r-card); }
+.m-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.m-row-title { font-size: var(--t-callout); font-weight: 600; letter-spacing: -0.008em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-row-meta { color: var(--fg-2); font-size: var(--t-small); font-variant-numeric: tabular-nums; }
+.m-row-snippet { color: var(--fg-2); font-size: var(--t-small); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-row-side { display: flex; align-items: center; gap: 8px; flex: none; }
+@media (hover: hover) and (pointer: fine) { .m-row:hover { background: var(--fill); } }
+.m-row:has(.m-row-main:active) { background: var(--fill-hover); }
+
+.status-row { display: flex; align-items: center; gap: 8px; }
+.processing { display: flex; align-items: center; gap: 8px; color: var(--fg-2); font-size: var(--t-small); font-weight: 500; }
+.processing-row .progress { width: 84px; flex: none; }
+.processing-step { color: var(--fg-3); font-size: var(--t-caption); }
+.processing-banner { padding: 10px 14px; border-radius: var(--r-card); background: var(--accent-softer); box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--accent) 18%, transparent); color: var(--fg); }
+
+/* Aviso explicado (error de procesado). */
+.notice { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: var(--r-card); background: var(--danger-soft); box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--danger) 25%, transparent); }
+.notice-icon { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; flex: none; color: #fff; background: linear-gradient(160deg, color-mix(in srgb, var(--danger) 80%, #fff), var(--danger)); box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.45); }
+.notice-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.notice-title { font-weight: 650; font-size: var(--t-callout); letter-spacing: -0.006em; }
+.notice-hint { color: var(--fg-2); line-height: 1.45; }
+.notice-detail { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--fill); color: var(--fg-2); white-space: pre-wrap; word-break: break-word; max-height: 160px; overflow: auto; }
+.notice-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+
+/* Estado vacío que enseña. */
+.onboarding { display: flex; flex-direction: column; gap: 4px; }
+.onboarding .empty { padding-bottom: 28px; }
+.how { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.how-step { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; }
+.how-icon { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; margin-bottom: 6px; background: var(--accent-soft); color: var(--accent-text); }
+.how-title { font-weight: 650; }
+.how-text { color: var(--fg-2); font-size: var(--t-small); line-height: 1.45; }
+@media (max-width: 1000px) { .how { grid-template-columns: 1fr; } }

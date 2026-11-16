@@ -71,3 +71,118 @@ export function findTemaByPath(escaleta: Escaleta | null, path: string | null): 
 /** Paleta estable por índice de hablante (legible en claro y oscuro). */
 export const SPEAKER_COLORS = ["#4f7cff", "#e0703a", "#2f9e7a", "#b05ad6", "#c9a227", "#d6456b", "#2f98b8"];
 export const speakerColor = (index: number): string => SPEAKER_COLORS[index % SPEAKER_COLORS.length] ?? "#4f7cff";
+
+/** Hora del día sin cero inicial: «9:05». */
+export function formatTime(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getHours()}:${pad(d.getMinutes())}`;
+}
+
+const startOfDay = (ts: number): number => {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+};
+const capitalize = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+
+export interface DayBucket {
+  key: string;
+  label: string;
+}
+
+/** Sección de la lista de reuniones: Hoy, Ayer, Esta semana (desde el lunes) o el mes. */
+export function dayBucket(ts: number, now: number): DayBucket {
+  const today = startOfDay(now);
+  const day = startOfDay(ts);
+  if (day >= today) return { key: "today", label: "Hoy" };
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (day >= yesterday.getTime()) return { key: "yesterday", label: "Ayer" };
+  const monday = new Date(today);
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  if (day >= monday.getTime()) return { key: "week", label: "Esta semana" };
+  const d = new Date(ts);
+  const label = capitalize(new Intl.DateTimeFormat("es-ES", { month: "long", year: "numeric" }).format(d));
+  return { key: `${d.getFullYear()}-${pad(d.getMonth() + 1)}`, label };
+}
+
+export function groupByDay<T extends { startedAt: number }>(items: T[], now: number): (DayBucket & { items: T[] })[] {
+  const groups: (DayBucket & { items: T[] })[] = [];
+  for (const item of items) {
+    const b = dayBucket(item.startedAt, now);
+    const last = groups[groups.length - 1];
+    if (last && last.key === b.key) last.items.push(item);
+    else groups.push({ ...b, items: [item] });
+  }
+  return groups;
+}
+
+/** Iniciales para los avatares: «Ana García» → AG, «Speaker 1» → S1. */
+export function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "?";
+  return words
+    .slice(0, 2)
+    .map((w) => w.charAt(0).toUpperCase())
+    .join("");
+}
+
+/** Color estable a partir de un nombre (para avatares fuera del transcript). */
+export function colorForName(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i += 1) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return speakerColor(h);
+}
+
+const KNOWN_APPS: Record<string, string> = {
+  "com.microsoft.teams2": "Microsoft Teams",
+  "com.microsoft.teams": "Microsoft Teams (clásico)",
+  "us.zoom.xos": "Zoom",
+  "com.tinyspeck.slackmacgap": "Slack",
+  "com.google.Chrome": "Google Chrome",
+  "com.apple.Safari": "Safari",
+  "company.thebrowser.Browser": "Arc",
+  "com.brave.Browser": "Brave",
+  "com.microsoft.edgemac": "Microsoft Edge",
+  "org.mozilla.firefox": "Firefox",
+  "com.cisco.webexmeetingsapp": "Webex",
+  "com.hnc.Discord": "Discord",
+};
+const GENERIC_SEGMENTS = new Set(["com", "org", "net", "io", "us", "co", "app", "mac", "macos", "desktop", "client"]);
+
+/** Nombre legible de una app a partir de su bundle id (sin enseñar el id). */
+export function appDisplayName(bundleId: string): string {
+  const known = KNOWN_APPS[bundleId];
+  if (known) return known;
+  const segments = bundleId.split(".").filter((s) => s && !GENERIC_SEGMENTS.has(s.toLowerCase()));
+  const raw = segments[segments.length - 1] ?? bundleId;
+  return raw
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map(capitalize)
+    .join(" ");
+}
+
+export interface HumanError {
+  title: string;
+  hint: string;
+}
+
+const ERROR_RULES: { test: RegExp; title: string; hint: string }[] = [
+  { test: /no space|espacio|disk full|ENOSPC/i, title: "No queda espacio en el disco", hint: "Libera espacio y vuelve a intentarlo. El audio está a salvo." },
+  { test: /not found|no such file|os error 2|ENOENT|no encontr/i, title: "No encuentro el asistente de IA", hint: "Revisa el proveedor en Ajustes → Proveedores de IA y pulsa «Detectar»." },
+  { test: /timeout|timed out|tardado|deadline/i, title: "La IA ha tardado demasiado", hint: "Suele ser puntual. Reinténtalo; si se repite, prueba con otro proveedor." },
+  { test: /401|403|unauthori[sz]ed|api key|clave|credential|login/i, title: "La clave de la IA no es válida", hint: "Vuelve a iniciar sesión en el proveedor o revisa su clave en Ajustes." },
+  { test: /429|rate limit|quota|cuota|overloaded|529/i, title: "El proveedor de IA está saturado", hint: "Has llegado al límite de uso o el servicio va cargado. Reinténtalo en unos minutos." },
+  { test: /model.*(download|descarg)|not downloaded|sin descargar/i, title: "Falta descargar un modelo de voz", hint: "Descárgalo en Ajustes → Modelos y vuelve a intentarlo." },
+  { test: /network|red\b|connection|conexi|dns|offline|ECONN/i, title: "No hay conexión con la IA", hint: "Comprueba la red. La transcripción es local, pero el acta necesita al proveedor." },
+  { test: /permission|permiso|denied|denegad/i, title: "Falta un permiso de macOS", hint: "Revísalo en Ajustes → Permisos." },
+  { test: /json|schema|parse|esquema/i, title: "La IA ha respondido con un formato raro", hint: "Reinténtalo: normalmente sale bien a la segunda." },
+];
+
+/** Convierte el error crudo del procesado en un título y una pista accionable. */
+export function humanizeError(error: string | null | undefined): HumanError {
+  const rule = error ? ERROR_RULES.find((r) => r.test.test(error)) : undefined;
+  if (rule) return { title: rule.title, hint: rule.hint };
+  return { title: "No se ha podido terminar el acta", hint: "El audio está a salvo. Puedes reintentarlo cuando quieras." };
+}

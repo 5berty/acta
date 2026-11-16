@@ -4,23 +4,23 @@ import type { ModelDownload, ModelStatus } from "../../api";
 import { Button, ProgressBar, StatusDot } from "../../shared/ui/ui";
 import { Group, Section } from "./fields";
 
-const LABEL: Record<string, string> = {
+export const MODEL_LABEL: Record<string, string> = {
   asr: "Transcripción",
-  diarizer: "Diarización",
+  diarizer: "Separar hablantes",
   vad: "Detección de voz",
 };
-const WHAT: Record<string, string> = {
+export const MODEL_WHAT: Record<string, string> = {
   asr: "Convierte el audio en texto.",
   diarizer: "Distingue quién habla en cada momento.",
   vad: "Detecta cuándo hay voz y cuándo silencio.",
 };
-const ICON: Record<string, ReactNode> = {
+export const MODEL_ICON: Record<string, ReactNode> = {
   asr: <AudioLines size={16} strokeWidth={1.9} aria-hidden />,
   diarizer: <Users size={16} strokeWidth={1.9} aria-hidden />,
   vad: <Ear size={16} strokeWidth={1.9} aria-hidden />,
 };
 
-const formatBytes = (b: number): string => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1e6))} MB`);
+export const formatBytes = (b: number): string => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1e6))} MB`);
 
 interface Props {
   models: ModelStatus[];
@@ -34,17 +34,17 @@ export function ModelsSection({ models, downloads, onDownload }: Props) {
       <div className="settings-group">
         <ul className="plain group">
           {models.map((m) => {
-            const label = LABEL[m.name] ?? m.name;
+            const label = MODEL_LABEL[m.name] ?? m.name;
             const d = downloads[m.name];
             const running = !!d && !d.done && !d.error;
             return (
               <li key={m.name} aria-label={label} className="row model-row">
                 <span className="row-icon-tile" aria-hidden>
-                  {ICON[m.name] ?? <AudioLines size={16} strokeWidth={1.9} />}
+                  {MODEL_ICON[m.name] ?? <AudioLines size={16} strokeWidth={1.9} />}
                 </span>
                 <span className="row-text">
                   <span className="row-label">{label}</span>
-                  <span className="row-hint">{WHAT[m.name] ?? "Modelo local."}</span>
+                  <span className="row-hint">{MODEL_WHAT[m.name] ?? "Modelo local."}</span>
                   {running ? (
                     <span className="model-progress">
                       <ProgressBar fraction={d.fraction} label={`Descargando ${label}`} />

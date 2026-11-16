@@ -1,40 +1,15 @@
+import { Plus, ScanSearch, Server, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { ProviderConfig, SecretRef, ProviderKind, ProviderTestResult, Settings } from "../../api";
-import { Bot, KeyRound, Plus, ScanSearch, Terminal, Trash2, X } from "lucide-react";
-import { Button, Disclosure, IconButton, Select, Spinner, StatusDot, Stepper, Switch, errorMessage } from "../../shared/ui/ui";
+import type { ProviderConfig, ProviderKind, ProviderTestResult, SecretRef, Settings } from "../../api";
+import { useApi } from "../../app/ApiContext";
+import { ApiKeyField, ModelField } from "../providers/fields";
+import { LocalModels, useLocalDetection, type LocalKind } from "../providers/LocalModels";
+import { NanIntro } from "../providers/NanIntro";
+import { PresetGallery } from "../providers/PresetGallery";
+import { NAN_REFERRAL_URL, NAN_UNMETERED, PRESETS, PRESET_ORDER, assignAll, brandOf, createFromPreset, presetOf, upsertPreset, type PresetId } from "../providers/presets";
+import { BrandLogo } from "../../shared/brand/BrandLogo";
+import { Button, Disclosure, IconButton, Select, Spinner, StatusDot, Stepper, Switch } from "../../shared/ui/ui";
 import { Field, Group, Row, Section } from "./fields";
-
-type KindType = ProviderKind["type"];
-
-const KIND_LABEL: Record<KindType, string> = {
-  claudeCli: "Claude Code (CLI)",
-  codexCli: "Codex (CLI)",
-  openAiCompatible: "OpenAI compatible (incluye Ollama)",
-  anthropic: "Anthropic (clave de API)",
-};
-const KIND_BLURB: Record<KindType, string> = {
-  claudeCli: "Usa el Claude Code que ya tienes instalado, con tu suscripción.",
-  codexCli: "Usa el Codex que ya tienes instalado, con tu suscripción.",
-  openAiCompatible: "Cualquier servidor compatible con OpenAI. Con Ollama, todo se queda en tu Mac.",
-  anthropic: "La API de Anthropic con tu propia clave.",
-};
-
-export function newProvider(type: KindType, existing: ProviderConfig[]): ProviderConfig {
-  let n = 1;
-  while (existing.some((p) => p.id === `${type}-${n}`)) n += 1;
-  const id = `${type}-${n}`;
-  const base = { id, enabled: true, timeoutS: 600 };
-  switch (type) {
-    case "claudeCli":
-      return { ...base, label: "Claude Code (CLI)", kind: { type, binaryPath: "", model: null, effort: null, extraEnv: {} } };
-    case "codexCli":
-      return { ...base, label: "Codex (CLI)", kind: { type, binaryPath: "", model: null, extraEnv: {} } };
-    case "openAiCompatible":
-      return { ...base, label: "OpenAI compatible", kind: { type, baseUrl: "http://localhost:11434/v1", model: "", apiKey: null } };
-    case "anthropic":
-      return { ...base, label: "Anthropic", kind: { type, model: "", apiKey: { service: "acta", account: `provider:${id}` } } };
-  }
-}
 
 const EFFORTS: { v: string; l: string }[] = [
   { v: "", l: "Por defecto" },
@@ -85,49 +60,6 @@ function EnvEditor({ label, env, onChange }: { label: string; env: Record<string
   );
 }
 
-/** Clave de API: nunca se guarda en los ajustes, solo la referencia al Llavero. */
-function ApiKeyField({ label, ref_, onSave, onDelete }: { label: string; ref_: SecretRef | null; onSave(value: string): Promise<void>; onDelete(): Promise<void> }) {
-  const [value, setValue] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const run = async (fn: () => Promise<void>) => {
-    setError(null);
-    try {
-      await fn();
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  };
-  return (
-    <Field label="Clave de API" hint={ref_ ? "Guardada en el Llavero de macOS. No se muestra ni se copia a los ajustes." : "Se guarda en el Llavero de macOS, nunca en los ajustes."}>
-      <div className="field-line">
-        <input type="password" autoComplete="off" aria-label={`Clave de API de ${label}`} placeholder={ref_ ? "••••••••  (ya hay una guardada)" : "Pega aquí la clave"} value={value} onChange={(e) => setValue(e.target.value)} />
-        <Button
-          small
-          variant="primary"
-          aria-label={`Guardar en el Llavero ${label}`}
-          disabled={!value}
-          onClick={() =>
-            void run(async () => {
-              await onSave(value);
-              setValue("");
-            })
-          }
-        >
-          Guardar en el Llavero
-        </Button>
-        <Button small variant="ghost" aria-label={`Borrar clave ${label}`} onClick={() => void run(onDelete)}>
-          Borrar clave
-        </Button>
-      </div>
-      {error ? (
-        <span role="alert" className="error">
-          {error}
-        </span>
-      ) : null}
-    </Field>
-  );
-}
-
 interface Props {
   llm: Settings["llm"];
   tests: Record<string, ProviderTestResult | "pending" | undefined>;
@@ -138,19 +70,37 @@ interface Props {
   onSecretDelete(providerId: string): Promise<void>;
 }
 
+/** Presets de los que solo tiene sentido tener uno. */
+const SINGLE: PresetId[] = ["claudeCode", "codex", "ollama", "lmStudio", "nan"];
+
 function ProviderCard({ p, result, onChange, onRemove, onTest, onSecretSet, onSecretDelete }: { p: ProviderConfig; result: ProviderTestResult | "pending" | undefined; onChange(p: ProviderConfig): void; onRemove(): void; onTest(): void; onSecretSet: Props["onSecretSet"]; onSecretDelete: Props["onSecretDelete"] }) {
+  const api = useApi();
+  const [reloadKey, setReloadKey] = useState(0);
   const k = p.kind;
+  const preset = PRESETS[presetOf(p)];
+  const brand = brandOf(p);
   const setKind = (kind: ProviderKind) => onChange({ ...p, kind });
   const isCli = k.type === "claudeCli" || k.type === "codexCli";
   const located = isCli && k.binaryPath.trim() !== "";
+  const isCustom = preset.id === "custom";
+  const urlField =
+    k.type === "openAiCompatible" ? (
+      <Field label="URL base" hint={isCustom ? "La dirección de la API, normalmente acabada en /v1." : "Viene ya puesta. Cámbiala solo si tu servidor está en otro sitio."}>
+        <input className="input-mono" aria-label={`URL base de ${p.label}`} placeholder="https://servidor/v1" spellCheck={false} value={k.baseUrl} onChange={(e) => setKind({ ...k, baseUrl: e.target.value })} />
+      </Field>
+    ) : null;
   return (
-    <div className="provider card">
+    <div className="provider card" role="group" aria-label={p.label}>
       <div className="provider-head">
-        <span className={`provider-icon provider-${k.type}`} aria-hidden>
-          {isCli ? <Terminal size={17} strokeWidth={2} /> : k.type === "anthropic" ? <KeyRound size={17} strokeWidth={2} /> : <Bot size={17} strokeWidth={2} />}
-        </span>
+        {brand ? (
+          <BrandLogo brand={brand} size="lg" />
+        ) : (
+          <span className="brand-tile brand-lg brand-generic" aria-hidden>
+            <Server strokeWidth={1.9} />
+          </span>
+        )}
         <div className="provider-title">
-          <input aria-label={`Nombre de ${p.label}`} className="title-input" value={p.label} onChange={(e) => onChange({ ...p, label: e.target.value })} />
+          <input aria-label={`Nombre de ${p.label}`} title="Puedes cambiarle el nombre" className="title-input" value={p.label} onChange={(e) => onChange({ ...p, label: e.target.value })} />
           <p className="provider-sub">
             {isCli ? (
               <>
@@ -158,14 +108,41 @@ function ProviderCard({ p, result, onChange, onRemove, onTest, onSecretSet, onSe
                 {located ? "Instalado en tu Mac" : "Sin localizar: pulsa «Detectar CLI instalados»"}
               </>
             ) : (
-              KIND_BLURB[k.type]
+              preset.blurb
             )}
           </p>
         </div>
         <Switch label={`Activar ${p.label}`} checked={p.enabled} onChange={(enabled) => onChange({ ...p, enabled })} />
       </div>
 
-      <div className="provider-fields">
+      {preset.id === "nan" ? <NanIntro heading={false} onCreateAccount={() => void api.openExternalUrl(NAN_REFERRAL_URL)} /> : null}
+
+      {k.type === "openAiCompatible" && preset.needsKey ? (
+        <ApiKeyField
+          label={p.label}
+          ref_={k.apiKey}
+          onSave={async (value) => {
+            setKind({ ...k, apiKey: await onSecretSet(p.id, value) });
+            setReloadKey((n) => n + 1);
+          }}
+          onDelete={async () => {
+            await onSecretDelete(p.id);
+            setKind({ ...k, apiKey: null });
+          }}
+        />
+      ) : null}
+      {k.type === "anthropic" ? (
+        <ApiKeyField
+          label={p.label}
+          ref_={k.apiKey}
+          onSave={async (value) => setKind({ ...k, apiKey: await onSecretSet(p.id, value) })}
+          onDelete={async () => {
+            await onSecretDelete(p.id);
+          }}
+        />
+      ) : null}
+
+      <div className={`provider-fields${k.type === "openAiCompatible" && !isCustom ? " provider-fields-one" : ""}`}>
         {isCli ? (
           <>
             <Field label="Modelo" hint="Vacío: el que tenga configurado el CLI.">
@@ -186,44 +163,38 @@ function ProviderCard({ p, result, onChange, onRemove, onTest, onSecretSet, onSe
         ) : null}
         {k.type === "openAiCompatible" ? (
           <>
-            <Field label="URL base" hint="Ollama: http://localhost:11434/v1">
-              <input className="input-mono" aria-label="URL base de OpenAI compatible" spellCheck={false} value={k.baseUrl} onChange={(e) => setKind({ ...k, baseUrl: e.target.value })} />
-            </Field>
-            <Field label="Modelo">
-              <input aria-label={`Modelo de ${p.label}`} value={k.model} onChange={(e) => setKind({ ...k, model: e.target.value })} />
-            </Field>
+            {isCustom ? urlField : null}
+            <ModelField
+              label={p.label}
+              value={k.model}
+              reloadKey={reloadKey}
+              prefer={preset.id === "nan" ? NAN_UNMETERED : []}
+              hint={preset.id === "nan" ? "Gemma 4 y Qwen 3.6 no consumen cuota." : preset.local ? "Los modelos que tengas descargados." : "Pulsa «Ver modelos» para elegirlo de la lista."}
+              onChange={(model) => setKind({ ...k, model })}
+              load={() => api.llmListModels(k.baseUrl, k.apiKey ? p.id : null)}
+            />
           </>
         ) : null}
         {k.type === "anthropic" ? (
-          <Field label="Modelo">
-            <input aria-label={`Modelo de ${p.label}`} value={k.model} onChange={(e) => setKind({ ...k, model: e.target.value })} />
+          <Field label="Modelo" hint="El identificador del modelo, tal cual aparece en la consola de Anthropic.">
+            <input aria-label={`Modelo de ${p.label}`} spellCheck={false} value={k.model} onChange={(e) => setKind({ ...k, model: e.target.value })} />
           </Field>
         ) : null}
       </div>
-      {k.type === "openAiCompatible" ? (
+      {k.type === "openAiCompatible" && isCustom ? (
         <ApiKeyField
           label={p.label}
           ref_={k.apiKey}
           onSave={async (value) => setKind({ ...k, apiKey: await onSecretSet(p.id, value) })}
           onDelete={async () => {
             await onSecretDelete(p.id);
-            if (k.type === "openAiCompatible") setKind({ ...k, apiKey: null });
-          }}
-        />
-      ) : null}
-      {k.type === "anthropic" ? (
-        <ApiKeyField
-          label={p.label}
-          ref_={k.apiKey}
-          onSave={async (value) => setKind({ ...k, apiKey: await onSecretSet(p.id, value) })}
-          onDelete={async () => {
-            await onSecretDelete(p.id);
+            setKind({ ...k, apiKey: null });
           }}
         />
       ) : null}
 
       <div className="provider-actions">
-        <Button small capsule onClick={onTest} aria-label={`Probar conexión ${p.label}`} disabled={result === "pending"}>
+        <Button capsule onClick={onTest} aria-label={`Probar conexión ${p.label}`} disabled={result === "pending"}>
           Probar conexión
         </Button>
         {result === "pending" ? (
@@ -249,11 +220,12 @@ function ProviderCard({ p, result, onChange, onRemove, onTest, onSecretSet, onSe
             <EnvEditor label={p.label} env={k.extraEnv} onChange={(extraEnv) => setKind({ ...k, extraEnv })} />
           </>
         ) : null}
+        {isCustom ? null : urlField}
         <Field label="Tiempo máximo de espera" hint="Las actas de reuniones largas pueden tardar varios minutos.">
           <Stepper label={`Tiempo máximo de ${p.label} (s)`} value={p.timeoutS} min={5} step={30} unit="s" onChange={(timeoutS) => onChange({ ...p, timeoutS })} />
         </Field>
         <div>
-          <Button small variant="danger" icon={<Trash2 size={12} strokeWidth={2} aria-hidden />} onClick={onRemove} aria-label={`Eliminar ${p.label}`}>
+          <Button small variant="danger" icon={<Trash2 size={13} strokeWidth={2} aria-hidden />} onClick={onRemove} aria-label={`Eliminar ${p.label}`}>
             Eliminar proveedor
           </Button>
         </div>
@@ -263,8 +235,12 @@ function ProviderCard({ p, result, onChange, onRemove, onTest, onSecretSet, onSe
 }
 
 export function ProvidersSection({ llm, tests, onChange, onTest, onDetect, onSecretSet, onSecretDelete }: Props) {
-  const [kind, setKind] = useState<KindType>("claudeCli");
+  const api = useApi();
+  const { detection, refresh } = useLocalDetection();
   const enabled = llm.providers.filter((p) => p.enabled);
+  const has = (id: PresetId) => llm.providers.some((p) => presetOf(p) === id);
+  const openUrl = (url: string) => void api.openExternalUrl(url);
+
   const task = (label: string, hint: string, aria: string, key: "minutesProvider" | "chatProvider" | "namingProvider") => (
     <Row label={label} hint={hint}>
       <Select label={`Proveedor para ${aria}`} value={llm[key] ?? ""} onChange={(e) => onChange({ ...llm, [key]: e.target.value || null })}>
@@ -278,9 +254,26 @@ export function ProvidersSection({ llm, tests, onChange, onTest, onDetect, onSec
     </Row>
   );
 
+  const add = (id: PresetId) => {
+    onChange({ ...llm, providers: [...llm.providers, createFromPreset(id, llm.providers)] });
+    // Los CLI necesitan su ruta: se busca sola.
+    if (id === "claudeCode" || id === "codex") onDetect();
+  };
+  const useLocal = (kind: LocalKind, model: string, baseUrl: string) => {
+    const next = upsertPreset(llm, kind, { model, baseUrl });
+    onChange(assignAll(next.llm, next.provider.id));
+  };
+  const inUse: Partial<Record<LocalKind, string>> = {};
+  for (const kind of ["ollama", "lmStudio"] as const) {
+    const p = llm.providers.find((x) => x.enabled && presetOf(x) === kind && [llm.minutesProvider, llm.chatProvider].includes(x.id));
+    if (p?.kind.type === "openAiCompatible") inUse[kind] = p.kind.model;
+  }
+  // NaN tiene su tarjeta y los locales su sección: aquí no se repiten.
+  const gallery = PRESET_ORDER.filter((id) => id !== "nan" && !PRESETS[id].local && !(SINGLE.includes(id) && has(id)));
+
   return (
-    <Section title="Proveedores de IA" hint="Quién escribe las actas y responde en el chat. La transcripción siempre es local; esto solo afecta al texto.">
-      <Group title="Quién hace cada cosa">
+    <Section title="Proveedores de IA" hint="Quién escribe las actas y responde en el chat. La transcripción siempre se hace en tu Mac; esto solo afecta al texto.">
+      <Group title="Quién hace cada cosa" foot="Solo aparecen los proveedores activados.">
         {task("Acta", "Resumen, decisiones, tareas y escaleta.", "el acta", "minutesProvider")}
         {task("Chat", "Las respuestas de «Preguntar».", "el chat", "chatProvider")}
         {task("Nombres de grupo", "Títulos para los grupos sugeridos.", "los nombres de grupo", "namingProvider")}
@@ -309,21 +302,32 @@ export function ProvidersSection({ llm, tests, onChange, onTest, onDetect, onSec
               onSecretDelete={onSecretDelete}
             />
           ))}
-          {llm.providers.length === 0 ? <p className="card card-empty">Sin proveedores no hay actas ni chat. Añade uno o pulsa «Detectar CLI instalados».</p> : null}
+          {llm.providers.length === 0 ? <p className="card card-empty">Sin un proveedor no hay actas ni chat. Elige uno de los de abajo: se añade con un toque.</p> : null}
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <p className="group-title">Modelos en tu Mac</p>
+        <LocalModels detection={detection} inUse={inUse} onUse={useLocal} onRefresh={refresh} onOpenUrl={openUrl} />
+      </div>
+
+      <div className="settings-group">
+        <p className="group-title">Añadir un proveedor</p>
+        <div className="stack">
+          {has("nan") ? null : (
+            <div className="card nan-promo" role="group" aria-label="NaN Builders">
+              <NanIntro onCreateAccount={() => openUrl(NAN_REFERRAL_URL)}>
+                <Button capsule variant="primary" icon={<Plus size={13} strokeWidth={2.4} aria-hidden />} onClick={() => add("nan")}>
+                  Usar NaN Builders
+                </Button>
+              </NanIntro>
+            </div>
+          )}
+          <PresetGallery presets={gallery} onAdd={add} />
         </div>
         <div className="provider-add">
-          <Select label="Tipo de proveedor nuevo" value={kind} onChange={(e) => setKind(e.target.value as KindType)}>
-            {(Object.keys(KIND_LABEL) as KindType[]).map((t) => (
-              <option key={t} value={t}>
-                {KIND_LABEL[t]}
-              </option>
-            ))}
-          </Select>
-          <Button small icon={<Plus size={12} strokeWidth={2.4} aria-hidden />} onClick={() => onChange({ ...llm, providers: [...llm.providers, newProvider(kind, llm.providers)] })}>
-            Añadir proveedor
-          </Button>
           <span className="spacer" />
-          <Button small variant="ghost" icon={<ScanSearch size={13} strokeWidth={2} aria-hidden />} onClick={onDetect}>
+          <Button small variant="ghost" title="Busca Claude Code y Codex en tu Mac y rellena su ruta" icon={<ScanSearch size={13} strokeWidth={2} aria-hidden />} onClick={onDetect}>
             Detectar CLI instalados
           </Button>
         </div>

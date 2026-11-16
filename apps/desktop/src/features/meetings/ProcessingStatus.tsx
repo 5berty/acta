@@ -7,7 +7,7 @@ import { Badge, Button, ProgressBar, Spinner } from "../../shared/ui/ui";
 export const STEP_LABEL: Record<ProcessingStep, string> = {
   concatenating: "Preparando el audio",
   transcribing: "Transcribiendo",
-  diarizing: "Diarizando",
+  diarizing: "Separando hablantes",
   namingSpeakers: "Identificando hablantes",
   summarizing: "Resumiendo",
   indexing: "Indexando",

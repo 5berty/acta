@@ -62,7 +62,7 @@ describe("MeetingListContainer", () => {
     const { controls } = setup([proc]);
     await screen.findByText("Procesando ahora");
     act(() => controls.emit("processing:progress", { meetingId: proc.meeting.id, step: "diarizing", fraction: 0.4 }));
-    expect(await screen.findByText(/Diarizando/)).toBeInTheDocument();
+    expect(await screen.findByText(/Separando hablantes/)).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "40");
   });
 
@@ -151,7 +151,7 @@ describe("ProcessingStatus", () => {
   it("cuenta el paso del procesado", () => {
     render(<ProcessingStatus status="processing" step="diarizing" fraction={0.25} />);
     expect(screen.getByText("3 de 7")).toBeInTheDocument();
-    expect(screen.getByRole("progressbar", { name: "Diarizando" })).toHaveAttribute("aria-valuenow", "25");
+    expect(screen.getByRole("progressbar", { name: "Separando hablantes" })).toHaveAttribute("aria-valuenow", "25");
   });
   it("en cola, sin paso todavía", () => {
     render(<ProcessingStatus status="processing" />);

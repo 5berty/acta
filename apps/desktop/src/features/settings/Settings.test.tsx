@@ -217,22 +217,21 @@ describe("SettingsContainer", () => {
     await goTo("Proveedores de IA");
     const set = vi.spyOn(api, "secretSet");
     const del = vi.spyOn(api, "secretDelete");
-    await userEvent.selectOptions(await screen.findByLabelText("Tipo de proveedor nuevo"), "openAiCompatible");
-    await userEvent.click(screen.getByRole("button", { name: "Añadir proveedor" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Añadir Otro servidor compatible" }));
     const input = await screen.findByLabelText("Clave de API de OpenAI compatible");
     expect(input).toHaveAttribute("type", "password");
     await userEvent.type(input, "sk-secreto");
     await userEvent.click(screen.getByRole("button", { name: "Guardar en el Llavero OpenAI compatible" }));
-    await waitFor(() => expect(set).toHaveBeenCalledWith("openAiCompatible-1", "sk-secreto"));
+    await waitFor(() => expect(set).toHaveBeenCalledWith("custom", "sk-secreto"));
     await waitFor(() => expect(input).toHaveValue(""));
     await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
     await waitFor(() => {
       const k = controls.state.settings.llm.providers[1]!.kind;
-      expect(k.type === "openAiCompatible" && k.apiKey).toEqual({ service: "acta", account: "provider:openAiCompatible-1" });
+      expect(k.type === "openAiCompatible" && k.apiKey).toEqual({ service: "acta", account: "provider:custom" });
     });
     expect(JSON.stringify(controls.state.settings)).not.toContain("sk-secreto");
     await userEvent.click(screen.getByRole("button", { name: "Borrar clave OpenAI compatible" }));
-    await waitFor(() => expect(del).toHaveBeenCalledWith("openAiCompatible-1"));
+    await waitFor(() => expect(del).toHaveBeenCalledWith("custom"));
   });
 
   it("lista los modelos y descarga uno con progreso", async () => {
@@ -240,9 +239,9 @@ describe("SettingsContainer", () => {
     await goTo("Modelos");
     const dl = vi.spyOn(api, "modelsDownload");
     const section = await screen.findByRole("region", { name: "Modelos" });
-    const diar = await within(section).findByRole("listitem", { name: "Diarización" });
+    const diar = await within(section).findByRole("listitem", { name: "Separar hablantes" });
     expect(within(await within(section).findByRole("listitem", { name: "Transcripción" })).getByText(/Descargado/)).toBeInTheDocument();
-    await userEvent.click(within(diar).getByRole("button", { name: "Descargar Diarización" }));
+    await userEvent.click(within(diar).getByRole("button", { name: "Descargar Separar hablantes" }));
     expect(dl).toHaveBeenCalledWith("diarizer");
     await waitFor(() => expect(within(diar).getByText(/Descargado/)).toBeInTheDocument());
   });
@@ -273,8 +272,7 @@ describe("SettingsContainer", () => {
   it("añade un proveedor compatible con OpenAI", async () => {
     setup();
     await goTo("Proveedores de IA");
-    await userEvent.selectOptions(await screen.findByLabelText("Tipo de proveedor nuevo"), "openAiCompatible");
-    await userEvent.click(screen.getByRole("button", { name: "Añadir proveedor" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Añadir Otro servidor compatible" }));
     expect(await screen.findByLabelText("URL base de OpenAI compatible")).toBeInTheDocument();
   });
 

@@ -7,7 +7,8 @@ import { AboutSection } from "./AboutSection";
 import { DetectionSection, GeneralSection, RecordingSection, ScreenSection } from "./GeneralSections";
 import { ModelsSection } from "./ModelsSection";
 import { PermissionsSection } from "./PermissionsSection";
-import { ProvidersSection, newProvider } from "./ProvidersSection";
+import { createFromPreset } from "../providers/presets";
+import { ProvidersSection } from "./ProvidersSection";
 
 type SectionKey = "general" | "recording" | "detection" | "screen" | "providers" | "models" | "permissions" | "about";
 
@@ -24,7 +25,7 @@ const SECTIONS: { key: SectionKey; label: string; icon: ReactNode; tint: string 
 ];
 const REQUIRED_PERMISSIONS = new Set(["microphone", "systemAudio"]);
 
-export function SettingsContainer() {
+export function SettingsContainer({ onReplayOnboarding }: { onReplayOnboarding?: () => void } = {}) {
   const api = useApi();
   const [section, setSection] = useState<SectionKey>("general");
   const [info, setInfo] = useState<AppInfo | null>(null);
@@ -106,7 +107,7 @@ export function SettingsContainer() {
         if (!path) continue;
         const existing = providers.find((p) => p.kind.type === type);
         const env = type === "claudeCli" ? found.claudeEnv : found.codexEnv;
-        const target = existing ?? newProvider(type, providers);
+        const target = existing ?? createFromPreset(type === "claudeCli" ? "claudeCode" : "codex", providers);
         if (target.kind.type === "claudeCli" || target.kind.type === "codexCli") {
           target.kind.binaryPath = path;
           target.kind.extraEnv = { ...target.kind.extraEnv, ...env };
@@ -144,6 +145,7 @@ export function SettingsContainer() {
               onUser={(user) => setDraft({ ...draft, user })}
               onTranscription={(transcription) => setDraft({ ...draft, transcription })}
               voiceprints={voiceprints}
+              onReplayOnboarding={onReplayOnboarding}
               onForget={(id) => void api.voiceprintDelete(id).then(() => api.voiceprintsList().then((v) => setVoiceprints([...v])))}
             />
           ) : null}

@@ -1,8 +1,11 @@
 /* acta: ventana principal. El sistema de diseño vive en src/styles/. */
 @import "../styles/tokens.css";
 @import "../styles/base.css";
+@import "../styles/brand.css";
 @import "../styles/shell.css";
 @import "../styles/meetings.css";
 @import "../styles/detail.css";
 @import "../styles/collab.css";
 @import "../styles/settings.css";
+@import "../styles/providers.css";
+@import "../styles/onboarding.css";

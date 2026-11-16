@@ -5,6 +5,7 @@
 
 use acta_core::api::{MeetingUpdated, SessionSnapshot};
 use acta_core::detection::{MeetingDetector, SpeakerNameSource};
+use acta_core::layout::DataLayout;
 use acta_core::library::MeetingStore;
 use acta_core::minutes::ImportantMomentDetector;
 use acta_core::processing::{ProcessingPipeline, ProcessingProgress};
@@ -12,7 +13,6 @@ use acta_core::recording::{AudioSource, HealthWarning, Levels, SessionEvent};
 use acta_core::screen::{Capture, ScreenCapturer};
 use acta_core::settings::Settings;
 use acta_core::time::Clock;
-use acta_core::layout::DataLayout;
 use acta_core::transcription::LiveTranscriber;
 use acta_core::{PortError, PortResult};
 use std::sync::Arc;
@@ -63,7 +63,9 @@ impl SupervisorHandle {
     }
 
     pub async fn snapshot(&self) -> PortResult<SessionSnapshot> {
-        Err(PortError::NotImplemented("SupervisorHandle::snapshot".into()))
+        Err(PortError::NotImplemented(
+            "SupervisorHandle::snapshot".into(),
+        ))
     }
 
     pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<SupervisorEvent> {

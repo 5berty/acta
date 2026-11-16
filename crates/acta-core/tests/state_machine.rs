@@ -1,6 +1,5 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 //! Especificación ejecutable de la máquina de estados de la sesión.
-//! Los `#[ignore]` son TODO de WP1 (política de autoparada, etc.).
 
 use acta_core::detection::{MeetingApp, Platform};
 use acta_core::ids::{MeetingId, PromptId};
@@ -596,7 +595,6 @@ fn session_state_serializes_with_state_tag() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "WP1: implementar AutoStopPolicy regla 1 (tope duro)"]
 fn autostop_max_duration_fires_without_prompt() {
     let cfg = AutoStopConfig {
         max_duration_ms: 1_000,
@@ -614,7 +612,6 @@ fn autostop_max_duration_fires_without_prompt() {
 }
 
 #[test]
-#[ignore = "WP1: implementar AutoStopPolicy reglas 2-3 (silencio + pregunta sin respuesta)"]
 fn autostop_silence_then_unanswered_prompt_stops() {
     let cfg = AutoStopConfig {
         silence_prompt_after_ms: 1_000,
@@ -643,5 +640,28 @@ fn autostop_silence_then_unanswered_prompt_stops() {
 }
 
 #[test]
-#[ignore = "WP1: la voz reinicia el contador de silencio aunque haya pregunta abierta"]
-fn autostop_speech_resets_silence_counter() {}
+fn autostop_speech_resets_silence_counter() {
+    let cfg = AutoStopConfig {
+        silence_prompt_after_ms: 1_000,
+        auto_stop_after_unanswered_ms: 1_000,
+        ..AutoStopConfig::default()
+    };
+    let mut p = AutoStopPolicy::new(cfg);
+    let silent = |at| Levels { mic: Level::SILENT, system: Level::SILENT, at };
+    let voice = |at| Levels {
+        mic: Level { rms_dbfs: -20.0, peak_dbfs: -10.0, all_zero: false },
+        system: Level::SILENT,
+        at,
+    };
+    p.on_stop_prompt_opened(T0);
+    assert_eq!(p.on_levels(&silent(T0)), None);
+    // Habla alguien a los 900 ms: el contador vuelve a cero.
+    assert_eq!(p.on_levels(&voice(T0.plus_ms(900))), None);
+    // 1 100 ms después de T0 llevaría >1 s de silencio, pero se reinició.
+    assert_eq!(p.on_levels(&silent(T0.plus_ms(1_000))), None);
+    assert_eq!(p.on_levels(&silent(T0.plus_ms(1_800))), None);
+    assert!(matches!(
+        p.on_levels(&silent(T0.plus_ms(2_000))),
+        Some(SessionEvent::AutoStopDue { reason: StopReason::AutoSilence, .. })
+    ));
+}

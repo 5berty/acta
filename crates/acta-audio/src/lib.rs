@@ -19,9 +19,11 @@
 #![deny(clippy::zombie_processes)]
 
 pub mod concat;
+pub mod fileio;
 pub mod levels;
 pub mod processing;
 pub mod recovery;
+pub mod resample;
 pub mod supervisor;
 pub mod watchdog;
 pub mod writer;

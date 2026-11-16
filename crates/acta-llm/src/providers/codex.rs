@@ -53,6 +53,21 @@ impl CodexCliProvider {
     }
 }
 
+/// Codex mezcla en stderr el progreso de sus hooks con el error real
+/// (`ERROR: {json}` o `ERROR: texto`). Se queda con el último `ERROR:` y, si
+/// es JSON de la API, con su `error.message`.
+pub fn error_detail(stderr: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stderr);
+    let Some(last) = text.lines().rev().find_map(|l| l.trim().strip_prefix("ERROR:")) else {
+        return tail(stderr);
+    };
+    let last = last.trim();
+    serde_json::from_str::<serde_json::Value>(last)
+        .ok()
+        .and_then(|v| v["error"]["message"].as_str().map(str::to_owned))
+        .unwrap_or_else(|| last.to_owned())
+}
+
 #[async_trait]
 impl LlmProvider for CodexCliProvider {
     fn id(&self) -> &ProviderId {
@@ -90,7 +105,7 @@ impl LlmProvider for CodexCliProvider {
         let out = run_supervised(cmd, Some(prompt.into_bytes()), self.timeout).await?;
         if !out.status.success() {
             let code = out.status.code().map_or("señal".to_string(), |c| c.to_string());
-            let detail = if out.stderr.is_empty() { tail(&out.stdout) } else { tail(&out.stderr) };
+            let detail = if out.stderr.is_empty() { tail(&out.stdout) } else { error_detail(&out.stderr) };
             return Err(PortError::Unavailable(format!("codex terminó con error (código {code}): {detail}")));
         }
         let text = match tokio::fs::read_to_string(&out_file).await {
@@ -199,6 +214,14 @@ printf '{"a": 1}' > "$OUTFILE"
         provider(bin, None, &[("OUT", out.to_str().expect("utf8"))]).complete(r).await.expect("complete");
         let copy = std::fs::read_to_string(out.join("schema-copy.json")).expect("schema");
         assert!(!copy.contains("$schema"), "{copy}");
+    }
+
+    #[test]
+    fn error_detail_keeps_the_api_message_not_hook_noise() {
+        let stderr = b"hook: SessionStart\nhook: SessionStart Completed\nERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-6-astra' model requires a newer version of Codex.\"}}\nERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-6-astra' model requires a newer version of Codex.\"}}\n";
+        assert_eq!(error_detail(stderr), "The 'gpt-6-astra' model requires a newer version of Codex.");
+        assert_eq!(error_detail(b"hook: x\nERROR: You've hit your usage limit.\n"), "You've hit your usage limit.");
+        assert_eq!(error_detail(b"not logged in"), "not logged in");
     }
 
     #[tokio::test]

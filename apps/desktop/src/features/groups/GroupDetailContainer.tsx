@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Group, MeetingSummary } from "../../api";
 import { useApi } from "../../app/ApiContext";
 import { AudioLines, FolderOpen, Trash2, X } from "lucide-react";
+import { StarButton } from "../../shared/ui/Star";
 import { EmptyState, IconButton, Select } from "../../shared/ui/ui";
 import { MeetingRow } from "../meetings/MeetingRow";
 import { ChatContainer } from "../chat/ChatContainer";
@@ -9,11 +10,12 @@ import { ChatContainer } from "../chat/ChatContainer";
 interface Props {
   group: Group;
   onChanged(): void;
+  onFavourite(favourite: boolean): void;
   onDeleted(): void;
   onOpenMeeting(id: string, at?: number): void;
 }
 
-export function GroupDetailContainer({ group, onChanged, onDeleted, onOpenMeeting }: Props) {
+export function GroupDetailContainer({ group, onChanged, onFavourite, onDeleted, onOpenMeeting }: Props) {
   const api = useApi();
   const [members, setMembers] = useState<MeetingSummary[]>([]);
   const [all, setAll] = useState<MeetingSummary[]>([]);
@@ -49,6 +51,7 @@ export function GroupDetailContainer({ group, onChanged, onDeleted, onOpenMeetin
           <input className="title-input" aria-label="Nombre del grupo" value={name} onChange={(e) => setName(e.target.value)} onBlur={save} />
           <input className="subtitle-input" aria-label="Descripción" placeholder="Añade una descripción" value={description} onChange={(e) => setDescription(e.target.value)} onBlur={save} />
         </div>
+        <StarButton className="star-glass" on={group.favourite} name={group.name} noun="favorito" size={17} onToggle={onFavourite} />
         <IconButton
           label="Eliminar grupo"
           variant="glass"
@@ -84,7 +87,15 @@ export function GroupDetailContainer({ group, onChanged, onDeleted, onOpenMeetin
           ) : (
             <ul className="group m-rows">
               {members.map((m) => (
-                <MeetingRow key={m.id} meeting={m} onOpen={() => onOpenMeeting(m.id)}>
+                <MeetingRow
+                  key={m.id}
+                  meeting={m}
+                  onOpen={() => onOpenMeeting(m.id)}
+                  onFavourite={(f) => {
+                    setMembers((prev) => prev.map((x) => (x.id === m.id ? { ...x, favourite: f } : x)));
+                    void api.meetingSetFavourite(m.id, f).catch(load);
+                  }}
+                >
                   <IconButton
                     small
                     label={`Quitar ${m.title} del grupo`}

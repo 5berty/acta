@@ -13,8 +13,18 @@ interface SectionProps<K extends keyof Settings> {
 const MIN = 60_000;
 const HOUR = 3_600_000;
 
+const CLEANUP_AGES: { days: number; label: string }[] = [
+  { days: 30, label: "1 mes" },
+  { days: 60, label: "2 meses" },
+  { days: 90, label: "3 meses" },
+  { days: 180, label: "6 meses" },
+  { days: 365, label: "1 año" },
+];
+
 interface GeneralProps {
   user: Settings["user"];
+  cleanup: Settings["cleanup"];
+  onCleanup(v: Settings["cleanup"]): void;
   transcription: Settings["transcription"];
   onUser(v: Settings["user"]): void;
   onTranscription(v: Settings["transcription"]): void;
@@ -23,7 +33,8 @@ interface GeneralProps {
   onReplayOnboarding?: () => void;
 }
 
-export function GeneralSection({ user, transcription, onUser, onTranscription, voiceprints, onForget, onReplayOnboarding }: GeneralProps) {
+export function GeneralSection({ user, cleanup, onCleanup, transcription, onUser, onTranscription, voiceprints, onForget, onReplayOnboarding }: GeneralProps) {
+  const ages = CLEANUP_AGES.some((a) => a.days === cleanup.minAgeDays) ? CLEANUP_AGES : [...CLEANUP_AGES, { days: cleanup.minAgeDays, label: `${cleanup.minAgeDays} días` }].sort((a, b) => a.days - b.days);
   return (
     <Section title="General" hint="Todo se procesa en tu Mac. Lo único que sale es el texto que le mandas a tu proveedor de IA para escribir el acta.">
       <Group title="Tú" foot="acta usa tu nombre para saber qué tareas son tuyas.">
@@ -62,6 +73,26 @@ export function GeneralSection({ user, transcription, onUser, onTranscription, v
             </Button>
           </Row>
         ))}
+      </Group>
+
+      <Group title="Limpieza" foot="acta solo sugiere: nunca borra nada por su cuenta. Las favoritas, las de un grupo favorito y las que tienen tareas tuyas pendientes no se sugieren nunca.">
+        <ToggleRow
+          label="Sugerir borrar reuniones antiguas"
+          hint="Un aviso discreto en la lista cuando hay reuniones viejas que no has vuelto a abrir, buscar ni usar en el chat."
+          checked={cleanup.enabled}
+          onChange={(enabled) => onCleanup({ ...cleanup, enabled, snoozedUntil: enabled ? cleanup.snoozedUntil : null })}
+        />
+        {cleanup.enabled ? (
+          <Row label="Considerar antigua una reunión con más de">
+            <Select label="Antigüedad para sugerir" value={String(cleanup.minAgeDays)} onChange={(e) => onCleanup({ ...cleanup, minAgeDays: Number(e.target.value) })}>
+              {ages.map((a) => (
+                <option key={a.days} value={a.days}>
+                  {a.label}
+                </option>
+              ))}
+            </Select>
+          </Row>
+        ) : null}
       </Group>
 
       {onReplayOnboarding ? (

@@ -18,6 +18,7 @@ interface Open {
 function Shell() {
   const [view, setView] = useState<View>("meetings");
   const [open, setOpen] = useState<Open | null>(null);
+  const [group, setGroup] = useState<{ id: string; n: number } | null>(null);
   const [palette, setPalette] = useState(false);
   const api = useApi();
   const [onboarding, setOnboarding] = useState(false);
@@ -42,6 +43,10 @@ function Shell() {
   const goTo = useCallback((v: View) => {
     setView(v);
     if (v === "meetings") setOpen(null);
+  }, []);
+  const openGroup = useCallback((id: string) => {
+    setGroup((g) => ({ id, n: (g?.n ?? 0) + 1 }));
+    setView("groups");
   }, []);
   useApiEvent("main:navigate", ({ meetingId }) => openMeeting(meetingId));
 
@@ -70,7 +75,7 @@ function Shell() {
             <MeetingListContainer onOpen={(id) => openMeeting(id)} />
           )
         ) : null}
-        {view === "groups" ? <GroupsContainer onOpenMeeting={openMeeting} /> : null}
+        {view === "groups" ? <GroupsContainer key={group ? `${group.id}-${group.n}` : "groups"} initialGroupId={group?.id ?? null} onOpenMeeting={openMeeting} /> : null}
         {view === "ask" ? <AskPage onOpenMeeting={openMeeting} /> : null}
         {view === "settings" ? <SettingsContainer key={settingsEpoch} onReplayOnboarding={() => setOnboarding(true)} /> : null}
       </main>
@@ -82,7 +87,7 @@ function Shell() {
           }}
         />
       ) : null}
-      {palette ? <CommandPalette onClose={() => setPalette(false)} onOpenMeeting={openMeeting} onView={goTo} /> : null}
+      {palette ? <CommandPalette onClose={() => setPalette(false)} onOpenMeeting={openMeeting} onOpenGroup={openGroup} onView={goTo} /> : null}
     </div>
   );
 }

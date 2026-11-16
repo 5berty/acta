@@ -1,4 +1,5 @@
-import { AudioLines, Camera, ListChecks, MessageCircle, Mic, Search, SearchX } from "lucide-react";
+import { AudioLines, Camera, ListChecks, MessageCircle, Mic, Search, SearchX, Star } from "lucide-react";
+import type { ReactNode } from "react";
 import type { Group, MeetingSummary, ProcessingStep } from "../../api";
 import { groupByDay } from "../../shared/format";
 import { Badge, Button, EmptyState, Segmented, Select } from "../../shared/ui/ui";
@@ -18,14 +19,20 @@ interface Props {
   text: string;
   groupId: string;
   datePreset: DatePreset;
+  /** Solo favoritas: con estrella o en un grupo con estrella. */
+  favouritesOnly: boolean;
   progress: Record<string, Progress | undefined>;
   loading: boolean;
   onText(v: string): void;
   onGroup(v: string): void;
   onDatePreset(v: DatePreset): void;
+  onFavouritesOnly(v: boolean): void;
+  onFavourite(id: string, favourite: boolean): void;
   onOpen(id: string): void;
   onRetry(id: string): void;
   onRecord?(): void;
+  /** Aviso sobre la lista (sugerencia de limpieza). */
+  banner?: ReactNode;
 }
 
 const DATES: { key: DatePreset; label: string }[] = [
@@ -42,7 +49,7 @@ const HOW = [
 ];
 
 export function MeetingList(p: Props) {
-  const filtered = Boolean(p.text || p.groupId || p.datePreset !== "all");
+  const filtered = Boolean(p.text || p.groupId || p.datePreset !== "all" || p.favouritesOnly);
   const sections = groupByDay(p.items, Date.now());
   const empty = p.items.length === 0 && !p.loading;
 
@@ -58,7 +65,7 @@ export function MeetingList(p: Props) {
         <div className="toolbar glass">
           <label className="search-field">
             <Search size={14} strokeWidth={2.1} aria-hidden />
-            <input type="search" role="searchbox" aria-label="Buscar reuniones" placeholder="Buscar por título o por lo que se dijo" value={p.text} onChange={(e) => p.onText(e.target.value)} />
+            <input type="search" role="searchbox" aria-label="Buscar reuniones" placeholder={p.favouritesOnly ? "Buscar en tus favoritas" : "Buscar por título o por lo que se dijo"} value={p.text} onChange={(e) => p.onText(e.target.value)} />
           </label>
           {p.groups.length > 0 ? (
             <Select label="Grupo" capsule value={p.groupId} onChange={(e) => p.onGroup(e.target.value)}>
@@ -70,12 +77,19 @@ export function MeetingList(p: Props) {
               ))}
             </Select>
           ) : null}
+          <button type="button" className="fav-filter" aria-pressed={p.favouritesOnly} title="Reuniones con estrella y las de tus grupos favoritos" onClick={() => p.onFavouritesOnly(!p.favouritesOnly)}>
+            <Star size={13} strokeWidth={2} aria-hidden />
+            Favoritas
+          </button>
           <Segmented label="Fecha" small options={DATES} value={p.datePreset} onChange={p.onDatePreset} />
         </div>
       </div>
 
       <div className="page-body">
-        {empty && filtered ? (
+        {p.banner}
+        {empty && p.favouritesOnly && !p.text && !p.groupId && p.datePreset === "all" ? (
+          <EmptyState icon={<Star size={26} strokeWidth={1.7} />} title="Todavía no tienes favoritas" hint="Marca con la estrella las reuniones que quieras tener a mano. Nunca se sugieren para borrar." />
+        ) : empty && filtered ? (
           <EmptyState icon={<SearchX size={26} strokeWidth={1.7} />} title="Ninguna reunión coincide" hint="Prueba con otras palabras o quita algún filtro." />
         ) : null}
         {empty && !filtered ? (
@@ -107,7 +121,7 @@ export function MeetingList(p: Props) {
               {s.items.map((m) => {
                 const pr = p.progress[m.id];
                 return (
-                  <MeetingRow key={m.id} meeting={m} when={s.key === "today" || s.key === "yesterday" ? "time" : "date"} onOpen={() => p.onOpen(m.id)}>
+                  <MeetingRow key={m.id} meeting={m} when={s.key === "today" || s.key === "yesterday" ? "time" : "date"} onOpen={() => p.onOpen(m.id)} onFavourite={(f) => p.onFavourite(m.id, f)}>
                     {m.captureCount > 0 ? (
                       <Badge icon={<Camera size={11} strokeWidth={2.2} aria-hidden />}>{m.captureCount}</Badge>
                     ) : null}

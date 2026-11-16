@@ -1,4 +1,6 @@
 import { Check, FolderOpen, FolderPlus, Plus, Sparkles, X } from "lucide-react";
+import { StarButton } from "../../shared/ui/Star";
+import { Segmented } from "../../shared/ui/ui";
 import { useState } from "react";
 import type { Group, GroupSuggestion } from "../../api";
 import { Button, IconButton } from "../../shared/ui/ui";
@@ -8,6 +10,7 @@ interface Props {
   suggestions: GroupSuggestion[];
   selectedId: string | null;
   onSelect(id: string): void;
+  onFavourite(id: string, favourite: boolean): void;
   onCreate(name: string): void;
   onAccept(id: string, name: string): void;
   onDismiss(id: string): void;
@@ -38,6 +41,9 @@ function SuggestionCard({ s, onAccept, onDismiss }: { s: GroupSuggestion; onAcce
 
 export function GroupsView(p: Props) {
   const [name, setName] = useState("");
+  const [filter, setFilter] = useState<"all" | "fav">("all");
+  const starred = p.groups.filter((g) => g.favourite);
+  const shown = filter === "fav" ? starred : p.groups;
   return (
     <aside className="groups-side">
       <header className="groups-head">
@@ -78,9 +84,21 @@ export function GroupsView(p: Props) {
       {p.groups.length === 0 ? (
         <p className="groups-none">Aún no tienes grupos. Crea uno arriba o deja que acta te sugiera alguno.</p>
       ) : (
+        <>
+        <Segmented
+          label="Qué grupos ver"
+          small
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { key: "all", label: "Todos" },
+            { key: "fav", label: "Favoritos" },
+          ]}
+        />
+        {shown.length === 0 ? <p className="groups-none">Aún no tienes grupos favoritos. Márcalos con la estrella: sus reuniones nunca se sugieren para borrar.</p> : null}
         <ul className="plain group-list" aria-label="Tus grupos">
-          {p.groups.map((g) => (
-            <li key={g.id}>
+          {shown.map((g) => (
+            <li key={g.id} className="group-li" data-favourite={g.favourite || undefined}>
               <button type="button" className={`group-item${g.id === p.selectedId ? " group-item-active" : ""}`} aria-current={g.id === p.selectedId ? "true" : undefined} onClick={() => p.onSelect(g.id)}>
                 <span className="group-item-icon" aria-hidden>
                   <FolderOpen size={15} strokeWidth={1.9} />
@@ -91,9 +109,11 @@ export function GroupsView(p: Props) {
                   {g.kind === "suggested" ? " · sugerido" : ""}
                 </span>
               </button>
+              <StarButton on={g.favourite} name={g.name} noun="favorito" size={14} onToggle={(f) => p.onFavourite(g.id, f)} />
             </li>
           ))}
         </ul>
+        </>
       )}
       <Button small variant="ghost" capsule icon={<Sparkles size={12} strokeWidth={2} aria-hidden />} onClick={p.onRefresh}>
         Buscar sugerencias

@@ -6,11 +6,16 @@ import { EmptyState } from "../../shared/ui/ui";
 import { GroupDetailContainer } from "./GroupDetailContainer";
 import { GroupsView } from "./GroupsView";
 
-export function GroupsContainer({ onOpenMeeting }: { onOpenMeeting(id: string, at?: number): void }) {
+export function GroupsContainer({ onOpenMeeting, initialGroupId = null }: { onOpenMeeting(id: string, at?: number): void; initialGroupId?: string | null }) {
   const api = useApi();
   const [groups, setGroups] = useState<Group[]>([]);
   const [suggestions, setSuggestions] = useState<GroupSuggestion[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialGroupId);
+  const setFavourite = (id: string, favourite: boolean) => {
+    // Optimista: la estrella responde al instante.
+    setGroups((prev) => prev.map((g) => (g.id === id ? { ...g, favourite } : g)));
+    api.groupSetFavourite(id, favourite).then(load, load);
+  };
 
   const load = useCallback(async () => {
     const [g, s] = await Promise.all([api.groupsList(), api.groupSuggestionsList()]);
@@ -31,6 +36,7 @@ export function GroupsContainer({ onOpenMeeting }: { onOpenMeeting(id: string, a
         suggestions={suggestions}
         selectedId={selectedId}
         onSelect={setSelectedId}
+        onFavourite={setFavourite}
         onCreate={(name) => void api.groupCreate(name).then(async (g) => (await load(), setSelectedId(g.id)))}
         onAccept={(id, name) => void api.groupSuggestionAccept(id, name).then(load)}
         onDismiss={(id) => void api.groupSuggestionDismiss(id).then(load)}
@@ -42,6 +48,7 @@ export function GroupsContainer({ onOpenMeeting }: { onOpenMeeting(id: string, a
             key={selected.id}
             group={selected}
             onChanged={() => void load()}
+            onFavourite={(f) => setFavourite(selected.id, f)}
             onDeleted={() => {
               setSelectedId(null);
               void load();

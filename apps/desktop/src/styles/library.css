@@ -1,0 +1,102 @@
+/* Favoritas (estrella + filtro) y limpieza de reuniones antiguas. */
+
+/* ---- estrella ---- */
+:root { --star: #f5a623; }
+.star-btn {
+  width: 30px; height: 30px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%;
+  background: none; color: var(--fg-3);
+  transition: transform var(--d-press) var(--ease-out), color var(--d-fast) ease, background-color var(--d-fast) ease, opacity var(--d-fast) ease;
+}
+.star-btn svg { transition: transform var(--d-spring) var(--spring-soft), fill var(--d-fast) ease; fill: transparent; }
+.star-btn:active { transform: scale(0.88); }
+.star-btn[aria-pressed="true"] { color: var(--star); }
+/* Al marcar, la estrella se rellena y asienta con un rebote corto. */
+.star-btn[aria-pressed="true"] svg { fill: var(--star); transform: scale(1.08); }
+@media (hover: hover) and (pointer: fine) {
+  .star-btn:hover { background: var(--fill-hover); color: var(--fg-2); }
+  .star-btn[aria-pressed="true"]:hover { color: var(--star); }
+}
+/* En cabeceras (detalle de reunión y de grupo) va sobre cristal, como sus vecinos. */
+.star-glass { width: var(--control-h); height: var(--control-h); background: var(--glass-bg-thin); box-shadow: 0 0 0 0.5px var(--hairline), inset 0 0.5px 0 rgba(255, 255, 255, 0.3); }
+
+/* En las filas la estrella sin marcar solo aparece al pasar por encima (o con el teclado). */
+.m-row .star-btn[aria-pressed="false"], .group-li .star-btn[aria-pressed="false"], .palette-item .star-btn[aria-pressed="false"] { opacity: 0; }
+.m-row:hover .star-btn, .m-row:focus-within .star-btn, .group-li:hover .star-btn, .group-li:focus-within .star-btn,
+.palette-item:hover .star-btn, .palette-item[aria-selected="true"] .star-btn, .star-btn:focus-visible { opacity: 1; }
+@media (hover: none) { .m-row .star-btn, .group-li .star-btn, .palette-item .star-btn { opacity: 1 !important; } }
+.palette-item .star-btn { width: 26px; height: 26px; margin: -2px -4px -2px 0; }
+.palette-item[aria-selected="true"] .star-btn[aria-pressed="false"] { color: rgba(255, 255, 255, 0.85); }
+.palette-item[aria-selected="true"] .star-btn[aria-pressed="true"] { color: #ffd66b; }
+.palette-item[aria-selected="true"] .star-btn[aria-pressed="true"] svg { fill: #ffd66b; }
+.palette-item[aria-selected="true"] .star-btn:hover { background: rgba(255, 255, 255, 0.18); }
+.palette-hint { display: flex; align-items: center; gap: 6px; flex: none; padding: 8px 16px; border-top: 0.5px solid var(--hairline); color: var(--fg-3); font-size: var(--t-caption); }
+.palette-hint .kbd:not(:first-child) { margin-left: 10px; }
+
+/* Filtro «Favoritas»: un interruptor en la barra, no una vista aparte. */
+.fav-filter {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; flex: none; border: 0; border-radius: var(--r-capsule);
+  background: none; color: var(--fg-2); font-size: var(--t-small); font-weight: 500;
+  transition: background-color var(--d-fast) ease, color var(--d-fast) ease, transform var(--d-press) var(--ease-out);
+}
+.fav-filter:active { transform: scale(0.96); }
+.fav-filter svg { transition: fill var(--d-fast) ease; fill: transparent; }
+.fav-filter[aria-pressed="true"] { background: color-mix(in srgb, var(--star) 18%, transparent); color: var(--fg); font-weight: 600; }
+.fav-filter[aria-pressed="true"] svg { color: var(--star); fill: var(--star); }
+@media (hover: hover) and (pointer: fine) { .fav-filter:hover:not([aria-pressed="true"]) { background: var(--fill); color: var(--fg); } }
+
+/* Grupos: la estrella vive junto a la fila. */
+.group-li { position: relative; display: flex; align-items: center; }
+.group-li .group-item { padding-right: 34px; }
+.group-li .star-btn { position: absolute; right: 4px; }
+.group-item-active ~ .star-btn[aria-pressed="false"] { color: rgba(255, 255, 255, 0.85); }
+.group-item-active ~ .star-btn[aria-pressed="true"] { color: #ffd66b; }
+.group-item-active ~ .star-btn[aria-pressed="true"] svg { fill: #ffd66b; }
+.groups-side > .segmented { align-self: flex-start; }
+
+/* ---- aviso de limpieza: tranquilo, sin color de alarma ---- */
+.cleanup-banner {
+  display: flex; align-items: center; gap: 14px; margin-bottom: 22px; padding: 12px 12px 12px 16px; border-radius: var(--r-card);
+  background: var(--card); box-shadow: var(--card-shadow);
+  transition: opacity var(--d-slow) ease, transform var(--d-spring) var(--spring);
+}
+@starting-style { .cleanup-banner { opacity: 0; transform: translateY(-6px); } }
+.cleanup-banner-icon { width: 36px; height: 36px; border-radius: 10px; flex: none; display: grid; place-items: center; background: var(--fill); color: var(--fg-2); }
+.cleanup-banner-text { flex: 1; min-width: 0; }
+.cleanup-banner-title { font-weight: 600; font-size: var(--t-callout); letter-spacing: -0.006em; }
+.cleanup-banner-sub { color: var(--fg-2); font-size: var(--t-small); margin-top: 1px; }
+
+/* ---- hoja de revisión ---- */
+.modal.cleanup-sheet { width: min(720px, 100%); max-height: min(760px, 100%); padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+.cleanup-head { padding: 26px 28px 14px; }
+.cleanup-head h2 { font-size: var(--t-title1); font-weight: 700; letter-spacing: -0.02em; }
+.cleanup-head p { margin-top: 6px; color: var(--fg-2); line-height: 1.5; max-width: 62ch; }
+.cleanup-select-all { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 30px 10px 34px; font-size: var(--t-small); }
+.cleanup-check { display: inline-flex; align-items: center; gap: 10px; font-weight: 500; }
+.cleanup-list { flex: 1; min-height: 0; overflow-y: auto; margin: 0 18px; }
+.cleanup-row { align-items: flex-start; gap: 12px; padding-top: 12px; padding-bottom: 12px; }
+.cleanup-row > .check-box { margin-top: 4px; flex: none; }
+.cleanup-row > .btn { align-self: center; }
+.cleanup-row .row-text { gap: 4px; }
+.cleanup-title { align-self: flex-start; max-width: 100%; padding: 0; border: 0; background: none; text-align: left; font-weight: 600; font-size: var(--t-callout); letter-spacing: -0.006em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.cleanup-title:hover { color: var(--accent-text); }
+.cleanup-reasons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.cleanup-reason { height: 22px; display: inline-flex; align-items: center; padding: 0 9px; border-radius: var(--r-capsule); background: var(--fill); color: var(--fg-2); font-size: var(--t-caption); font-weight: 500; }
+.cleanup-none { padding: 40px 28px; text-align: center; color: var(--fg-2); }
+.cleanup-error { padding: 8px 28px 0; }
+.cleanup-foot { display: flex; align-items: center; gap: 8px; padding: 16px 20px 18px; margin-top: 12px; border-top: 0.5px solid var(--hairline); }
+.cleanup-confirm { background: var(--danger-soft); transition: background-color var(--d-base) ease; }
+.cleanup-confirm p { flex: 1; min-width: 0; padding-left: 8px; line-height: 1.45; font-size: var(--t-small); }
+.cleanup-done { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 44px 32px 32px; }
+.cleanup-done h2 { font-size: var(--t-title1); font-weight: 700; letter-spacing: -0.02em; }
+.cleanup-done-icon { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; margin-bottom: 6px; color: #fff; background: var(--ok); animation: cleanup-pop 480ms var(--spring-soft) backwards; }
+@keyframes cleanup-pop { from { opacity: 0; transform: scale(0.85); } }
+.cleanup-freed { display: inline-flex; align-items: center; gap: 8px; color: var(--fg-2); font-size: var(--t-callout); font-variant-numeric: tabular-nums; }
+.cleanup-done .btn { margin-top: 14px; min-width: 140px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .star-btn, .star-btn svg { transition: color var(--d-fast) ease, fill var(--d-fast) ease, opacity var(--d-fast) ease; }
+  .star-btn[aria-pressed="true"] svg { transform: none; }
+  .cleanup-done-icon { animation: none; }
+  @starting-style { .cleanup-banner { transform: none; } }
+}
+@media (prefers-reduced-transparency: reduce) { .star-glass { background: var(--card-solid); } }

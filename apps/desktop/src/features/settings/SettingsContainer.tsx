@@ -141,6 +141,8 @@ export function SettingsContainer({ onReplayOnboarding }: { onReplayOnboarding?:
           {section === "general" ? (
             <GeneralSection
               user={draft.user}
+              cleanup={draft.cleanup}
+              onCleanup={(cleanup) => setDraft({ ...draft, cleanup })}
               transcription={draft.transcription}
               onUser={(user) => setDraft({ ...draft, user })}
               onTranscription={(transcription) => setDraft({ ...draft, transcription })}

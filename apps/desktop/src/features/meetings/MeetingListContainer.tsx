@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Group, MeetingQuery, MeetingSummary } from "../../api";
 import { useApi, useApiEvent } from "../../app/ApiContext";
+import { CleanupBanner } from "../cleanup/CleanupBanner";
+import { CleanupSheet } from "../cleanup/CleanupSheet";
+import { useCleanup } from "../cleanup/useCleanup";
 import { MeetingList, type DatePreset, type Progress } from "./MeetingList";
 import { REPROCESS_STEPS } from "./ProcessingStatus";
 
@@ -25,6 +28,8 @@ export function MeetingListContainer({ onOpen }: { onOpen: (id: string) => void 
   const [text, setText] = useState("");
   const [groupId, setGroupId] = useState("");
   const [datePreset, setDatePreset] = useState<DatePreset>("all");
+  const [favouritesOnly, setFavouritesOnly] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   const [progress, setProgress] = useState<Record<string, Progress | undefined>>({});
   const [loading, setLoading] = useState(true);
 
@@ -32,16 +37,18 @@ export function MeetingListContainer({ onOpen }: { onOpen: (id: string) => void 
     const page = await api.meetingsList({
       text: text || null,
       groupId: groupId || null,
+      favouritesOnly,
       limit: 100,
       ...range(datePreset),
     });
     setItems(page.items);
     setLoading(false);
-  }, [api, text, groupId, datePreset]);
+  }, [api, text, groupId, datePreset, favouritesOnly]);
+  const cleanup = useCleanup(() => void load());
 
   useEffect(() => {
     let live = true;
-    void api.meetingsList({ text: text || null, groupId: groupId || null, limit: 100, ...range(datePreset) }).then((page) => {
+    void api.meetingsList({ text: text || null, groupId: groupId || null, favouritesOnly, limit: 100, ...range(datePreset) }).then((page) => {
       if (live) {
         setItems(page.items);
         setLoading(false);
@@ -50,7 +57,7 @@ export function MeetingListContainer({ onOpen }: { onOpen: (id: string) => void 
     return () => {
       live = false;
     };
-  }, [api, text, groupId, datePreset]);
+  }, [api, text, groupId, datePreset, favouritesOnly]);
 
   useEffect(() => {
     void api.groupsList().then(setGroups);
@@ -61,13 +68,28 @@ export function MeetingListContainer({ onOpen }: { onOpen: (id: string) => void 
   );
   useApiEvent("meeting:updated", () => void load());
 
+  const setFavourite = (id: string, favourite: boolean) => {
+    // Optimista: la estrella responde al instante; `meeting:updated` recarga la lista.
+    setItems((prev) => prev.map((m) => (m.id === id ? { ...m, favourite } : m)));
+    api.meetingSetFavourite(id, favourite).catch(() => void load());
+  };
+
   return (
+    <>
     <MeetingList
       items={items}
       groups={groups}
       text={text}
       groupId={groupId}
       datePreset={datePreset}
+      favouritesOnly={favouritesOnly}
+      onFavouritesOnly={setFavouritesOnly}
+      onFavourite={setFavourite}
+      banner={
+        cleanup.showBanner && cleanup.suggestions ? (
+          <CleanupBanner count={cleanup.suggestions.candidates.length} totalBytes={cleanup.suggestions.totalBytes} onReview={() => setReviewing(true)} onLater={cleanup.later} />
+        ) : null
+      }
       progress={progress}
       loading={loading}
       onText={setText}
@@ -77,5 +99,19 @@ export function MeetingListContainer({ onOpen }: { onOpen: (id: string) => void 
       onRetry={(id) => void api.meetingReprocess({ meetingId: id, steps: REPROCESS_STEPS }).then(load)}
       onRecord={() => void api.sessionStart(null).catch(() => {})}
     />
+    {reviewing && cleanup.suggestions ? (
+      <CleanupSheet
+        suggestions={cleanup.suggestions}
+        onClose={() => setReviewing(false)}
+        onDelete={cleanup.remove}
+        onKeep={cleanup.keep}
+        onLater={cleanup.later}
+        onOpenMeeting={(id) => {
+          setReviewing(false);
+          onOpen(id);
+        }}
+      />
+    ) : null}
+    </>
   );
 }

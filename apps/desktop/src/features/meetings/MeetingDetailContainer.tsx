@@ -3,6 +3,7 @@ import type { Citation, Group, MeetingDetail, ProcessingStep, VoiceprintSummary 
 import { useApi, useApiEvent } from "../../app/ApiContext";
 import { ChevronLeft, FolderOpen, Pencil, Trash2, TriangleAlert, X } from "lucide-react";
 import { formatDay, formatDuration, formatTime, platformLabel } from "../../shared/format";
+import { StarButton } from "../../shared/ui/Star";
 import { AvatarStack, Badge, EmptyState, IconButton, PlatformIcon, Select, Tabs, errorMessage, type TabDef } from "../../shared/ui/ui";
 import { CapturesContainer } from "../captures/CapturesContainer";
 import { ChatContainer } from "../chat/ChatContainer";
@@ -129,6 +130,7 @@ function Body({ meetingId, initialSeekMs, onBack, onOpenMeeting, detail, voicepr
                 ))}
               </Select>
             ) : null}
+            <StarButton className="star-glass" on={meeting.favourite} name={meeting.title} size={17} onToggle={(f) => void run(() => api.meetingSetFavourite(meeting.id, f))} />
             <IconButton
               label="Eliminar reunión"
               variant="glass"

@@ -41,8 +41,10 @@ impl ClaudeCliProvider {
     }
 
     /// Argumentos exactos (docs/01-arquitectura.md §7.2). El prompt va por stdin.
+    /// `--safe-mode`: sin hooks, skills ni CLAUDE.md del usuario (la
+    /// autenticación y el modelo por defecto se mantienen).
     pub fn build_args(&self, request: &LlmRequest) -> Vec<String> {
-        let mut args: Vec<String> = ["-p", "--output-format", "json", "--tools", "", "--strict-mcp-config", "--no-session-persistence"]
+        let mut args: Vec<String> = ["-p", "--safe-mode", "--output-format", "json", "--tools", "", "--strict-mcp-config", "--no-session-persistence"]
             .iter()
             .map(|s| s.to_string())
             .collect();
@@ -154,7 +156,7 @@ mod tests {
     fn args_follow_the_contract_and_never_use_bare() {
         let p = provider("/x/claude".into(), Some("opus"), &[]);
         let args = p.build_args(&req(true));
-        assert_eq!(&args[..7], ["-p", "--output-format", "json", "--tools", "", "--strict-mcp-config", "--no-session-persistence"]);
+        assert_eq!(&args[..8], ["-p", "--safe-mode", "--output-format", "json", "--tools", "", "--strict-mcp-config", "--no-session-persistence"]);
         assert!(args.windows(2).any(|w| w == ["--json-schema", "{\"type\":\"object\"}"]));
         assert!(args.windows(2).any(|w| w == ["--system-prompt", "Eres un secretario"]));
         assert!(args.windows(2).any(|w| w == ["--model", "opus"]));
@@ -172,6 +174,16 @@ mod tests {
         let i = args.iter().position(|a| a == "--json-schema").expect("flag");
         assert!(!args[i + 1].contains("$schema"), "{}", args[i + 1]);
         assert!(args[i + 1].contains("integer"));
+    }
+
+    /// Con los hooks y skills del usuario (que viven en ~/Documents), macOS
+    /// pregunta «acta.app quiere acceder a tu carpeta Documentos» y el
+    /// resumen se queda parado hasta que alguien contesta.
+    #[test]
+    fn user_customizations_are_never_loaded() {
+        let p = provider("/x/claude".into(), None, &[]);
+        assert!(p.build_args(&req(false)).iter().any(|a| a == "--safe-mode"));
+        assert!(p.build_args(&req(true)).iter().any(|a| a == "--safe-mode"));
     }
 
     #[test]

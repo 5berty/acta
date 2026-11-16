@@ -280,7 +280,7 @@ Durante la grabación, el supervisor guarda las `SpeakerSignal` (roster y hablan
 
 | Proveedor | Invocación |
 |---|---|
-| `claudeCli` | `<binary_path> -p --output-format json --json-schema '<schema>' --tools "" --strict-mcp-config --no-session-persistence --system-prompt '<sys>' [--model m]`. El prompt va **por stdin** y el `cwd` es un directorio temporal vacío. El resultado es `.result` del JSON. **No usar `--bare`**: ignora el login OAuth del usuario. |
+| `claudeCli` | `<binary_path> -p --safe-mode --output-format json --json-schema '<schema>' --tools "" --strict-mcp-config --no-session-persistence --system-prompt '<sys>' [--model m]`. El prompt va **por stdin** y el `cwd` es un directorio temporal vacío. El resultado es `.result` del JSON. **No usar `--bare`**: ignora el login OAuth del usuario. |
 | `codexCli` | `<binary_path> exec --skip-git-repo-check --ephemeral --sandbox read-only --output-schema <fichero> -o <fichero_salida> [-m m] -`, con el prompt por stdin y `cwd` temporal. |
 | `openAiCompatible` | `POST {base_url}/chat/completions` con `response_format: {type: json_schema, strict: true}` y streaming SSE. |
 | `anthropic` | Messages API. La salida estructurada va con una herramienta cuyo `input_schema` es el esquema. La clave está en el Llavero (`SecretRef`). |

@@ -66,6 +66,10 @@ En macOS 15+ ya no vale el clic derecho › Abrir. No hace falta quitar atributo
 | Automatización | URL de Meet en Chrome, Arc, Edge, Brave y Safari | Aviso por navegador |
 | Grabación de pantalla | Capturas (opt-in) | Ajustes › Pantalla |
 
+Si un permiso está sin decidir, acta lo pide **antes** de empezar a grabar; si lo deniegas, no se crea la reunión y te dice cuál falta.
+
+Al redactar el primer acta puede salir un diálogo más: «acta.app quiere acceder a los archivos de tu carpeta Documentos». Lo provoca el CLI de Claude al cargar tus hooks y skills. El resumen espera hasta que lo contestes (vale cualquiera de las dos respuestas).
+
 TCC asocia los permisos a **acta.app** (el proceso responsable; el sidecar va dentro). En una app sin firmar la identidad es ruta + cdhash, así que recompilar **puede** volver a pedir permisos. Se comprueba en `docs/02-verificacion-manual.md`.
 
 ## 6. Configuración inicial
@@ -110,4 +114,6 @@ Solo el micro: `tccutil reset Microphone com.edunavajas.acta`.
 | No detecta Meet | Falta Automatización | Revisa Privacidad y seguridad › Automatización |
 | Pide permisos tras recompilar | Cambia el cdhash | Esperable; ver checklist |
 | "Detectar" no encuentra claude | Alias de zsh | Pon la ruta absoluta a mano |
+| «Resumiendo…» no termina | Diálogo de la carpeta Documentos sin contestar | Búscalo detrás de las ventanas y contéstalo |
+| La voz de los demás sale ininteligible | Auriculares Bluetooth cambiando a manos libres | Arreglado; si vuelve, mira `acta-mac.log` («delivers») |
 | El Mac vuelve a bloquear la app | Gatekeeper | "Abrir igualmente" (sección 4) |

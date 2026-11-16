@@ -5,6 +5,8 @@ Checklist para una `.app` **sin firmar** instalada con `scripts/install-mac.sh`.
 ## Siempre
 
 - [ ] `scripts/verify.sh` pasa → sin errores.
+- [ ] `cd sidecars/acta-mac && swift test --disable-get-task-allow-entitlement` → sin errores.
+- [ ] Pruebas E2E reales (ver `docs/04-informe-pruebas.md`) → sin errores.
 - [ ] 10 min grabando y `ps -axo ppid=,stat= | awk -v p="$(pgrep -x acta)" '$1==p && $2 ~ /Z/' | wc -l` → **0** zombis.
 - [ ] `ps -ax | rg acta-mac` → exactamente **1** proceso, también tras varias reuniones.
 - [ ] `kill -9` a la app → `acta-mac` desaparece en < 3 s.
@@ -108,3 +110,5 @@ open -a ~/Applications/acta.app --env ACTA_AX_DUMP_DIR="$HOME/Desktop/ax-dump"
 - [ ] Se ve en **todos los Spaces**.
 - [ ] **Nunca** roba el foco al escribir en otra app.
 - [ ] Menú de la barra › **Grabar ahora** → inicia una grabación manual.
+- [ ] El menú de la barra sigue el estado: en reposo solo «Grabar ahora»; grabando, «Grabando · mm:ss», «Pausar» y «Parar grabación».
+- [ ] Con AirPods puestos, la voz de los demás se transcribe bien (no al doble de velocidad).

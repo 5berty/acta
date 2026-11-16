@@ -39,9 +39,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 
-/// `~/Library/Application Support/acta`.
+/// `~/Library/Application Support/acta`, o `ACTA_DATA_DIR` si está definida.
 pub fn data_layout() -> Option<DataLayout> {
-    dirs::data_dir().map(|d| DataLayout::new(d.join(APP_DIR_NAME)))
+    system::data_root(std::env::var_os(system::DATA_DIR_ENV), dirs::data_dir()).map(DataLayout::new)
 }
 
 fn init_logging(layout: &DataLayout) -> Option<tracing_appender::non_blocking::WorkerGuard> {

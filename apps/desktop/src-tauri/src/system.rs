@@ -21,6 +21,18 @@ pub fn disk_free(path: &Path) -> Option<u64> {
     Some((st.f_bavail as u64).saturating_mul(st.f_frsize as u64))
 }
 
+/// Variable para usar otra carpeta de datos (pruebas, sin tocar la real).
+pub const DATA_DIR_ENV: &str = "ACTA_DATA_DIR";
+
+/// Carpeta de datos: `ACTA_DATA_DIR` si está y no es vacía; si no,
+/// `<Application Support>/acta`.
+pub fn data_root(env: Option<std::ffi::OsString>, support_dir: Option<std::path::PathBuf>) -> Option<std::path::PathBuf> {
+    match env.filter(|v| !v.is_empty()) {
+        Some(v) => Some(v.into()),
+        None => support_dir.map(|d| d.join(acta_core::layout::APP_DIR_NAME)),
+    }
+}
+
 /// Panel de Privacidad y seguridad de cada permiso.
 pub fn settings_url(kind: PermissionKind) -> &'static str {
     match kind {
@@ -36,6 +48,15 @@ pub fn settings_url(kind: PermissionKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn data_dir_env_override_wins_and_empty_is_ignored() {
+        let support = Some(std::path::PathBuf::from("/Users/e/Library/Application Support"));
+        assert_eq!(data_root(Some("/tmp/acta-x".into()), support.clone()).unwrap(), Path::new("/tmp/acta-x"));
+        assert_eq!(data_root(Some("".into()), support.clone()).unwrap(), Path::new("/Users/e/Library/Application Support/acta"));
+        assert_eq!(data_root(None, support).unwrap(), Path::new("/Users/e/Library/Application Support/acta"));
+        assert_eq!(data_root(None, None), None);
+    }
 
     #[test]
     fn disk_free_of_root_is_known() {

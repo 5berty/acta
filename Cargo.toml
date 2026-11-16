@@ -62,7 +62,7 @@ sqlite-vec = "0.1.6"
 fastembed = { version = "5", default-features = false, features = ["ort-download-binaries", "hf-hub-native-tls"] }
 
 # --- llm (WP3) ---
-reqwest = { version = "0.12.24", default-features = false, features = ["json", "stream", "rustls-tls"] }
+reqwest = { version = "0.12.24", default-features = false, features = ["json", "stream", "native-tls"] }
 unicode-normalization = "0.1.24"
 regex = "1.12"
 schemars = "1.0"

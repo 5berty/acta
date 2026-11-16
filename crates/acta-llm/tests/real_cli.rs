@@ -98,3 +98,24 @@ async fn real_claude_names_a_group() {
     eprintln!("{name:?}");
     assert!(!name.name.trim().is_empty());
 }
+
+/// Red de empresa con inspección TLS (raíz corporativa en el Llavero):
+/// openrouter.ai llega firmado por la CA del proxy. Con rustls + webpki-roots
+/// fallaba con `UnknownIssuer`; debe llegar al servidor y dar 401 sin clave.
+#[tokio::test]
+#[ignore = "red real; ACTA_REAL_NET=1"]
+async fn real_https_trusts_the_system_keychain() {
+    use acta_core::llm::{LlmMessage, LlmProvider, LlmRequest, Role};
+    use acta_llm::providers::openai::OpenAiCompatibleProvider;
+    if std::env::var("ACTA_REAL_NET").is_err() {
+        return;
+    }
+    let p = OpenAiCompatibleProvider::new("openrouter".into(), "https://openrouter.ai/api/v1", "x".into(), Some("sk-invalida".into()), Duration::from_secs(30));
+    let req = LlmRequest { system: None, messages: vec![LlmMessage { role: Role::User, content: "hola".into() }], json_schema: None, max_tokens: Some(5), temperature: None };
+    let err = p.complete(req).await.expect_err("sin clave válida");
+    let msg = err.to_string();
+    eprintln!("{msg}");
+    // Llegar a HTTP (401, o el 503 de la página de bloqueo de la empresa)
+    // demuestra que el TLS con la CA del proxy funciona.
+    assert!(!msg.contains("no se pudo conectar"), "{msg}");
+}

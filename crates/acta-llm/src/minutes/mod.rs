@@ -1,4 +1,17 @@
 //! `MinutesGenerator` (WP3). Tipos de cable del esquema `acta.minutes.v1`.
+//!
+//! - `generator`: llamada al LLM (una pasada o map-reduce) + reparación.
+//! - `convert`: `MinutesV1` → `MinutesOutput` (refs `cN` → `CaptureId`, `ts_ms` → `MediaMs`,
+//!   "mis tareas" con comprobación determinista de nombres).
+//! - `captures`: enlazar capturas con temas/tareas y promover candidatas.
+//! - `timeline`: línea de tiempo derivada.
+
+pub mod captures;
+pub mod convert;
+pub mod generator;
+pub mod timeline;
+
+pub use generator::LlmMinutesGenerator;
 
 use acta_core::minutes::Tema;
 use serde::{Deserialize, Serialize};

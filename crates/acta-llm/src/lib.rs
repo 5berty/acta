@@ -17,6 +17,9 @@ pub mod moments;
 pub mod naming;
 pub mod process;
 pub mod providers;
+pub mod structured;
+#[cfg(test)]
+pub(crate) mod testutil;
 pub mod transcript;
 
 /// Esquemas JSON embebidos (contrato con el LLM).

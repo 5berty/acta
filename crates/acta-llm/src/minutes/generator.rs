@@ -1,0 +1,338 @@
+//! `MinutesGenerator`: una pasada si el transcript cabe; si no, map-reduce
+//! (bloques de ~20 min → acta parcial → fusión con el mismo esquema).
+
+use super::MinutesV1;
+use super::convert::{ConvertCtx, convert, validate};
+use crate::structured::complete_structured;
+use crate::transcript::{Line, estimate_tokens, format_date, join_lines, mmss, render_lines, render_template, split_lines};
+use crate::{prompts, schemas};
+use acta_core::PortResult;
+use acta_core::detection::Platform;
+use acta_core::llm::{LlmMessage, LlmProvider, LlmRequest, Role};
+use acta_core::minutes::{MinutesGenerator, MinutesInput, MinutesOutput};
+use acta_core::time::{Clock, MediaMs};
+use async_trait::async_trait;
+use std::sync::Arc;
+
+/// Tokens que se reservan para la respuesta.
+const OUTPUT_RESERVE: usize = 6_000;
+/// Duración máxima de un bloque del map (ms).
+const BLOCK_SPAN_MS: u64 = 20 * 60_000;
+
+pub struct LlmMinutesGenerator {
+    provider: Arc<dyn LlmProvider>,
+    clock: Arc<dyn Clock>,
+    model: Option<String>,
+}
+
+impl LlmMinutesGenerator {
+    pub fn new(provider: Arc<dyn LlmProvider>, clock: Arc<dyn Clock>) -> Self {
+        Self { provider, clock, model: None }
+    }
+
+    /// Modelo configurado (solo informativo, se guarda en `Minutes.model`).
+    pub fn with_model(mut self, model: Option<String>) -> Self {
+        self.model = model;
+        self
+    }
+
+    fn usable_tokens(&self) -> usize {
+        ((self.provider.capabilities().context_tokens as usize) * 7 / 10)
+            .saturating_sub(OUTPUT_RESERVE)
+            .max(1_500)
+    }
+
+    fn schema() -> serde_json::Value {
+        serde_json::from_str(schemas::MINUTES_V1).unwrap_or(serde_json::Value::Null)
+    }
+
+    fn request(system: String, user: String) -> LlmRequest {
+        LlmRequest {
+            system: Some(system),
+            messages: vec![LlmMessage { role: Role::User, content: user }],
+            json_schema: Some(Self::schema()),
+            max_tokens: Some(8_000),
+            temperature: Some(0.2),
+        }
+    }
+
+    async fn call(&self, system: String, user: String) -> PortResult<MinutesV1> {
+        complete_structured::<MinutesV1, _>(self.provider.as_ref(), Self::request(system, user), validate).await
+    }
+}
+
+fn language_name(code: &str) -> String {
+    match code {
+        "es" | "" => "castellano de España".into(),
+        "en" => "inglés".into(),
+        other => other.into(),
+    }
+}
+
+fn platform_name(p: Platform) -> &'static str {
+    match p {
+        Platform::Teams => "Microsoft Teams",
+        Platform::Meet => "Google Meet",
+        Platform::Zoom => "Zoom",
+        Platform::Slack => "Slack",
+        Platform::Other => "Otra / manual",
+    }
+}
+
+fn system_prompt(input: &MinutesInput) -> String {
+    render_template(
+        prompts::MINUTES_SYSTEM,
+        &[
+            ("user_name", &input.me.display_name),
+            ("user_aliases", &input.me.aliases.join(", ")),
+            ("language", &language_name(&input.language)),
+        ],
+    )
+}
+
+fn captures_text(input: &MinutesInput, from: u64, to: u64) -> String {
+    let lines: Vec<String> = input
+        .captures
+        .iter()
+        .filter(|c| c.at.0 >= from && c.at.0 < to)
+        .map(|c| format!("{} [{}] {}", c.ref_id, mmss(c.at), reason_name(c.reason)))
+        .collect();
+    if lines.is_empty() { "(ninguna)".into() } else { lines.join("\n") }
+}
+
+fn reason_name(r: acta_core::screen::CaptureReason) -> &'static str {
+    use acta_core::screen::CaptureReason::*;
+    match r {
+        SlideChange => "slide_change",
+        Keyword => "keyword",
+        LlmPick => "llm_pick",
+        Manual => "manual",
+        Candidate => "candidate",
+    }
+}
+
+fn user_prompt(input: &MinutesInput, transcript: &str, captures: &str, note: Option<&str>) -> String {
+    let participants = input
+        .speakers
+        .iter()
+        .map(|s| crate::transcript::speaker_label(s, &input.me.display_name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut p = render_template(
+        prompts::MINUTES_USER,
+        &[
+            ("title", &input.title),
+            ("platform", platform_name(input.platform)),
+            ("date", &format_date(input.started_at)),
+            ("duration", &mmss(input.duration)),
+            ("participants", &participants),
+            ("captures", captures),
+            ("transcript", transcript),
+        ],
+    );
+    if let Some(n) = note {
+        p = format!("{n}\n\n{p}");
+    }
+    p
+}
+
+const REDUCE_INSTRUCTIONS: &str = "\
+TAREA DE FUSIÓN. Te paso actas parciales (JSON `acta.minutes.v1`) de fragmentos CONSECUTIVOS de una misma reunión larga. \
+Fusiónalas en UN único objeto `acta.minutes.v1`: resumen coherente de toda la reunión (5-12 viñetas), decisiones y tareas \
+sin duplicados (une las repetidas, conserva `es_mia`, responsable, fecha y `ts_ms`), escaleta unificada y ordenada con \
+3-10 temas (une temas contiguos del mismo asunto; los tiempos son los originales), `momentos_clave` y refs de capturas \
+(\"c1\"...) tal cual. No inventes nada que no esté en los parciales.";
+
+#[async_trait]
+impl MinutesGenerator for LlmMinutesGenerator {
+    async fn generate(&self, input: MinutesInput) -> PortResult<MinutesOutput> {
+        let lines = render_lines(&input.speakers, &input.utterances, &input.me.display_name);
+        let system = system_prompt(&input);
+        let usable = self.usable_tokens();
+
+        let full_user = user_prompt(&input, &join_lines(&lines), &captures_text(&input, 0, u64::MAX), None);
+        let v1 = if estimate_tokens(&system) + estimate_tokens(&full_user) <= usable {
+            self.call(system, full_user).await?
+        } else {
+            tracing::info!(lines = lines.len(), usable, "transcript largo: map-reduce");
+            self.map_reduce(&input, &lines, &system, usable).await?
+        };
+
+        let ctx = ConvertCtx { input: &input, provider: self.provider.id().clone(), model: self.model.clone(), now: self.clock.now() };
+        Ok(convert(&ctx, v1))
+    }
+}
+
+impl LlmMinutesGenerator {
+    async fn map_reduce(&self, input: &MinutesInput, lines: &[Line], system: &str, usable: usize) -> PortResult<MinutesV1> {
+        // Presupuesto de transcript por bloque = lo utilizable menos el resto del prompt.
+        let overhead = estimate_tokens(system) + estimate_tokens(&user_prompt(input, "", &captures_text(input, 0, u64::MAX), Some(NOTE_PLACEHOLDER)));
+        let block_budget = (usable.saturating_sub(overhead) * 9 / 10).max(300);
+        let blocks = split_lines(lines, block_budget, BLOCK_SPAN_MS);
+        let n = blocks.len();
+
+        let mut partials: Vec<MinutesV1> = Vec::with_capacity(n);
+        for (i, block) in blocks.iter().enumerate() {
+            let from = if i == 0 { 0 } else { block[0].at_ms };
+            let to = blocks.get(i + 1).map_or(u64::MAX, |b| b[0].at_ms);
+            let last_ms = block.last().map_or(from, |l| l.at_ms);
+            let note = format!(
+                "FRAGMENTO {} de {n} de una reunión larga (de {} a {}). Extrae SOLO lo de este tramo: \
+                 `escaleta` cubre solo este tramo y los tiempos son los absolutos de las marcas.",
+                i + 1,
+                mmss(MediaMs(from)),
+                mmss(MediaMs(last_ms)),
+            );
+            let user = user_prompt(input, &join_lines(block), &captures_text(input, from, to), Some(&note));
+            partials.push(self.call(system.to_owned(), user).await?);
+        }
+        self.reduce(partials, system, usable).await
+    }
+
+    /// Fusiona parciales; si el JSON conjunto no cabe, fusiona por grupos y repite.
+    async fn reduce(&self, mut partials: Vec<MinutesV1>, system: &str, usable: usize) -> PortResult<MinutesV1> {
+        let reduce_system = format!("{system}\n\n{REDUCE_INSTRUCTIONS}");
+        let budget = usable.saturating_sub(estimate_tokens(&reduce_system) + 200).max(500);
+        loop {
+            if partials.len() == 1 {
+                return Ok(partials.remove(0));
+            }
+            let sizes: Vec<usize> = partials.iter().map(|p| estimate_tokens(&json_of(p))).collect();
+            if sizes.iter().sum::<usize>() <= budget || partials.len() <= 2 {
+                return self.call(reduce_system.clone(), reduce_prompt(&partials)).await;
+            }
+            // Agrupa en tandas que quepan y fusiona cada una.
+            let mut next: Vec<MinutesV1> = Vec::new();
+            let mut group: Vec<MinutesV1> = Vec::new();
+            let mut group_size = 0usize;
+            for (p, sz) in partials.drain(..).zip(sizes) {
+                if !group.is_empty() && group_size + sz > budget {
+                    next.push(self.merge_group(std::mem::take(&mut group), &reduce_system).await?);
+                    group_size = 0;
+                }
+                group_size += sz;
+                group.push(p);
+            }
+            if !group.is_empty() {
+                next.push(self.merge_group(group, &reduce_system).await?);
+            }
+            partials = next;
+        }
+    }
+
+    async fn merge_group(&self, mut group: Vec<MinutesV1>, reduce_system: &str) -> PortResult<MinutesV1> {
+        if group.len() == 1 {
+            return Ok(group.remove(0));
+        }
+        self.call(reduce_system.to_owned(), reduce_prompt(&group)).await
+    }
+}
+
+const NOTE_PLACEHOLDER: &str = "FRAGMENTO 00 de 00 de una reunión larga (de 00:00 a 00:00). Extrae SOLO lo de este tramo: `escaleta` cubre solo este tramo y los tiempos son los absolutos de las marcas.";
+
+fn json_of(p: &MinutesV1) -> String {
+    serde_json::to_string(p).unwrap_or_default()
+}
+
+fn reduce_prompt(parts: &[MinutesV1]) -> String {
+    let body = parts
+        .iter()
+        .enumerate()
+        .map(|(i, p)| format!("## Parcial {}\n{}", i + 1, json_of(p)))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    format!("{REDUCE_INSTRUCTIONS}\n\n{body}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use acta_core::PortError;
+    use crate::structured::testing::FakeProvider;
+    use crate::testutil::{sample_input, utt};
+    use acta_core::time::{ManualClock, UnixMs};
+
+    const GOOD: &str = r#"{"titulo_sugerido":"Plan","resumen":"- Resumen","decisiones":[{"texto":"Lanzar el lunes","ts_ms":6000}],
+        "tareas":[{"texto":"Enviar presupuesto","responsable":"Edu","es_mia":true,"fecha_limite":"viernes","ts_ms":6000,"capturas":["c1"]},
+                  {"texto":"Preparar demo","responsable":"Ana","es_mia":false,"fecha_limite":null,"ts_ms":12000,"capturas":[]}],
+        "escaleta":{"temas":[{"titulo":"Presupuesto","resumen":"r","inicio_ms":0,"fin_ms":14000,"subtemas":[],"capturas":["c1"]}]},
+        "momentos_clave":[{"ts_ms":12000,"motivo":"fechas","tema":"Presupuesto"}]}"#;
+
+    fn make_gen(p: Arc<FakeProvider>) -> LlmMinutesGenerator {
+        LlmMinutesGenerator::new(p, Arc::new(ManualClock::new(UnixMs(1234)))).with_model(Some("m1".into()))
+    }
+
+    #[tokio::test]
+    async fn single_pass_builds_domain_output() {
+        let p = Arc::new(FakeProvider::new(vec![GOOD]));
+        let out = make_gen(p.clone()).generate(sample_input()).await.expect("generate");
+        assert_eq!(p.calls(), 1);
+        assert_eq!(out.minutes.action_items.len(), 2);
+        assert!(out.minutes.action_items[0].is_mine && !out.minutes.action_items[1].is_mine);
+        assert_eq!(out.minutes.model.as_deref(), Some("m1"));
+        assert_eq!(out.minutes.generated_at, UnixMs(1234));
+        assert_eq!(out.key_moments[0].at, MediaMs(12_000));
+        let req = &p.requests.lock().unwrap()[0];
+        assert!(req.json_schema.is_some());
+        let user = &req.messages[0].content;
+        assert!(user.contains("c1 [00:08] slide_change"));
+        assert!(user.contains("[00:06|6000] Edu (yo): Sí, yo me encargo."));
+        assert!(user.contains("Ana García: Edu, ¿puedes"));
+        let sys = req.system.as_ref().expect("system");
+        assert!(sys.contains("Edu") && sys.contains("Eduardo, Edu Navajas") && sys.contains("castellano"));
+        assert!(!sys.contains("{{"));
+    }
+
+    #[tokio::test]
+    async fn invalid_json_is_repaired_with_one_retry() {
+        let p = Arc::new(FakeProvider::new(vec!["esto no es json", GOOD]));
+        make_gen(p.clone()).generate(sample_input()).await.expect("generate");
+        assert_eq!(p.calls(), 2);
+    }
+
+    #[tokio::test]
+    async fn still_invalid_after_repair_is_an_error() {
+        let p = Arc::new(FakeProvider::new(vec!["x", "y"]));
+        let e = make_gen(p.clone()).generate(sample_input()).await.expect_err("err");
+        assert!(matches!(e, PortError::InvalidResponse(_)));
+        assert_eq!(p.calls(), 2);
+    }
+
+    fn long_input(minutes: u64) -> MinutesInput {
+        let mut input = sample_input();
+        input.utterances = (0..minutes)
+            .map(|m| utt(m as u32, if m % 2 == 0 { 2 } else { 1 }, m * 60_000, &format!("Minuto {m}: {}", "palabra ".repeat(60))))
+            .collect();
+        input.duration = MediaMs(minutes * 60_000);
+        input
+    }
+
+    #[tokio::test]
+    async fn long_transcript_uses_map_reduce() {
+        // Contexto pequeño: 70 min de texto no caben -> bloques + 1 fusión.
+        // context 10k -> usable = 7000-6000 -> 1500 (mínimo).
+        let input = long_input(70);
+        let lines = render_lines(&input.speakers, &input.utterances, "Edu");
+        let usable = 1_500usize;
+        let n_blocks = split_lines(&lines, (usable.saturating_sub(estimate_tokens(&system_prompt(&input)) + 400) * 9 / 10).max(300), BLOCK_SPAN_MS).len();
+        assert!(n_blocks >= 3, "esperaba varios bloques, hay {n_blocks}");
+        // n parciales + (posibles fusiones intermedias) + final: damos respuestas de sobra.
+        let mut fp = FakeProvider::new(std::iter::repeat_n(GOOD, n_blocks * 3).collect());
+        fp.context_tokens = 10_000;
+        let p = Arc::new(fp);
+        let out = make_gen(p.clone()).generate(input).await.expect("generate");
+        let calls = p.calls();
+        assert!(calls >= n_blocks, "map ({n_blocks}) + reduce, hubo {calls}");
+        assert!(!out.minutes.summary_md.is_empty());
+        let reqs = p.requests.lock().unwrap();
+        assert!(reqs[0].messages[0].content.contains("FRAGMENTO 1 de "));
+        assert!(reqs.last().expect("last").messages[0].content.contains("TAREA DE FUSIÓN"));
+    }
+
+    #[tokio::test]
+    async fn short_transcript_never_map_reduces() {
+        let p = Arc::new(FakeProvider::new(vec![GOOD]));
+        make_gen(p.clone()).generate(sample_input()).await.expect("generate");
+        assert!(!p.requests.lock().unwrap()[0].messages[0].content.contains("FRAGMENTO"));
+    }
+}

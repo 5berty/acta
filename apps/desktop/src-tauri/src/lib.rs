@@ -18,6 +18,7 @@
 pub mod app;
 mod commands;
 pub mod events;
+pub mod glass;
 pub mod llm;
 pub mod native;
 pub mod overlay;
@@ -149,6 +150,7 @@ pub fn run() {
             if let Err(e) = overlay::panel::install(&handle) {
                 tracing::error!("no se pudo convertir la pastilla en panel: {e}");
             }
+            glass::install(&handle);
             if let Err(e) = tray::install(&handle) {
                 tracing::error!("no se pudo crear el icono de la barra de menús: {e}");
             }

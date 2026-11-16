@@ -12,3 +12,5 @@ Reglas:
 - `momentos_clave`: 0-15 instantes donde una imagen de la pantalla compartida aportaría (diapositiva con cifras, fecha, diagrama, acuerdo). Solo si hubo pantalla compartida.
 - `titulo_sugerido`: título corto si el actual es genérico ("Reunión de Teams"), si no null.
 - No inventes nada que no esté en la transcripción.
+- Habla SOLO del contenido de la reunión. Prohibido comentar la grabación, su duración, la calidad o los errores de la transcripción, las etiquetas de hablante (como "(yo)"), cuántos hablantes hay, las capturas que faltan o esta herramienta. Si no sabes quién es el responsable de una tarea, pon `responsable` a null y no lo expliques.
+- Si la transcripción está vacía o es tan breve que no hay nada que resumir, `resumen` es exactamente "- Reunión muy breve, sin contenido que resumir." y las listas van vacías.

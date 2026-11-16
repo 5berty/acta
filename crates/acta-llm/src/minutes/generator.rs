@@ -2,6 +2,7 @@
 //! (bloques de ~20 min → acta parcial → fusión con el mismo esquema).
 
 use super::MinutesV1;
+use super::meta::{MIN_TRANSCRIPT_WORDS, empty_minutes, strip_meta};
 use super::convert::{ConvertCtx, convert, validate};
 use crate::structured::complete_structured;
 use crate::transcript::{Line, estimate_tokens, format_date, join_lines, mmss, render_lines, render_template, split_lines};
@@ -57,7 +58,8 @@ impl LlmMinutesGenerator {
     }
 
     async fn call(&self, system: String, user: String) -> PortResult<MinutesV1> {
-        complete_structured::<MinutesV1, _>(self.provider.as_ref(), Self::request(system, user), validate).await
+        // El acta habla de la reunión, no de la grabación: ver `meta`.
+        complete_structured::<MinutesV1, _>(self.provider.as_ref(), Self::request(system, user), validate).await.map(strip_meta)
     }
 }
 
@@ -151,7 +153,11 @@ impl MinutesGenerator for LlmMinutesGenerator {
         let usable = self.usable_tokens();
 
         let full_user = user_prompt(&input, &join_lines(&lines), &captures_text(&input, 0, u64::MAX), None);
-        let v1 = if estimate_tokens(&system) + estimate_tokens(&full_user) <= usable {
+        let words: usize = input.utterances.iter().map(|u| u.text.split_whitespace().count()).sum();
+        let v1 = if words < MIN_TRANSCRIPT_WORDS {
+            tracing::info!(words, "transcript sin contenido: acta neutra sin llamar al LLM");
+            empty_minutes()
+        } else if estimate_tokens(&system) + estimate_tokens(&full_user) <= usable {
             self.call(system, full_user).await?
         } else {
             tracing::info!(lines = lines.len(), usable, "transcript largo: map-reduce");
@@ -284,6 +290,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_summary_never_comments_on_the_recording_or_the_tooling() {
+        let p = Arc::new(FakeProvider::new(vec![include_str!("../../tests/fixtures/minutes_meta_commentary.json")]));
+        let out = make_gen(p.clone()).generate(sample_input()).await.expect("generate");
+        let md = &out.minutes.summary_md;
+        assert!(md.contains("publicación de la versión nueva"), "{md}");
+        for banned in ["(yo)", "transcripción", "Grabación muy breve", "único hablante", "capturas"] {
+            assert!(!md.contains(banned), "«{banned}» en {md}");
+        }
+        assert_eq!(out.minutes.decisions.len(), 1);
+        let sys = p.requests.lock().unwrap()[0].system.clone().expect("system");
+        assert!(sys.contains("Prohibido comentar la grabación"));
+        assert!(sys.contains(super::super::meta::EMPTY_SUMMARY));
+    }
+
+    #[tokio::test]
+    async fn a_transcript_with_nothing_in_it_gets_one_neutral_line_without_calling_the_llm() {
+        for utterances in [vec![], vec![utt(0, 1, 0, "Hola, ¿se oye?")]] {
+            let mut input = sample_input();
+            input.utterances = utterances;
+            let p = Arc::new(FakeProvider::new(vec![]));
+            let out = make_gen(p.clone()).generate(input).await.expect("generate");
+            assert_eq!(p.calls(), 0);
+            assert_eq!(out.minutes.summary_md, super::super::meta::EMPTY_SUMMARY);
+            assert!(out.minutes.action_items.is_empty() && out.escaleta.temas.is_empty());
+        }
+    }
+
+    #[tokio::test]
     async fn invalid_json_is_repaired_with_one_retry() {
         let p = Arc::new(FakeProvider::new(vec!["esto no es json", GOOD]));
         make_gen(p.clone()).generate(sample_input()).await.expect("generate");
@@ -314,7 +348,9 @@ mod tests {
         let input = long_input(70);
         let lines = render_lines(&input.speakers, &input.utterances, "Edu");
         let usable = 1_500usize;
-        let n_blocks = split_lines(&lines, (usable.saturating_sub(estimate_tokens(&system_prompt(&input)) + 400) * 9 / 10).max(300), BLOCK_SPAN_MS).len();
+        let overhead = estimate_tokens(&system_prompt(&input))
+            + estimate_tokens(&user_prompt(&input, "", &captures_text(&input, 0, u64::MAX), Some(NOTE_PLACEHOLDER)));
+        let n_blocks = split_lines(&lines, (usable.saturating_sub(overhead) * 9 / 10).max(300), BLOCK_SPAN_MS).len();
         assert!(n_blocks >= 3, "esperaba varios bloques, hay {n_blocks}");
         // n parciales + (posibles fusiones intermedias) + final: damos respuestas de sobra.
         let mut fp = FakeProvider::new(std::iter::repeat_n(GOOD, n_blocks * 3).collect());

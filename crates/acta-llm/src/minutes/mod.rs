@@ -9,6 +9,7 @@
 pub mod captures;
 pub mod convert;
 pub mod generator;
+pub mod meta;
 pub mod timeline;
 
 pub use generator::LlmMinutesGenerator;

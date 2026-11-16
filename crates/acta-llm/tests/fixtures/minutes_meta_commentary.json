@@ -1,0 +1,13 @@
+{
+  "titulo_sugerido": "Prueba de humo de acta",
+  "resumen": "- Se confirma la publicación de la versión nueva para el lunes.\n- La transcripción no marca al hablante como \"Edu (yo)\", así que la tarea no se atribuye a Edu.\n- Grabación muy breve (17 segundos) con un único hablante, sin decisiones ni debate.\n- Queda pendiente enviar el informe de pruebas al equipo.\n- No hay capturas de pantalla disponibles, por lo que no se señalan momentos clave.",
+  "decisiones": [
+    { "texto": "Publicar la versión nueva el lunes", "ts_ms": 4000 },
+    { "texto": "La transcripción es demasiado corta para extraer más decisiones", "ts_ms": null }
+  ],
+  "tareas": [
+    { "texto": "Enviar el informe de pruebas", "responsable": null, "es_mia": false, "fecha_limite": null, "ts_ms": 9000, "capturas": [] }
+  ],
+  "escaleta": { "temas": [ { "titulo": "Publicación", "resumen": "Fecha de la versión nueva", "inicio_ms": 0, "fin_ms": 17000, "subtemas": [], "capturas": [] } ] },
+  "momentos_clave": []
+}

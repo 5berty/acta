@@ -239,13 +239,17 @@ impl HealthMonitor {
                 if let Some(z) = t.zero_since
                     && now.since(z).max(0) as u64 >= self.config.zeros_ms
                 {
-                    wanted.push((
-                        HealthIssue::TrackAllZeros { track },
-                        format!(
+                    let message = match track {
+                        Track::Mic => "El micrófono solo da silencio digital. Revisa el permiso de Micrófono; \
+                            si el portátil tiene la tapa cerrada, su micro integrado está apagado: \
+                            elige otro micrófono en Ajustes."
+                            .to_owned(),
+                        Track::System => format!(
                             "La pista {} solo recibe silencio digital: probablemente falta el permiso de audio.",
                             track_es(track)
                         ),
-                    ));
+                    };
+                    wanted.push((HealthIssue::TrackAllZeros { track }, message));
                 }
                 if now.since(t.last_segment).max(0) as u64 >= self.segment_ms + self.config.segment_grace_ms {
                     wanted.push((

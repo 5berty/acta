@@ -368,3 +368,19 @@ fn one_shot_events_are_reported_once_in_spanish() {
     assert!(w.iter().all(|w| !w.message.is_empty()));
     assert!(m.tick(T0.plus_ms(200), None).is_empty());
 }
+
+/// Caso real (16-nov-2026): MacBook con la tapa cerrada y monitor externo →
+/// el micro integrado entrega ceros exactos con el permiso CONCEDIDO.
+#[test]
+fn mic_all_zeros_message_mentions_closed_lid_and_choosing_another_mic() {
+    let mut m = monitor();
+    for i in 0..110 {
+        let at = T0.plus_ms(i * 100);
+        feed(&mut m, Track::Mic, true, at);
+        feed(&mut m, Track::System, false, at);
+    }
+    let w = m.tick(T0.plus_ms(10_900), None);
+    let mic = w.iter().find(|w| w.issue == HealthIssue::TrackAllZeros { track: Track::Mic }).expect("aviso");
+    assert!(mic.message.contains("tapa cerrada"), "{}", mic.message);
+    assert!(mic.message.contains("Ajustes"), "{}", mic.message);
+}

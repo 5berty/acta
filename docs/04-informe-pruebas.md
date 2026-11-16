@@ -22,7 +22,7 @@ ACTA_E2E_DATA_COPY=<copia de ~/Library/Application Support/acta> \
 
 La reunión de prueba dura 57 s y tiene dos pistas: Mónica en el micro («Yo») y dos voces (Eddy y Flo) en el sistema, generadas con `say` a 16 kHz. Los datos de las pruebas van siempre a un directorio temporal (`ACTA_DATA_DIR`).
 
-Recuentos (con `verify.sh` en verde): 368 pruebas Rust (11 más ignoradas: las E2E), 67 Swift, 228 de frontend, 7 E2E reales.
+Recuentos (con `verify.sh` en verde): 457 pruebas Rust (13 más ignoradas: las E2E), 67 Swift, 276 de frontend, 9 E2E reales.
 
 ## Resultados
 
@@ -63,6 +63,34 @@ Recuentos (con `verify.sh` en verde): 368 pruebas Rust (11 más ignoradas: las E
 | Cambio de AirPods a mitad de llamada | PENDIENTE-HARDWARE | Conectar y desconectar a mano | — |
 | Reunión de 10 min y de 4 h | PENDIENTE-HARDWARE | Tiempo y memoria sin medir | — |
 
+## v3: modelo local integrado, favoritas y limpieza (16-nov-2026, tarde)
+
+| Función | Estado | Evidencia |
+|---|---|---|
+| Descarga real de llama.cpp `b12444` + Qwen3.5 2B (1,28 GB) con SHA-256 | PASS | 24,5 s; el tamaño en disco coincide con el catálogo |
+| Acta con el modelo ligero y el esquema como gramática | PASS | JSON válido a la primera (1 llamada, sin «repara este JSON»): resumen, 1 decisión, 2 tareas (la de Edu marcada como mía), escaleta de 4 temas |
+| Velocidad en este Mac (M2 Pro, 32 GB, Metal) | PASS | **82,8 tokens/s** en caliente; 36 tokens/s contando la carga del modelo (646 tokens en 17,9 s) |
+| Recomendación para este Mac | PASS | Los tres niveles holgados, recomendado Qwen3.5 9B; estimaciones 78 / 41 / 19 tokens/s |
+| Acta de una reunión real (copia de tus datos) con el modelo integrado | PASS | «Segunda prueba de humo…»: 3,6 s, 2 viñetas, sin metacomentarios, proveedor `builtin` |
+| Parar el servidor al borrar el modelo y al cerrar | PASS | Sin `llama-server` vivo tras cada prueba |
+| Favoritas sobre la copia de tus datos | PASS | Migraciones 3 y 4 aplicadas, 8 reuniones intactas; «versión»: 2 resultados en todo, 1 en favoritas |
+| Limpieza sobre la copia (dos reuniones envejecidas 200 días) | PASS | Solo se sugiere la que no tiene estrella; al borrar libera 4 033 079 bytes y la favorita se salta |
+| El resumen no comenta la grabación ni la herramienta | PASS (tras arreglo) | Fixture con el acta real del fallo; ver «7» |
+| App instalada con tus datos | PASS | `user_version` 4, 8 reuniones, 0 favoritas; sin errores nuevos en el log |
+| Recorrer la UI nueva en la app instalada | PENDIENTE | La pantalla estaba bloqueada: no se puede manejar ni capturar. Las capturas de `screenshots/v3/` son del modo demo |
+
+```bash
+# Modelo local, de verdad (baja 1,3 GB a un directorio temporal)
+ACTA_LOCAL_LLM_E2E=1 ACTA_DATA_DIR=$(mktemp -d) cargo test -p acta-llm --test real_local -- --ignored --nocapture
+# v3 sobre una copia de los datos reales
+ACTA_E2E=1 ACTA_MAC_SIDECAR=$PWD/sidecars/acta-mac/.build/release/acta-mac ACTA_E2E_DATA_COPY=<copia> \
+  cargo test -p acta-desktop --test e2e_real e2e_v3 -- --ignored --nocapture
+```
+
+Límites del modelo ligero vistos en la prueba: se deja tareas secundarias (de cinco compromisos sacó dos) y copia la etiqueta «Edu (yo)» como responsable (ya se limpia). Para reuniones largas o con muchos temas, el nivel recomendado es el avanzado.
+
+Capturas (claro y oscuro) en `docs/screenshots/v3/`: `bienvenida-ia-modelo-integrado`, `ajustes-proveedores-modelo-integrado`, `reuniones-favoritas-estrellas`, `reuniones-filtro-favoritas`, `busqueda-rapida-favoritas`, `grupos-favoritos`, `limpieza-aviso`, `limpieza-revision`, `limpieza-confirmar`, `limpieza-hecho` y `ajustes-general-limpieza`.
+
 ## Fallos arreglados
 
 ### 1. La pista del sistema salía ininteligible con auriculares Bluetooth (`11f0a4e`)
@@ -101,6 +129,11 @@ macOS da un permiso de Automatización por navegador abierto. La bienvenida y Aj
 ### 6. Comandos fuera del contrato (`801fb3d`)
 
 `llm_list_models`, `llm_detect_local` y `open_external_url` no estaban en `acta_core::api::command_names`, y `audio_inputs_list` no estaba en el contrato de TypeScript.
+
+### 7. El resumen comentaba la grabación y la herramienta
+
+- **Síntoma**: viñetas como «La transcripción no marca al hablante como "Edu (yo)", así que la tarea no se atribuye a Edu» o «Grabación muy breve (17 segundos) con un único hablante…».
+- **Arreglo**: el prompt lo prohíbe y, por si el modelo no obedece, `minutes/meta.rs` quita esas frases de forma determinista (resumen, decisiones y tareas). Si no queda nada, o el transcript tiene menos de 8 palabras, el resumen es «Reunión muy breve, sin contenido que resumir». La etiqueta «(yo)» tampoco se cuela ya como nombre del responsable.
 
 ## Limitación abierta: macOS pregunta por la carpeta Documentos
 

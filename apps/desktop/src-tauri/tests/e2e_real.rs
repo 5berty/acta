@@ -629,3 +629,141 @@ async fn e2e_simulated_detection_prompts_and_auto_stops() {
     eprintln!("estado final: {:?} error={:?}", m.status, m.error);
     r.core.shutdown().await;
 }
+
+// ---------------------------------------------------------------------------
+// 7. v3 sobre una COPIA de los datos reales: favoritas, limpieza y el modelo
+//    local integrado (descarga real de llama.cpp + Qwen3.5 2B, 1,3 GB)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+#[ignore = "real: ACTA_E2E=1 ACTA_E2E_DATA_COPY=<copia de Application Support/acta> (descarga 1,3 GB)"]
+async fn e2e_v3_favourites_cleanup_and_built_in_model_on_a_data_copy() {
+    use acta_core::library::cleanup::DAY_MS;
+    use acta_core::llm::ProviderConfig;
+    use acta_core::llm::local::{BUILTIN_PROVIDER_ID, RuntimeSource};
+    use acta_core::processing::{ProcessingStep, ReprocessRequest};
+    if !enabled() {
+        return;
+    }
+    let Ok(dir) = std::env::var("ACTA_E2E_DATA_COPY") else { return };
+    assert!(!dir.contains("Application Support/acta"), "siempre sobre una copia");
+    let r = rig(Path::new(&dir)).await;
+
+    // --- Migraciones 3 y 4 sobre la base real: todo sigue ahí, sin estrellas.
+    let all = r.core.meetings_list(MeetingQuery::default()).await.unwrap().items;
+    eprintln!("reuniones en la copia: {}", all.len());
+    assert!(all.len() >= 2 && all.iter().all(|m| !m.favourite));
+    let with_text: Vec<&MeetingSummary> = all.iter().filter(|m| m.status == MeetingStatus::Ready && m.duration.0 > 10_000).collect();
+    assert!(with_text.len() >= 2, "hacen falta dos reuniones con contenido");
+    let (starred, plain) = (with_text[0].id, with_text[1].id);
+
+    // --- Favoritas: estrella, filtro y búsqueda acotada.
+    assert!(r.core.meeting_set_favourite(starred, true).await.unwrap().favourite);
+    let favs = r.core.meetings_list(MeetingQuery { favourites_only: true, ..MeetingQuery::default() }).await.unwrap().items;
+    assert_eq!(favs.iter().map(|m| m.id).collect::<Vec<_>>(), vec![starred]);
+    let everywhere = r.core.search(SearchQuery { text: "versión".into(), scope: SearchScope::All, limit: 20 }).await.unwrap();
+    let in_favs = r.core.search(SearchQuery { text: "versión".into(), scope: SearchScope::Favourites, limit: 20 }).await.unwrap();
+    eprintln!("búsqueda «versión»: {} en todo, {} en favoritas", everywhere.len(), in_favs.len());
+    assert!(in_favs.iter().all(|h| h.meeting_id == starred));
+    assert!(in_favs.len() <= everywhere.len());
+
+    // --- Limpieza: nada que sugerir (son de hoy y se acaban de buscar)…
+    assert!(r.core.cleanup_suggestions().await.unwrap().candidates.is_empty());
+    // …hasta que dos envejecen 200 días y dejan de constar como usadas (solo en la copia).
+    let old = acta_core::time::Clock::now(&SystemClock).0 - 200 * DAY_MS;
+    r.core
+        .store
+        .with_conn(move |conn| {
+            conn.execute(
+                "UPDATE meetings SET started_at = ?1, last_opened_at = NULL, last_used_at = NULL WHERE id IN (?2, ?3)",
+                (old, starred.to_string(), plain.to_string()),
+            )
+            .map_err(|e| acta_core::PortError::Io(e.to_string()))?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let s = r.core.cleanup_suggestions().await.unwrap();
+    eprintln!("sugerencias: {:?}", s.candidates.iter().map(|c| (&c.title, c.bytes, &c.reasons)).collect::<Vec<_>>());
+    assert_eq!(s.candidates.iter().map(|c| c.meeting_id).collect::<Vec<_>>(), vec![plain], "la favorita nunca se sugiere");
+    assert!(s.total_bytes > 0);
+    let plain_dir = r.layout.meeting_dir(plain);
+    assert!(plain_dir.exists());
+    let res = r.core.cleanup_delete(vec![plain, starred]).await.unwrap();
+    eprintln!("borradas {:?}, saltadas {:?}, liberados {} bytes", res.deleted, res.skipped, res.freed_bytes);
+    assert_eq!((res.deleted.clone(), res.skipped.clone()), (vec![plain], vec![starred]));
+    assert_eq!(res.freed_bytes, s.total_bytes);
+    assert!(!plain_dir.exists() && r.layout.meeting_dir(starred).exists());
+    assert!(r.core.search(SearchQuery { text: "versión".into(), scope: SearchScope::All, limit: 20 }).await.unwrap().iter().all(|h| h.meeting_id != plain));
+
+    // --- Modelo local integrado: este Mac, descarga real y «Probar».
+    let status = r.core.local_llm_status().await.unwrap();
+    eprintln!(
+        "Mac: {} · {} GB · libres {:?} · recomendado {:?}",
+        status.hardware.chip,
+        status.hardware.ram_gb(),
+        status.hardware.free_disk_bytes.map(|b| b / 1_000_000_000),
+        status.recommended
+    );
+    for m in &status.models {
+        eprintln!("  {} fit={:?} ≈{} tokens/s descargado={}", m.model.name, m.fit, m.expected_tokens_per_s, m.downloaded);
+    }
+    let tiny = status.models[0].model.id.clone();
+    let started = Instant::now();
+    r.core.local_llm_download(tiny.clone()).await.unwrap();
+    loop {
+        let done = r.events.0.lock().unwrap().iter().find(|(n, p)| n == "localmodel:download" && p["done"] == true).map(|(_, p)| p.clone());
+        if let Some(done) = done {
+            assert!(done["error"].is_null(), "{done}");
+            break;
+        }
+        assert!(started.elapsed() < Duration::from_secs(1_200), "la descarga no terminó");
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    eprintln!("descarga del modelo: {:.1} s", started.elapsed().as_secs_f64());
+    let status = r.core.local_llm_status().await.unwrap();
+    assert!(status.models[0].downloaded);
+    eprintln!("llama.cpp: {:?} en {:?}", status.runtime.source, status.runtime.path);
+    assert!(matches!(status.runtime.source, Some(RuntimeSource::Downloaded | RuntimeSource::Env | RuntimeSource::Bundled)));
+    let t = r.core.local_llm_test(tiny.clone()).await.unwrap();
+    eprintln!("probar: ok={} «{}» {:?} ms", t.ok, t.message, t.latency_ms);
+    assert!(t.ok, "{}", t.message);
+
+    // --- El acta de una reunión REAL de la copia, escrita por el modelo integrado.
+    let mut settings = r.core.settings_get().await.unwrap();
+    settings.llm.providers.push(ProviderConfig {
+        id: BUILTIN_PROVIDER_ID.into(),
+        label: "Modelo local integrado".into(),
+        enabled: true,
+        kind: ProviderKind::BuiltIn { model_id: tiny.clone() },
+        timeout_s: 600,
+    });
+    settings.llm.minutes_provider = Some(BUILTIN_PROVIDER_ID.into());
+    r.core.settings_update(settings).await.unwrap();
+    let t0 = Instant::now();
+    r.core
+        .meeting_reprocess(ReprocessRequest { meeting_id: starred, steps: vec![ProcessingStep::Summarizing, ProcessingStep::Indexing] })
+        .await
+        .unwrap();
+    let m = wait_reprocessed(&r.core, starred, Duration::from_secs(600)).await;
+    let d = r.core.meeting_get(starred).await.unwrap();
+    let minutes = d.minutes.expect("acta");
+    eprintln!("acta local en {:.1} s: {:?} «{}» proveedor={} modelo={:?}", t0.elapsed().as_secs_f64(), m.status, m.title, minutes.provider, minutes.model);
+    eprintln!("{}", minutes.summary_md);
+    for a in &minutes.action_items {
+        eprintln!("- tarea [{}] {}", if a.is_mine { "mía" } else { "otro" }, a.text);
+    }
+    assert_eq!(m.status, MeetingStatus::Ready, "{:?}", m.error);
+    assert_eq!(minutes.provider.0, BUILTIN_PROVIDER_ID);
+    assert!(!minutes.summary_md.trim().is_empty());
+    for banned in ["(yo)", "transcripción no", "único hablante", "Grabación muy breve"] {
+        assert!(!minutes.summary_md.contains(banned), "metacomentario «{banned}»");
+    }
+    assert_eq!(r.core.local_llm_status().await.unwrap().running.as_deref(), Some(tiny.as_str()));
+
+    // --- Borrar el modelo para el servidor y libera el disco.
+    r.core.local_llm_delete(tiny).await.unwrap();
+    let status = r.core.local_llm_status().await.unwrap();
+    assert!(!status.models[0].downloaded && status.running.is_none());
+    r.core.shutdown().await;
+}

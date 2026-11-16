@@ -7,7 +7,7 @@ acta es un grabador de reuniones local para Mac. Está hecho en Rust con arquite
 | Dominio y puertos | `crates/acta-core/src/**/{model,ports,mod}.rs` |
 | Protocolo del sidecar | `crates/acta-mac-bridge/src/protocol.rs` ⇄ `sidecars/acta-mac/Sources/ActaMacProtocol/Protocol.swift` |
 | Comandos y eventos de Tauri | `crates/acta-core/src/api/` ⇄ `apps/desktop/src/api/{types,contract}.ts` |
-| Esquema de la base de datos | `crates/acta-store/migrations/0001_init.sql` |
+| Esquema de la base de datos | `crates/acta-store/migrations/*.sql` |
 | Esquemas del LLM | `crates/acta-llm/schemas/*.json`, prompts en `crates/acta-llm/prompts/` |
 
 > Windows llegará DESPUÉS. Los puertos están pensados para que se le pueda añadir un adaptador (ver tabla §2), pero **no se escribe nada de Windows ahora**.
@@ -26,7 +26,7 @@ acta es un grabador de reuniones local para Mac. Está hecho en Rust con arquite
 | Procesos hijo | `tokio::process` + `kill_on_drop(true)` + `wait()` en **todos** los caminos. Además `#![deny(clippy::zombie_processes)]`, `disallowed-methods` sobre `std::process::Command::spawn` y `scripts/guards.sh`. | Es la lección de Meetily. |
 | Base de datos | **rusqlite 0.37 (bundled)** con FTS5 + sqlite-vec 0.1.x. Migraciones con `PRAGMA user_version`. | Es síncrono y simple (va con `spawn_blocking`). sqlx no aporta nada sin servidor. |
 | Embeddings | fastembed-rs con `intfloat/multilingual-e5-small` (384 dims), detrás del puerto `Embedder` y de la feature `local-embeddings`. | Es multilingüe y ligero. bge-m3 (1024) queda como opción futura con una migración. |
-| LLM | Puerto `LlmProvider` con cuatro adaptadores: `claude -p`, `codex exec`, OpenAI-compatible y Anthropic. **Por defecto `claude -p`.** | Es lo que eligió Edu. Nunca se tocan las credenciales del CLI. |
+| LLM | Puerto `LlmProvider` con cinco adaptadores: `claude -p`, `codex exec`, OpenAI-compatible, Anthropic y el **modelo local integrado** (§15, opcional). **Por defecto `claude -p`.** | Es lo que eligió Edu. Nunca se tocan las credenciales del CLI. |
 | Procesado | Va en una cola de fondo y **no bloquea** una grabación nueva. | Así se pueden encadenar reuniones seguidas. |
 | Firma | **Ninguna**: `bundle.macOS.signingIdentity: null`, `hardenedRuntime: false`. El sidecar se compila con `swift build --disable-get-task-allow-entitlement`. | Es el EDR del portátil de empresa (ver §11). |
 
@@ -283,6 +283,7 @@ Durante la grabación, el supervisor guarda las `SpeakerSignal` (roster y hablan
 | `claudeCli` | `<binary_path> -p --safe-mode --output-format json --json-schema '<schema>' --tools "" --strict-mcp-config --no-session-persistence --system-prompt '<sys>' [--model m]`. El prompt va **por stdin** y el `cwd` es un directorio temporal vacío. El resultado es `.result` del JSON. **No usar `--bare`**: ignora el login OAuth del usuario. |
 | `codexCli` | `<binary_path> exec --skip-git-repo-check --ephemeral --sandbox read-only --output-schema <fichero> -o <fichero_salida> [-m m] -`, con el prompt por stdin y `cwd` temporal. |
 | `openAiCompatible` | `POST {base_url}/chat/completions` con `response_format: {type: json_schema, strict: true}` y streaming SSE. |
+| `builtIn` | `{modelId}`. acta arranca su propio `llama-server` y le habla por la misma API compatible con OpenAI (§15). |
 | `anthropic` | Messages API. La salida estructurada va con una herramienta cuyo `input_schema` es el esquema. La clave está en el Llavero (`SecretRef`). |
 
 Reglas comunes de los CLI:
@@ -317,6 +318,8 @@ Reglas comunes de los CLI:
 - Reunión: el transcript entero en contexto.
 - Grupo o todo: el `Retriever` saca los 12 mejores chunks, que van numerados `[n] Reunión · fecha · mm:ss`. Las `[n]` de la respuesta se convierten en `Citation{n, meeting_id, at, …}`.
 - Se descartan las citas a números que no existen.
+
+**El acta habla de la reunión, no de la grabación** (`minutes/meta.rs`): el prompt prohíbe comentar la grabación, la calidad de la transcripción, las etiquetas de hablante o la herramienta. Como un modelo pequeño no siempre obedece, después se quitan esas frases con una lista corta de patrones (fixture `tests/fixtures/minutes_meta_commentary.json`, sacado de un acta real). Con menos de 8 palabras transcritas no se llama al LLM: el resumen es «Reunión muy breve, sin contenido que resumir». Vale para todos los proveedores.
 
 **Detector de momentos importantes** (en vivo, solo con `live_preview`):
 
@@ -366,10 +369,12 @@ Esquema completo en `crates/acta-store/migrations/0001_init.sql`. Ya se aplica y
 | `vec_chunks`, `vec_meetings` | vec0 `float[384] distance_metric=cosine` | cambiar de modelo obliga a una migración nueva |
 | `embedding_meta`, `settings`, `chat_threads`, `chat_messages`, `llm_runs` | | `settings['app']` guarda el JSON de `Settings` |
 
+Migraciones `0003` y `0004`: `meetings.favourite`, `groups.favourite`, `meetings.last_opened_at`, `meetings.last_used_at` y `meetings.cleanup_keep` (§16).
+
 Búsqueda híbrida:
 
 1. BM25 (FTS5) top 50 y vectores (k = 50), fusionados con RRF (k = 60).
-2. Filtro por `SearchScope` (todo, grupo o reunión).
+2. Filtro por `SearchScope` (todo, favoritas, grupo o reunión). «Favoritas» = reuniones con estrella + reuniones de grupos con estrella (`meetings::favourite_sql`, la misma condición para el filtro de la lista, la búsqueda y la limpieza).
 3. Snippet con `snippet()` de FTS5.
 
 Grupos sugeridos:
@@ -385,7 +390,8 @@ Grupos sugeridos:
 ~/Library/Application Support/acta/
   acta.db (+ -wal, -shm)
   logs/acta.log  logs/acta-mac.log
-  models/  (fastembed/, fluidaudio/)
+  models/  (fastembed/, fluidaudio/, llm/<modelo>.gguf)
+  runtime/llama/<versión>/llama-server  (+ dylib; llama-server.pid)
   meetings/<meeting_id>/
     manifest.json
     audio/{mic,system}/seg-000000.wav[.tmp]   audio/{mic,system,mix}.wav
@@ -420,8 +426,10 @@ Tabla completa de comandos: `crates/acta-core/src/api/commands.rs` (documentaci�
 | Área | Comandos |
 |---|---|
 | Sesión | `session_get_state`, `session_start{app?}`, `session_pause`, `session_resume`, `session_stop`, `session_dismiss`, `prompt_answer{promptId, answer}`, `capture_manual` (todos devuelven `SessionSnapshot`, salvo `capture_manual`) |
-| Reuniones | `meetings_list{query}`, `meeting_get{id}`, `meeting_update{id, title}`, `meeting_delete{id}`, `meeting_reprocess{request}`, `speaker_rename{meetingId, speakerId, displayName, remember}`, `action_item_set_done{id, done}`, `capture_delete{id}` |
-| Grupos | `groups_list`, `group_create`, `group_update`, `group_delete`, `group_add_meeting`, `group_remove_meeting`, `group_suggestions_list`, `group_suggestions_refresh`, `group_suggestion_accept`, `group_suggestion_dismiss` |
+| Reuniones | `meetings_list{query}`, `meeting_get{id}`, `meeting_update{id, title}`, `meeting_delete{id}`, `meeting_set_favourite{id, favourite}`, `meeting_reprocess{request}`, `speaker_rename{meetingId, speakerId, displayName, remember}`, `action_item_set_done{id, done}`, `capture_delete{id}` |
+| Limpieza | `cleanup_suggestions`, `cleanup_delete{ids}`, `cleanup_keep{ids}` (§16) |
+| Modelo local | `local_llm_status`, `local_llm_download{modelId}`, `local_llm_cancel{modelId}`, `local_llm_delete{modelId}`, `local_llm_test{modelId}` (§15) |
+| Grupos | `groups_list`, `group_create`, `group_update`, `group_delete`, `group_set_favourite{id, favourite}`, `group_add_meeting`, `group_remove_meeting`, `group_suggestions_list`, `group_suggestions_refresh`, `group_suggestion_accept`, `group_suggestion_dismiss` |
 | Búsqueda y chat | `search{query}`, `chat_threads_list`, `chat_thread_create`, `chat_thread_delete`, `chat_messages_list`, `chat_send{threadId, text}` (devuelve `ChatSendResult` y luego llegan `chat:delta`) |
 | Huellas | `voiceprints_list`, `voiceprint_delete{id}` |
 | Ajustes y diagnóstico | `settings_get`, `settings_update{settings}`, `llm_provider_test{providerId}`, `llm_cli_detect`, `secret_set{providerId, value}`, `secret_delete{providerId}`, `models_status`, `models_download{name}`, `permissions_status`, `permissions_request{kind}`, `open_system_settings{kind}`, `health_get`, `app_info` |
@@ -438,6 +446,7 @@ Tabla completa de comandos: `crates/acta-core/src/api/commands.rs` (documentaci�
 | `chat:delta` | `ChatDelta` | streaming |
 | `live:partial` | `LivePartial` | solo con previsualización en vivo |
 | `model:download` | `ModelDownload` | descargas |
+| `localmodel:download` | `LocalLlmDownload{modelId, stage, receivedBytes, totalBytes, fraction, done, error?}` | descarga del modelo local integrado |
 | `main:navigate` | `MainNavigate{meetingId}` | `main_window_show{meetingId}` (la pastilla abre una reunión) |
 
 Ventanas (`tauri.conf.json`, con `macOSPrivateApi: true`):
@@ -520,3 +529,72 @@ Piezas de WP6:
 - `apps/desktop/src-tauri`: `AppCore` (lógica de comandos, testeada sin Tauri), comandos finos, NSPanel no activable (`tauri-nspanel`, nivel Status, todos los Spaces, pantalla completa), icono en la barra de menús ("Grabar ahora"), sidecar localizado en `Contents/MacOS/acta-mac` (externalBin solo en `tauri.bundle.conf.json`, porque `tauri-build` falla en `cargo check` si el binario no existe). Sin sidecar la app abre igual y explica el error en cada acción nativa.
 - Embeddings: feature `local-embeddings` de la app (la activa `scripts/install-mac.sh`). Sin ella no hay embedder (solo FTS5), para no mezclar vectores de modelos distintos.
 - Instalación: `docs/03-instalacion.md`. Verificación manual: `docs/02-verificacion-manual.md`.
+
+---
+
+## 15. Modelo local integrado (opcional)
+
+acta puede descargar un modelo y ejecutarlo ella misma, sin Ollama ni nada instalado. Es **opcional**: se ofrece en el paso de IA de la bienvenida y en Ajustes › Proveedores de IA › «Modelo local integrado (opcional)».
+
+### 15.1 Motor: `llama-server` supervisado, no llama.cpp dentro del proceso
+
+| Opción | Veredicto |
+|---|---|
+| llama.cpp en proceso (`llama-cpp-2`) | Descartado. Compila llama.cpp con CMake en cada build (en este Mac ni hay `cmake`), mete `unsafe` y C++ en el proceso que graba, y si el modelo se queda sin memoria **muere la app con la grabación en curso**. |
+| `llama-server` como proceso hijo | **Elegido.** Binario oficial con Metal, API compatible con OpenAI (se reutiliza el proveedor `openAiCompatible`), `response_format: json_schema` convertido en gramática, y si se cae, se cae solo él. Al pararlo, la memoria vuelve al sistema. |
+
+- acta **no compila ni firma** el binario: descarga el paquete oficial de macOS arm64 de una versión **fijada** de `ggml-org/llama.cpp` (`b12444`, 17 MB) con su SHA-256, y extrae solo `llama-server`, sus `.dylib` y la licencia (`local/runtime.rs`).
+- Orden de búsqueda: `ACTA_LLAMA_SERVER` → junto al ejecutable de la app → el descargado → Homebrew (`brew install llama.cpp`, respaldo si la red bloquea GitHub).
+- Supervisión (`local/server.rs`): `tokio::process` + `kill_on_drop(true)` y `wait()` en todos los caminos. Escucha solo en `127.0.0.1`, en un puerto libre. Arranca con la primera petición, se para tras 5 min sin uso y al cerrar la app. Su PID se apunta en `runtime/llama/llama-server.pid` y al arrancar se mata el huérfano de un cierre brusco (solo si su línea de comando es un `llama-server`).
+- Argumentos: `-m <gguf> --host 127.0.0.1 --port <p> -c <contexto> -ngl 99 -np 1 --reasoning-budget 0 --alias <id> --jinja --no-webui`.
+
+### 15.2 Catálogo (verificado en Hugging Face el 16-nov-2026)
+
+Lógica pura en `acta_core::llm::local`. Cada modelo va fijado a un commit del repositorio y a su SHA-256.
+
+| Nivel | Modelo (repo · fichero) | En disco | Memoria | Contexto | Licencia |
+|---|---|---|---|---|---|
+| Ligero | `unsloth/Qwen3.5-2B-GGUF` · `Qwen3.5-2B-Q4_K_M.gguf` | 1,28 GB | ≈ 2,5 GB | 16 384 | Apache-2.0 |
+| Equilibrado | `unsloth/Qwen3.5-4B-GGUF` · `Qwen3.5-4B-Q4_K_M.gguf` | 2,74 GB | ≈ 4,5 GB | 16 384 | Apache-2.0 |
+| Avanzado | `unsloth/Qwen3.5-9B-GGUF` · `Qwen3.5-9B-Q4_K_M.gguf` | 5,68 GB | ≈ 8,5 GB | 24 576 | Apache-2.0 |
+
+### 15.3 Recomendación según el Mac
+
+`sysctl -n hw.memsize machdep.cpu.brand_string hw.optional.arm64` (supervisado) + espacio libre (`statvfs`).
+
+| Memoria | Ligero (mín. 4, holgado 8) | Equilibrado (8 / 16) | Avanzado (16 / 24) | Recomendado |
+|---|---|---|---|---|
+| < 8 GB | justo | no se ofrece | no se ofrece | Ligero |
+| 8 GB | holgado | justo | no se ofrece | Ligero |
+| 16 GB | holgado | holgado | justo | Equilibrado |
+| ≥ 24 GB (este Mac: M2 Pro, 32 GB) | holgado | holgado | holgado | Avanzado |
+
+- Se recomienda el más capaz que va holgado; si ninguno, el más ligero que funciona. Intel: todos «justo» y se recomienda el ligero.
+- Sin disco (tamaño + 2 GB de margen) no se puede descargar. La velocidad estimada sale de la generación (M1…M5) y de la variante (Pro, Max, Ultra); está calibrada con la medida real de este Mac.
+
+### 15.4 Descarga
+
+`local/download.rs`: escribe en `<fichero>.part`, reanuda con `Range`, vuelve a empezar si el servidor lo ignora, y solo renombra al nombre final con el SHA-256 correcto (si no coincide, borra el `.part`). «Pausar» deja lo bajado para reanudar. Primero llama.cpp (si acta no tiene el suyo), después el modelo.
+
+### 15.5 Salida estructurada y transcripts largos
+
+El esquema `acta.minutes.v1` viaja en `response_format` y `llama-server` lo convierte en una gramática: el JSON sale válido a la primera también con el modelo ligero. `capabilities().context_tokens` es el contexto del modelo, así que el map-reduce de §7.1 trocea solo.
+
+---
+
+## 16. Favoritas y limpieza de reuniones antiguas
+
+**Favoritas**: estrella en reuniones y en grupos (fila de la lista, cabecera de la reunión, vista del grupo y ⌘K, con ⌘D). Filtro «Favoritas» en la lista de reuniones y «Favoritos» en la de grupos. La búsqueda acepta el alcance `favourites`. Marcar no cambia `updated_at`.
+
+**Limpieza** (`acta_core::library::cleanup`, determinista, sin LLM). Una reunión se sugiere si cumple todo:
+
+1. Tiene más de `Settings.cleanup.minAgeDays` días (90 por defecto).
+2. No tiene estrella, no está en un grupo con estrella, no tiene «mis tareas» abiertas y no se pulsó «Mantener».
+3. No se ha abierto (`last_opened_at`: `meeting_get`), ni ha salido en una búsqueda ni se ha usado en el chat (`last_used_at`) en ese mismo plazo.
+4. No está grabando ni procesando.
+
+Los motivos que se enseñan: antigüedad, nunca usada o sin usar desde hace N días, corta (< 3 min), poco contenido (< 80 palabras) y fallida.
+
+- La UI enseña un aviso que se puede cerrar («Recordármelo más tarde»: calla una semana, `cleanup.snoozedUntil`) y una hoja de revisión para elegir, mantener o borrar con confirmación.
+- `cleanup_delete` borra filas, índice y carpeta (audio, capturas, transcript), dice cuánto libera y **se salta siempre las favoritas** aunque se le pidan. acta nunca borra por su cuenta.
+- Ajustes › General › Limpieza: activar o desactivar y elegir la antigüedad.

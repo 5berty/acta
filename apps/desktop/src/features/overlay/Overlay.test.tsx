@@ -159,3 +159,40 @@ describe("Overlay", () => {
     expect(spy).toHaveBeenCalled();
   });
 });
+
+describe("pastilla: detalles", () => {
+  it("se expande solo cuando hay algo que decidir o avisar", async () => {
+    const { controls } = setup(snap(recording()));
+    await screen.findByText("00:00");
+    const pill = document.querySelector(".pill")!;
+    expect(pill).not.toHaveClass("pill-expanded");
+    act(() => controls.emit("session:state", snap(recording({ stopPrompt: prompt("stop") }))));
+    await screen.findByRole("group", { name: "La llamada ha terminado" });
+    expect(document.querySelector(".pill")).toHaveClass("pill-expanded");
+  });
+
+  it("al detectar una reunión enseña de cuál se trata", async () => {
+    setup(snap({ state: "detected", prompt: prompt("start"), app: { ...app, title: "Daily del equipo" } }));
+    const box = await screen.findByRole("group", { name: "Reunión detectada" });
+    expect(within(box).getByText("Daily del equipo")).toBeInTheDocument();
+  });
+
+  it("si para por silencio lo dice", async () => {
+    setup(snap(recording({ stopPrompt: { kind: "stopRecording", reason: "silence", id: "p3", createdAt: Date.now() } })));
+    expect(await screen.findByText(/Parece que no habla nadie — ¿Parar\?/)).toBeInTheDocument();
+  });
+
+  it("en pausa los medidores se quedan a cero", async () => {
+    const { controls } = setup(snap({ ...recording(), state: "paused", pausedAt: Date.now() }));
+    await screen.findByRole("button", { name: "Reanudar" });
+    act(() => controls.emit("session:levels", { mic: { rmsDbfs: -10, peakDbfs: -5, allZero: false }, system: { rmsDbfs: -10, peakDbfs: -5, allZero: false }, at: Date.now() }));
+    expect(screen.getByRole("meter", { name: "Nivel de Yo" })).toHaveAttribute("aria-valuenow", "0");
+  });
+
+  it("guardando y recuperando se explican", async () => {
+    const { controls } = setup(snap({ state: "stopping", meetingId: "m1", reason: "user" }));
+    expect(await screen.findByText(/Guardando el audio/)).toBeInTheDocument();
+    act(() => controls.emit("session:state", snap({ state: "recovering", meetingId: "m1" })));
+    expect(await screen.findByText(/Recuperando una grabación interrumpida/)).toBeInTheDocument();
+  });
+});

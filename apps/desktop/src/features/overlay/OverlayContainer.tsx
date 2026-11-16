@@ -64,6 +64,7 @@ export function OverlayContainer() {
       levels={levels}
       warning={warning}
       countdownS={stopPrompt ? remainingSeconds(stopPrompt.createdAt, unansweredMs, now) : null}
+      countdownTotalS={unansweredMs / 1000}
       onPause={() => void api.sessionPause()}
       onResume={() => void api.sessionResume()}
       onStop={() => void api.sessionStop()}

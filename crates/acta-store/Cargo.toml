@@ -10,13 +10,16 @@ publish.workspace = true
 [features]
 default = []
 # Embeddings locales con fastembed-rs (descarga onnxruntime al compilar).
-local-embeddings = ["dep:fastembed"]
+local-embeddings = ["dep:fastembed", "dep:reqwest"]
 
 [dependencies]
 acta-core = { workspace = true }
 rusqlite = { workspace = true }
 sqlite-vec = { workspace = true }
 fastembed = { workspace = true, optional = true }
+# Descarga del modelo con el TLS del sistema (el cliente de hf-hub usa rustls
+# sin las CA del Llavero y falla tras un proxy TLS corporativo).
+reqwest = { workspace = true, optional = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

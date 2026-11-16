@@ -98,6 +98,18 @@ fn write_json(path: &Path, value: &impl serde::Serialize) -> PortResult<()> {
     Ok(())
 }
 
+/// Sin un solo sample en ninguna pista no hay reunión que procesar.
+fn ensure_recorded_audio(manifest: &acta_core::recording::SessionManifest) -> PortResult<()> {
+    if manifest.tracks.iter().all(|t| t.segments.iter().all(|s| s.samples == 0)) {
+        return Err(PortError::Unavailable(
+            "No se grabó audio: la captura no llegó a empezar. Revisa en Ajustes › Permisos el Micrófono y \
+             el Audio del sistema (tras reinstalar acta, macOS vuelve a pedirlos)."
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> PortResult<T> + Send + 'static) -> PortResult<T> {
     tokio::task::spawn_blocking(f)
         .await
@@ -173,13 +185,7 @@ impl DefaultPipeline {
             ..MeetingPatch::default()
         };
         self.store.patch_meeting(id, patch).await?;
-        if manifest.tracks.iter().all(|t| t.segments.iter().all(|s| s.samples == 0)) {
-            return Err(PortError::Unavailable(
-                "No se grabó audio: la captura no llegó a empezar. Revisa en Ajustes › Permisos el Micrófono y \
-                 el Audio del sistema (tras reinstalar acta, macOS vuelve a pedirlos)."
-                    .into(),
-            ));
-        }
+        ensure_recorded_audio(&manifest)?;
         let events: Vec<ScreenEvent> = read_jsonl(&self.layout.live_screen_path(id));
         self.store.save_screen_shares(id, screen_shares(&events, &manifest)).await
     }
@@ -187,6 +193,12 @@ impl DefaultPipeline {
     async fn transcribe(&self, id: MeetingId, progress: &dyn ProgressSink) -> PortResult<()> {
         if !self.layout.track_wav(id, Track::Mic).exists() && !self.layout.track_wav(id, Track::System).exists() {
             self.concatenate(id).await?;
+        }
+        // «Reintentar» entra por aquí con el audio ya unido: una reunión vacía
+        // debe volver a fallar con su motivo, no quedar «Lista» sin nada.
+        let layout = self.layout.clone();
+        if let Ok(manifest) = blocking(move || crate::writer::read_manifest(&layout, id)).await {
+            ensure_recorded_audio(&manifest)?;
         }
         let language = Some(self.settings.transcription.language.clone()).filter(|l| !l.is_empty());
         for (i, track) in Track::ALL.into_iter().enumerate() {

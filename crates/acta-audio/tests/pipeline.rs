@@ -318,3 +318,22 @@ async fn a_meeting_without_any_recorded_audio_fails_with_a_clear_reason() {
     assert!(e.to_string().contains("No se grabó audio"), "{e}");
     assert!(w.minutes.inputs.lock().unwrap().is_empty());
 }
+
+/// «Reintentar» empieza en `Transcribing` (el audio ya está unido): una
+/// reunión vacía pasaba entonces a «Lista» sin nada dentro y sin motivo.
+#[tokio::test]
+async fn retrying_a_meeting_without_audio_fails_with_the_same_reason() {
+    let w = world().await;
+    let id = MeetingId::from_u128(10);
+    w.store
+        .create_meeting(NewMeeting { id, title: "Grabación".into(), platform: Platform::Other, app_bundle_id: None, started_at: T0, language: "es".into() })
+        .await
+        .unwrap();
+    let cfg = SegmentWriterConfig { layout: w.layout.clone(), meeting_id: id, format: AudioFormat::WORKING, segment_seconds: 30, flush_every_ms: 1_000 };
+    SegmentWriter::create(cfg, T0).unwrap().finish(StopReason::Error, T0).unwrap();
+    let sink = Sink(Mutex::new(vec![]));
+    w.pipeline.run(id, &ProcessingStep::ORDER, &sink).await.unwrap_err();
+    // Segundo intento, con los pasos que manda el botón de la UI.
+    let e = w.pipeline.run(id, &ProcessingStep::ORDER[1..], &sink).await.unwrap_err();
+    assert!(e.to_string().contains("No se grabó audio"), "{e}");
+}

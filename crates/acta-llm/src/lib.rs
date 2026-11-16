@@ -1,0 +1,34 @@
+//! # acta-llm (WP3)
+//!
+//! - `providers`: impl de `LlmProvider` — `claude -p`, `codex exec`,
+//!   OpenAI-compatible (Ollama/LM Studio/OpenRouter), Anthropic API — y la
+//!   `LlmProviderFactory`. Los CLI se lanzan con `process::run_supervised`.
+//! - `transcript`: formato de transcript para prompts (`[mm:ss|ms] Nombre: texto`)
+//!   y troceo map-reduce si no cabe en contexto.
+//! - `minutes`: impl de `MinutesGenerator` (esquema `schemas/minutes.v1.json`).
+//! - `chat`: impl de `ChatEngine` (reunión = transcript completo; grupo/todo = RAG con citas `[n]`).
+//! - `naming`: impl de `GroupNamer` (esquema `schemas/group_name.v1.json`).
+//! - `moments`: impl de `ImportantMomentDetector` (palabras clave ES/EN).
+#![deny(clippy::zombie_processes)]
+
+pub mod chat;
+pub mod minutes;
+pub mod moments;
+pub mod naming;
+pub mod process;
+pub mod providers;
+pub mod transcript;
+
+/// Esquemas JSON embebidos (contrato con el LLM).
+pub mod schemas {
+    pub const MINUTES_V1: &str = include_str!("../schemas/minutes.v1.json");
+    pub const GROUP_NAME_V1: &str = include_str!("../schemas/group_name.v1.json");
+}
+
+/// Plantillas de prompt embebidas (`{{variable}}`).
+pub mod prompts {
+    pub const MINUTES_SYSTEM: &str = include_str!("../prompts/minutes.system.md");
+    pub const MINUTES_USER: &str = include_str!("../prompts/minutes.user.md");
+    pub const CHAT_SYSTEM: &str = include_str!("../prompts/chat.system.md");
+    pub const GROUP_NAME_SYSTEM: &str = include_str!("../prompts/group_name.system.md");
+}

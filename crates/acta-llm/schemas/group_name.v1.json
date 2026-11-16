@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "acta.group_name.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["nombre", "descripcion"],
+  "properties": {
+    "nombre": { "type": "string", "description": "2-5 palabras, castellano, sin comillas." },
+    "descripcion": { "type": "string", "description": "Una frase." }
+  }
+}

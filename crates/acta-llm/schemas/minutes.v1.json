@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "acta.minutes.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["titulo_sugerido", "resumen", "decisiones", "tareas", "escaleta", "momentos_clave"],
+  "properties": {
+    "titulo_sugerido": { "type": ["string", "null"] },
+    "resumen": { "type": "string", "description": "Markdown en castellano." },
+    "decisiones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["texto", "ts_ms"],
+        "properties": {
+          "texto": { "type": "string" },
+          "ts_ms": { "type": ["integer", "null"] }
+        }
+      }
+    },
+    "tareas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["texto", "responsable", "es_mia", "fecha_limite", "ts_ms", "capturas"],
+        "properties": {
+          "texto": { "type": "string" },
+          "responsable": { "type": ["string", "null"] },
+          "es_mia": { "type": "boolean" },
+          "fecha_limite": { "type": ["string", "null"] },
+          "ts_ms": { "type": ["integer", "null"] },
+          "capturas": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "escaleta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["temas"],
+      "properties": {
+        "temas": { "type": "array", "items": { "$ref": "#/$defs/tema" } }
+      }
+    },
+    "momentos_clave": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ts_ms", "motivo", "tema"],
+        "properties": {
+          "ts_ms": { "type": "integer" },
+          "motivo": { "type": "string" },
+          "tema": { "type": ["string", "null"] }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "tema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["titulo", "resumen", "inicio_ms", "fin_ms", "subtemas", "capturas"],
+      "properties": {
+        "titulo": { "type": "string" },
+        "resumen": { "type": "string" },
+        "inicio_ms": { "type": "integer" },
+        "fin_ms": { "type": "integer" },
+        "subtemas": { "type": "array", "items": { "$ref": "#/$defs/tema" } },
+        "capturas": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

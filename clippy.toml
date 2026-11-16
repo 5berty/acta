@@ -1,0 +1,10 @@
+# Lints compartidos. Ver Cargo.toml [workspace.lints].
+allow-expect-in-tests = true
+allow-unwrap-in-tests = true
+
+# Lanzar procesos SOLO con tokio::process + kill_on_drop(true) + wait() en
+# todos los caminos (acta-llm::process::run_supervised o SidecarClient).
+disallowed-methods = [
+  { path = "std::process::Command::spawn", reason = "usa tokio::process con kill_on_drop(true) y wait() en todos los caminos (docs/referencia-meetily-zombis.md)" },
+  { path = "std::mem::forget", reason = "no se olvidan recursos (hijos, ficheros)" },
+]

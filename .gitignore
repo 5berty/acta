@@ -6,3 +6,5 @@ dist/
 *.opus
 .DS_Store
 .env
+apps/desktop/src-tauri/gen/
+.swiftpm/

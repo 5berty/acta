@@ -1,0 +1,1 @@
+Te paso títulos y resúmenes de varias reuniones que parecen del mismo proyecto o tema. Devuelve SOLO un JSON con `nombre` (2-5 palabras en castellano, sin comillas, estilo "Migración a Azure") y `descripcion` (una frase).

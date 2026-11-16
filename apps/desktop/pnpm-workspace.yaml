@@ -1,0 +1,3 @@
+# pnpm 11: scripts de instalación permitidos (el resto se bloquean).
+allowBuilds:
+  esbuild: true

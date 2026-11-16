@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Tauri v2 fusiona este fichero con el Info.plist generado del bundle. -->
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>acta graba tu micrófono durante las reuniones para transcribir lo que dices.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>acta captura el audio de Teams o del navegador durante las reuniones para transcribir a los demás participantes.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>acta guarda capturas de la pantalla compartida en la reunión (opcional, solo si lo activas).</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>acta consulta la URL de la pestaña activa del navegador para detectar reuniones de Google Meet.</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>14.2</string>
+</dict>
+</plist>

@@ -1,0 +1,98 @@
+# acta — workspace raíz.
+#
+# REGLA PARA LOS WORK PACKAGES: este fichero lo mantiene el orquestador.
+# Todas las dependencias que cualquier WP pueda necesitar ya están declaradas
+# en [workspace.dependencies]. En el Cargo.toml de tu crate usa
+# `dep = { workspace = true }` (y añade `features = [...]` si hace falta).
+# Si de verdad necesitas una dependencia nueva, pídela al orquestador.
+
+[workspace]
+resolver = "3"
+members = [
+  "crates/acta-core",
+  "crates/acta-audio",
+  "crates/acta-store",
+  "crates/acta-llm",
+  "crates/acta-mac-bridge",
+  "apps/desktop/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "UNLICENSED"
+publish = false
+authors = ["Edu Navajas"]
+
+[workspace.dependencies]
+# --- crates internos ---
+acta-core = { path = "crates/acta-core" }
+acta-audio = { path = "crates/acta-audio" }
+acta-store = { path = "crates/acta-store" }
+acta-llm = { path = "crates/acta-llm" }
+acta-mac-bridge = { path = "crates/acta-mac-bridge" }
+
+# --- base ---
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+thiserror = "2.0.17"
+anyhow = "1.0.100"
+async-trait = "0.1.89"
+futures = "0.3.31"
+uuid = { version = "1.18", features = ["v7", "serde"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt"] }
+tracing-appender = "0.2.3"
+tokio = { version = "1.48", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util", "process", "signal"] }
+tokio-stream = { version = "0.1.17", features = ["sync"] }
+tokio-util = { version = "0.7.16", features = ["codec", "rt"] }
+base64 = "0.22.1"
+dirs = "6.0.0"
+libc = "0.2.177"
+
+# --- audio (WP1) ---
+hound = "3.5.1"
+
+# --- storage + search (WP2) ---
+# rusqlite "bundled" compila SQLite con FTS5 activado.
+rusqlite = { version = "0.37", features = ["bundled", "blob", "functions", "serde_json"] }
+sqlite-vec = "0.1.6"
+# Opcional en acta-store (feature `local-embeddings`): compila onnxruntime.
+fastembed = { version = "5", default-features = false, features = ["ort-download-binaries", "hf-hub-native-tls"] }
+
+# --- llm (WP3) ---
+reqwest = { version = "0.12.24", default-features = false, features = ["json", "stream", "rustls-tls"] }
+unicode-normalization = "0.1.24"
+regex = "1.12"
+schemars = "1.0"
+
+# --- app / integración (WP6) ---
+tauri = { version = "2.9", features = ["macos-private-api", "protocol-asset"] }
+tauri-build = { version = "2.5", features = [] }
+tauri-plugin-opener = "2.5"
+tauri-nspanel = "2.1"
+keyring = { version = "3.6", features = ["apple-native"] }
+
+# --- tests ---
+tempfile = "3.23"
+pretty_assertions = "1.4.1"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+# El bug de Meetily (docs/referencia-meetily-zombis.md): NUNCA se silencia.
+zombie_processes = "deny"
+let_underscore_future = "deny"
+unwrap_used = "warn"
+expect_used = "warn"
+dbg_macro = "warn"
+todo = "warn"
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 1

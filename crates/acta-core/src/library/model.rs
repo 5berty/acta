@@ -33,6 +33,9 @@ pub struct Meeting {
     pub language: String,
     pub created_at: UnixMs,
     pub updated_at: UnixMs,
+    /// Marcada con la estrella. Las favoritas nunca se sugieren para borrar.
+    #[serde(default)]
+    pub favourite: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,6 +78,9 @@ pub struct MeetingSummary {
     pub capture_count: u32,
     /// Fragmento con la coincidencia si se listó con texto de búsqueda.
     pub snippet: Option<String>,
+    /// Estrella de la reunión (no cuenta la de sus grupos).
+    #[serde(default)]
+    pub favourite: bool,
 }
 
 /// Rutas de audio (absolutas) para reproducir con `convertFileSrc`.
@@ -108,6 +114,9 @@ pub struct MeetingQuery {
     pub platform: Option<Platform>,
     pub from: Option<UnixMs>,
     pub to: Option<UnixMs>,
+    /// Solo favoritas: reuniones con estrella y reuniones de grupos con estrella.
+    #[serde(default)]
+    pub favourites_only: bool,
     /// Por defecto 50.
     pub limit: Option<u32>,
     /// Cursor opaco devuelto por la página anterior.
@@ -139,6 +148,9 @@ pub struct Group {
     pub meeting_count: u32,
     pub created_at: UnixMs,
     pub updated_at: UnixMs,
+    /// Grupo con estrella: sus reuniones cuentan como favoritas.
+    #[serde(default)]
+    pub favourite: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -158,6 +170,8 @@ pub struct GroupSuggestion {
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum SearchScope {
     All,
+    /// Reuniones con estrella y reuniones de grupos con estrella.
+    Favourites,
     #[serde(rename_all = "camelCase")]
     Group { group_id: GroupId },
     #[serde(rename_all = "camelCase")]

@@ -2,11 +2,13 @@
 //! (rusqlite) + FTS5 + sqlite-vec. Todos async: el adaptador usa
 //! `spawn_blocking` sobre una conexión protegida.
 
+use super::cleanup::{MeetingCleanupFacts, MeetingTouch};
 use super::model::*;
 use crate::ids::{ActionItemId, CaptureId, GroupId, MeetingId, SpeakerId, VoiceprintId};
 use crate::minutes::{Minutes, MinutesOutput};
 use crate::screen::{Capture, ScreenShare};
 use crate::settings::Settings;
+use crate::time::UnixMs;
 use crate::transcription::{Transcript, Voiceprint, VoiceprintSummary};
 use crate::PortResult;
 use async_trait::async_trait;
@@ -20,6 +22,15 @@ pub trait MeetingStore: Send + Sync {
     async fn list_meetings(&self, query: MeetingQuery) -> PortResult<Page<MeetingSummary>>;
     /// Borra filas (cascada) y devuelve OK; la carpeta la borra la app.
     async fn delete_meeting(&self, id: MeetingId) -> PortResult<()>;
+    /// Pone o quita la estrella.
+    async fn set_meeting_favourite(&self, id: MeetingId, favourite: bool) -> PortResult<Meeting>;
+    /// Apunta que la reunión se abrió o se usó (búsqueda, chat) en `at`.
+    async fn touch_meeting(&self, id: MeetingId, touch: MeetingTouch, at: UnixMs) -> PortResult<()>;
+    /// «Mantener»: la reunión no vuelve a sugerirse para borrar.
+    async fn set_cleanup_keep(&self, id: MeetingId, keep: bool) -> PortResult<()>;
+    /// Datos de TODAS las reuniones para la heurística de limpieza
+    /// (`library::cleanup::evaluate`), de la más antigua a la más nueva.
+    async fn cleanup_facts(&self) -> PortResult<Vec<MeetingCleanupFacts>>;
 
     /// Reemplaza hablantes + utterances de la reunión.
     async fn save_transcript(&self, transcript: Transcript) -> PortResult<()>;
@@ -64,6 +75,7 @@ pub trait GroupStore: Send + Sync {
         description: Option<String>,
     ) -> PortResult<Group>;
     async fn delete_group(&self, id: GroupId) -> PortResult<()>;
+    async fn set_group_favourite(&self, id: GroupId, favourite: bool) -> PortResult<Group>;
     async fn add_meeting(&self, group_id: GroupId, meeting_id: MeetingId) -> PortResult<()>;
     async fn remove_meeting(&self, group_id: GroupId, meeting_id: MeetingId) -> PortResult<()>;
     /// Reemplaza las sugerencias pendientes.

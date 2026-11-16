@@ -55,6 +55,7 @@ pub(crate) fn purge_index(conn: &Connection, meeting: MeetingId) -> PortResult<(
 fn scope_sql(scope: &SearchScope) -> String {
     match scope {
         SearchScope::All => "1=1".into(),
+        SearchScope::Favourites => crate::meetings::favourite_sql("c.meeting_id"),
         SearchScope::Meeting { meeting_id } => format!("c.meeting_id = '{meeting_id}'"),
         SearchScope::Group { group_id } => {
             format!("c.meeting_id IN (SELECT meeting_id FROM group_meetings WHERE group_id = '{group_id}')")

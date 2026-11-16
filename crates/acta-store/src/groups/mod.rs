@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 const GROUP_SELECT: &str = "SELECT g.id,g.name,g.description,g.kind,g.created_at,g.updated_at,
-    (SELECT count(*) FROM group_meetings gm WHERE gm.group_id = g.id) FROM groups g";
+    (SELECT count(*) FROM group_meetings gm WHERE gm.group_id = g.id), g.favourite FROM groups g";
 
 fn group_from_row(r: &Row<'_>) -> rusqlite::Result<Group> {
     Ok(Group {
@@ -21,6 +21,7 @@ fn group_from_row(r: &Row<'_>) -> rusqlite::Result<Group> {
         created_at: UnixMs(r.get(4)?),
         updated_at: UnixMs(r.get(5)?),
         meeting_count: r.get(6)?,
+        favourite: col_bool(r, 7)?,
     })
 }
 
@@ -85,6 +86,15 @@ impl GroupStore for SqliteStore {
                 return Err(PortError::NotFound(format!("group {id}")));
             }
             Ok(())
+        })
+        .await
+    }
+
+    async fn set_group_favourite(&self, id: GroupId, favourite: bool) -> PortResult<Group> {
+        self.with_conn(move |conn| {
+            // No toca `updated_at`: el orden de la lista no cambia por marcar.
+            conn.execute("UPDATE groups SET favourite = ?2 WHERE id = ?1", params![id.to_string(), i64::from(favourite)]).map_err(sql_err)?;
+            load_group(conn, id)
         })
         .await
     }

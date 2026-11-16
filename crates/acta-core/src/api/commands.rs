@@ -11,6 +11,11 @@
 //! | `meeting_get` | `{ id }` | `MeetingDetail` |
 //! | `meeting_update` | `{ id, title }` | `Meeting` |
 //! | `meeting_delete` | `{ id }` | `null` |
+//! | `meeting_set_favourite` | `{ id, favourite }` | `Meeting` |
+//! | `group_set_favourite` | `{ id, favourite }` | `Group` |
+//! | `cleanup_suggestions` | — | `CleanupSuggestions` (vacío si están apagadas) |
+//! | `cleanup_delete` | `{ ids }` | `CleanupResult` (nunca borra favoritas) |
+//! | `cleanup_keep` | `{ ids }` | `null` («Mantener»: no se vuelven a sugerir) |
 //! | `meeting_reprocess` | `{ request: ReprocessRequest }` | `null` |
 //! | `speaker_rename` | `{ meetingId, speakerId, displayName, remember }` | `null` |
 //! | `action_item_set_done` | `{ id, done }` | `null` |
@@ -111,6 +116,11 @@ pub mod command_names {
     pub const LLM_LIST_MODELS: &str = "llm_list_models";
     pub const LLM_DETECT_LOCAL: &str = "llm_detect_local";
     pub const OPEN_EXTERNAL_URL: &str = "open_external_url";
+    pub const MEETING_SET_FAVOURITE: &str = "meeting_set_favourite";
+    pub const GROUP_SET_FAVOURITE: &str = "group_set_favourite";
+    pub const CLEANUP_SUGGESTIONS: &str = "cleanup_suggestions";
+    pub const CLEANUP_DELETE: &str = "cleanup_delete";
+    pub const CLEANUP_KEEP: &str = "cleanup_keep";
 }
 
 /// Estado de la sesión tal como lo ve la UI (comandos `session_*` y evento

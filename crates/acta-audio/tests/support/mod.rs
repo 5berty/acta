@@ -276,6 +276,7 @@ impl MeetingStore for FakeStore {
             language: m.language,
             created_at: m.started_at,
             updated_at: m.started_at,
+            favourite: false,
         };
         lock(&self.meetings).insert(m.id, meeting.clone());
         Ok(meeting)
@@ -310,11 +311,16 @@ impl MeetingStore for FakeStore {
                 group_ids: vec![],
                 capture_count: 0,
                 snippet: None,
+                favourite: false,
             })
             .collect();
         Ok(Page { items, next_cursor: None })
     }
     async fn delete_meeting(&self, _id: MeetingId) -> PortResult<()> { nope("delete") }
+    async fn set_meeting_favourite(&self, _id: MeetingId, _f: bool) -> PortResult<Meeting> { nope("favourite") }
+    async fn touch_meeting(&self, _id: MeetingId, _t: MeetingTouch, _at: acta_core::time::UnixMs) -> PortResult<()> { Ok(()) }
+    async fn set_cleanup_keep(&self, _id: MeetingId, _k: bool) -> PortResult<()> { nope("keep") }
+    async fn cleanup_facts(&self) -> PortResult<Vec<MeetingCleanupFacts>> { nope("cleanup_facts") }
     async fn save_transcript(&self, _t: Transcript) -> PortResult<()> { nope("save_transcript") }
     async fn get_transcript(&self, _id: MeetingId) -> PortResult<Option<Transcript>> { nope("get_transcript") }
     async fn rename_speaker(&self, _m: MeetingId, _s: SpeakerId, _n: String, _c: bool) -> PortResult<()> { nope("rename") }

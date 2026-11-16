@@ -20,7 +20,7 @@ use rusqlite::types::Value;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row};
 
 const MEETING_COLS: &str =
-    "id,title,platform,app_bundle_id,started_at,ended_at,duration_ms,status,recovered,error,language,created_at,updated_at";
+    "id,title,platform,app_bundle_id,started_at,ended_at,duration_ms,status,recovered,error,language,created_at,updated_at,favourite";
 const DEFAULT_LIMIT: u32 = 50;
 const MAX_LIMIT: u32 = 200;
 
@@ -39,6 +39,7 @@ fn meeting_from_row(r: &Row<'_>) -> rusqlite::Result<Meeting> {
         language: r.get(10)?,
         created_at: UnixMs(r.get(11)?),
         updated_at: UnixMs(r.get(12)?),
+        favourite: col_bool(r, 13)?,
     })
 }
 
@@ -46,6 +47,16 @@ fn load_meeting(conn: &Connection, id: MeetingId) -> PortResult<Option<Meeting>>
     conn.query_row(&format!("SELECT {MEETING_COLS} FROM meetings WHERE id = ?1"), [id.to_string()], meeting_from_row)
         .optional()
         .map_err(sql_err)
+}
+
+/// Condición SQL «la reunión `id_expr` es favorita»: tiene estrella o está en
+/// un grupo con estrella. La comparten el filtro de la lista, el alcance de
+/// búsqueda y la limpieza.
+pub(crate) fn favourite_sql(id_expr: &str) -> String {
+    format!(
+        "({id_expr} IN (SELECT id FROM meetings WHERE favourite = 1) \
+          OR {id_expr} IN (SELECT gm.meeting_id FROM group_meetings gm JOIN groups g ON g.id = gm.group_id WHERE g.favourite = 1))"
+    )
 }
 
 fn require_meeting(conn: &Connection, id: MeetingId) -> PortResult<()> {
@@ -267,7 +278,7 @@ fn escape_like(s: &str) -> String {
 
 fn list_meetings_sync(conn: &Connection, q: &MeetingQuery) -> PortResult<Page<MeetingSummary>> {
     let limit = q.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT) as usize;
-    let mut sql = String::from("SELECT m.rowid_alias, m.id, m.title, m.platform, m.started_at, m.duration_ms, m.status FROM meetings m WHERE 1=1");
+    let mut sql = String::from("SELECT m.rowid_alias, m.id, m.title, m.platform, m.started_at, m.duration_ms, m.status, m.favourite FROM meetings m WHERE 1=1");
     let mut args: Vec<Value> = Vec::new();
     if let Some(p) = &q.platform {
         sql.push_str(" AND m.platform = ?");
@@ -284,6 +295,9 @@ fn list_meetings_sync(conn: &Connection, q: &MeetingQuery) -> PortResult<Page<Me
     if let Some(g) = q.group_id {
         sql.push_str(" AND EXISTS (SELECT 1 FROM group_meetings gm WHERE gm.group_id = ? AND gm.meeting_id = m.id)");
         args.push(Value::Text(g.to_string()));
+    }
+    if q.favourites_only {
+        sql.push_str(&format!(" AND {}", favourite_sql("m.id")));
     }
     let text = q.text.as_deref().map(str::trim).filter(|t| !t.is_empty());
     let fts = text.and_then(fts_and_query);
@@ -312,6 +326,7 @@ fn list_meetings_sync(conn: &Connection, q: &MeetingQuery) -> PortResult<Page<Me
         started: i64,
         duration: u64,
         status: MeetingStatus,
+        favourite: bool,
     }
     let mut rows = conn
         .prepare(&sql)
@@ -325,6 +340,7 @@ fn list_meetings_sync(conn: &Connection, q: &MeetingQuery) -> PortResult<Page<Me
                     started: r.get(4)?,
                     duration: col_u64(r, 5)?,
                     status: col_enum(r, 6)?,
+                    favourite: col_bool(r, 7)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()
@@ -376,6 +392,7 @@ fn list_meetings_sync(conn: &Connection, q: &MeetingQuery) -> PortResult<Page<Me
             group_ids,
             capture_count,
             snippet,
+            favourite: r.favourite,
         });
     }
     Ok(Page { items, next_cursor })
@@ -473,6 +490,83 @@ impl MeetingStore for SqliteStore {
             purge_index(&tx, id)?;
             tx.execute("DELETE FROM meetings WHERE id = ?1", [id.to_string()]).map_err(sql_err)?;
             tx.commit().map_err(sql_err)
+        })
+        .await
+    }
+
+    async fn set_meeting_favourite(&self, id: MeetingId, favourite: bool) -> PortResult<Meeting> {
+        self.with_conn(move |conn| {
+            // No toca `updated_at`: marcar no es editar.
+            conn.execute("UPDATE meetings SET favourite = ?2 WHERE id = ?1", params![id.to_string(), i64::from(favourite)]).map_err(sql_err)?;
+            load_meeting(conn, id)?.ok_or_else(|| PortError::NotFound(format!("meeting {id}")))
+        })
+        .await
+    }
+
+    async fn touch_meeting(&self, id: MeetingId, touch: MeetingTouch, at: UnixMs) -> PortResult<()> {
+        let column = match touch {
+            MeetingTouch::Opened => "last_opened_at",
+            MeetingTouch::Used => "last_used_at",
+        };
+        self.with_conn(move |conn| {
+            conn.execute(
+                &format!("UPDATE meetings SET {column} = MAX(COALESCE({column}, 0), ?2) WHERE id = ?1"),
+                params![id.to_string(), at.0],
+            )
+            .map_err(sql_err)?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn set_cleanup_keep(&self, id: MeetingId, keep: bool) -> PortResult<()> {
+        self.with_conn(move |conn| {
+            let n = conn
+                .execute("UPDATE meetings SET cleanup_keep = ?2 WHERE id = ?1", params![id.to_string(), i64::from(keep)])
+                .map_err(sql_err)?;
+            if n == 0 {
+                return Err(PortError::NotFound(format!("meeting {id}")));
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    async fn cleanup_facts(&self) -> PortResult<Vec<MeetingCleanupFacts>> {
+        self.with_conn(move |conn| {
+            // Palabras = espacios + 1 por frase no vacía (suficiente para «poco contenido»).
+            let sql = format!(
+                "SELECT m.id, m.title, m.started_at, m.duration_ms, m.status, m.favourite,
+                        {in_fav_group}, m.cleanup_keep, m.last_opened_at, m.last_used_at,
+                        (SELECT count(*) FROM action_items a WHERE a.meeting_id = m.id AND a.is_mine = 1 AND a.done = 0),
+                        (SELECT COALESCE(SUM(length(trim(u.text)) - length(replace(trim(u.text), ' ', '')) + 1), 0)
+                           FROM utterances u WHERE u.meeting_id = m.id AND trim(u.text) <> ''),
+                        EXISTS(SELECT 1 FROM minutes mi WHERE mi.meeting_id = m.id)
+                 FROM meetings m ORDER BY m.started_at, m.rowid_alias",
+                in_fav_group = "EXISTS(SELECT 1 FROM group_meetings gm JOIN groups g ON g.id = gm.group_id WHERE gm.meeting_id = m.id AND g.favourite = 1)"
+            );
+            conn.prepare(&sql)
+                .and_then(|mut st| {
+                    st.query_map([], |r| {
+                        Ok(MeetingCleanupFacts {
+                            id: col_id(r, 0)?,
+                            title: r.get(1)?,
+                            started_at: UnixMs(r.get(2)?),
+                            duration: MediaMs(col_u64(r, 3)?),
+                            status: col_enum(r, 4)?,
+                            favourite: col_bool(r, 5)?,
+                            in_favourite_group: col_bool(r, 6)?,
+                            keep: col_bool(r, 7)?,
+                            last_opened_at: r.get::<_, Option<i64>>(8)?.map(UnixMs),
+                            last_used_at: r.get::<_, Option<i64>>(9)?.map(UnixMs),
+                            my_open_tasks: r.get(10)?,
+                            word_count: r.get(11)?,
+                            has_minutes: col_bool(r, 12)?,
+                        })
+                    })?
+                    .collect::<Result<Vec<_>, _>>()
+                })
+                .map_err(sql_err)
         })
         .await
     }

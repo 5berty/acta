@@ -25,6 +25,25 @@ pub struct Settings {
     pub embeddings: EmbeddingSettings,
     /// Bienvenida de primer arranque: la UI la marca al terminarla o saltarla.
     pub onboarding: OnboardingSettings,
+    /// Sugerencias de borrado de reuniones antiguas (nunca borra sola).
+    pub cleanup: CleanupSettings,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CleanupSettings {
+    /// Enseñar el aviso «Tienes N reuniones antiguas…».
+    pub enabled: bool,
+    /// Antigüedad mínima (días) para sugerir una reunión.
+    pub min_age_days: u32,
+    /// «Recordármelo más tarde»: el aviso no vuelve hasta esta fecha.
+    pub snoozed_until: Option<crate::time::UnixMs>,
+}
+
+impl Default for CleanupSettings {
+    fn default() -> Self {
+        Self { enabled: true, min_age_days: 90, snoozed_until: None }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -122,6 +141,7 @@ impl Default for Settings {
             llm: LlmSettings::default(),
             embeddings: EmbeddingSettings::default(),
             onboarding: OnboardingSettings::default(),
+            cleanup: CleanupSettings::default(),
         }
     }
 }

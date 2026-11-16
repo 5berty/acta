@@ -95,6 +95,8 @@ interface Props {
   /** «Usar» en Ajustes, «Elegir» en la bienvenida. */
   verb?: string;
   onUse(modelId: string): void;
+  /** El nivel recomendado va arriba (bienvenida: es lo primero que se ve). */
+  recommendedFirst?: boolean;
 }
 
 function ModelRow({ m, hw, state, inUse, verb, onUse }: { m: LocalModelStatus; hw: HardwareInfo } & Required<Pick<Props, "verb">> & Pick<Props, "state" | "inUse" | "onUse">) {
@@ -214,7 +216,7 @@ function ModelRow({ m, hw, state, inUse, verb, onUse }: { m: LocalModelStatus; h
  * Tres niveles; se recomienda uno según la memoria y el chip de este Mac y se
  * bloquean los que no caben.
  */
-export function BuiltInModels({ state, inUse = null, verb = "Usar", onUse }: Props) {
+export function BuiltInModels({ state, inUse = null, verb = "Usar", onUse, recommendedFirst = false }: Props) {
   const { status } = state;
   if (!status) {
     return (
@@ -224,6 +226,7 @@ export function BuiltInModels({ state, inUse = null, verb = "Usar", onUse }: Pro
     );
   }
   const hw = status.hardware;
+  const models = recommendedFirst ? [...status.models].sort((a, b) => Number(b.recommended) - Number(a.recommended)) : status.models;
   return (
     <div className="builtin" role="group" aria-label="Modelo local integrado">
       <p className="builtin-mac">
@@ -239,7 +242,7 @@ export function BuiltInModels({ state, inUse = null, verb = "Usar", onUse }: Pro
         </span>
       </p>
       <ul className="plain group">
-        {status.models.map((m) => (
+        {models.map((m) => (
           <ModelRow key={m.model.id} m={m} hw={hw} state={state} inUse={inUse} verb={verb} onUse={onUse} />
         ))}
       </ul>

@@ -126,7 +126,7 @@ export function AiStep({ ai, onAi, cli, onDetectCli, local, builtIn, onRefreshLo
 
       {ai.choice === "builtIn" ? (
         <div className="ai-detail">
-          <BuiltInModels state={builtIn} verb="Elegir" inUse={ai.builtIn?.modelId ?? null} onUse={(modelId) => onAi({ ...ai, builtIn: { modelId } })} />
+          <BuiltInModels state={builtIn} verb="Elegir" recommendedFirst inUse={ai.builtIn?.modelId ?? null} onUse={(modelId) => onAi({ ...ai, builtIn: { modelId } })} />
         </div>
       ) : null}
 

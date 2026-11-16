@@ -3,7 +3,7 @@
 // Envuelve el mock en memoria con reuniones, grupos y un chat creíbles.
 
 import type { ActaApi } from "./contract";
-import { createMockApi, defaultSettings, noLocalRuntimes, sampleMeeting, type MockControls } from "./mock";
+import { createMockApi, defaultSettings, mockLocalLlmStatus, noLocalRuntimes, sampleMeeting, type MockControls } from "./mock";
 import type * as T from "./types";
 
 const MIN = 60_000;
@@ -215,6 +215,11 @@ export function createDemoApi(overlay: DemoOverlay = "idle", opts: DemoOptions =
     { title: "Retrospectiva del sprint 14", platform: "teams", ago: 9 * DAY, minutes: 58, people: ["Edu", "Ana García", "Luis Ortega", "Marta Ruiz"] },
     { title: "Entrevista de producto", platform: "meet", ago: 12 * DAY, minutes: 36, people: ["Edu", "Jorge Leal"] },
     { title: "Kickoff del proyecto Atlas", platform: "slack", ago: 38 * DAY, minutes: 64, people: ["Edu", "Ana García", "Carla Vidal", "Luis Ortega"] },
+    // Antiguas y sin abrir: las que sugiere la limpieza.
+    { title: "Prueba de micro", platform: "other", ago: 131 * DAY, minutes: 1, people: ["Edu"] },
+    { title: "Sync con proveedores", platform: "meet", ago: 164 * DAY, minutes: 22, people: ["Edu", "Íñigo Paz"] },
+    { title: "Formación de la herramienta de gastos", platform: "teams", ago: 212 * DAY, minutes: 48, people: ["Edu", "Sara Gil", "Pablo Sanz"] },
+    { title: "Reunión de Teams", platform: "teams", ago: 248 * DAY, minutes: 3, people: ["Edu", "Jorge Leal"], status: "failed", error: "No se pudo transcribir el audio." },
   ];
   const meetings = drafts.map((d) => build(d, now)).sort((a, b) => b.meeting.startedAt - a.meeting.startedAt);
   const byTitle = (t: string) => meetings.find((m) => m.meeting.title === t)!;
@@ -230,6 +235,27 @@ export function createDemoApi(overlay: DemoOverlay = "idle", opts: DemoOptions =
       g.meetingCount += 1;
     }
   }
+
+  // Favoritas: una reunión suelta y un grupo entero.
+  atlas.favourite = true;
+  byTitle("Uno a uno con Ana").meeting.favourite = true;
+  byTitle("Planificación del lanzamiento").meeting.favourite = true;
+  const stale = (title: string, bytes: number, reasons: T.CleanupReason[]): T.CleanupCandidate => {
+    const m = byTitle(title).meeting;
+    const days = Math.floor((now - m.startedAt) / DAY);
+    return { meetingId: m.id, title, startedAt: m.startedAt, duration: m.duration, reasons: [{ kind: "old", days }, ...reasons], bytes };
+  };
+  const cleanup: T.CleanupCandidate[] = [
+    stale("Reunión de Teams", 6_400_000, [{ kind: "neverUsed" }, { kind: "failed" }, { kind: "littleContent", words: 0 }]),
+    stale("Prueba de micro", 2_100_000, [{ kind: "neverUsed" }, { kind: "short", durationMs: 60_000 }, { kind: "littleContent", words: 34 }]),
+    stale("Formación de la herramienta de gastos", 412_000_000, [{ kind: "unusedFor", days: 205 }]),
+    stale("Sync con proveedores", 188_000_000, [{ kind: "neverUsed" }]),
+  ];
+  // Modelo integrado: el pequeño ya descargado y el mediano a medias.
+  const localLlm = mockLocalLlmStatus();
+  localLlm.runtime = { ...localLlm.runtime, available: true, source: "downloaded" };
+  localLlm.models[0]!.downloaded = true;
+  localLlm.models[1]!.partialBytes = 1_190_000_000;
 
   const plan = byTitle("Planificación del lanzamiento");
   const thread: T.ChatThread = { id: id("thread"), scope: { kind: "all" }, title: "Lanzamiento", createdAt: now, updatedAt: now };
@@ -292,6 +318,8 @@ export function createDemoApi(overlay: DemoOverlay = "idle", opts: DemoOptions =
           lmStudio: { running: false, baseUrl: "http://127.0.0.1:1234/v1", models: [] },
         },
     remoteModels: { "https://api.nan.builders/v1": ["deepseek-v4-flash", "glm5.3", "qwen3.8-flash", "kimi-k3.1-pro", "qwen3.6", "gemma4"] },
+    cleanup,
+    localLlm: opts.onboarding ? mockLocalLlmStatus() : localLlm,
   });
 
   const processing = byTitle("Revisión de diseño");

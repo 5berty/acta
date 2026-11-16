@@ -192,6 +192,8 @@ describe("Modelo integrado en la bienvenida", () => {
     await userEvent.click(within(dialog).getByRole("radio", { name: /Modelo integrado/ }));
     const group = await within(dialog).findByRole("group", { name: "Modelo local integrado" });
     expect(within(group).getByText("Recomendado para tu Mac")).toBeInTheDocument();
+    // En la bienvenida el recomendado es el primero de la lista.
+    expect(within(group).getAllByRole("listitem")[0]).toHaveAttribute("aria-label", "Qwen3.5 9B");
     expect(within(dialog).getByText("Descarga un modelo y pulsa «Elegir» para continuar.")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Continuar" })).toBeDisabled();
 

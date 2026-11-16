@@ -11,6 +11,12 @@
   <string>acta guarda capturas de la pantalla compartida en la reunión (opcional, solo si lo activas).</string>
   <key>NSAppleEventsUsageDescription</key>
   <string>acta consulta la URL de la pestaña activa del navegador para detectar reuniones de Google Meet.</string>
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>Lo pide el CLI de Claude o de Codex que acta ejecuta para redactar el acta. acta no lee tus documentos; puedes denegarlo.</string>
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>Lo pide el CLI de Claude o de Codex que acta ejecuta para redactar el acta. acta no lee tu Escritorio; puedes denegarlo.</string>
+  <key>NSDownloadsFolderUsageDescription</key>
+  <string>Lo pide el CLI de Claude o de Codex que acta ejecuta para redactar el acta. acta no lee tus Descargas; puedes denegarlo.</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.2</string>
 </dict>

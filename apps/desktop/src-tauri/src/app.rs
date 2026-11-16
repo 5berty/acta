@@ -139,7 +139,30 @@ impl AppCore {
         self.supervisor.send(event).await
     }
 
+    /// Micro y audio del sistema resueltos ANTES de empezar. Tras reinstalar
+    /// (cdhash nuevo) macOS vuelve a preguntar; si la captura arranca con el
+    /// diálogo abierto, la HAL se queda bloqueada, la pastilla dice «Grabando
+    /// 00:00» y la reunión sale vacía. Aquí se pregunta primero y, si el
+    /// usuario dice que no, no se crea ninguna reunión.
+    async fn ensure_capture_permissions(&self) -> PortResult<()> {
+        // Sin sidecar no hay a quién preguntar: que lo explique la captura.
+        let Ok(states) = self.native.permissions.status().await else { return Ok(()) };
+        for (kind, name) in [(PermissionKind::Microphone, "Micrófono"), (PermissionKind::SystemAudio, "Audio del sistema")] {
+            let mut status = states.iter().find(|p| p.kind == kind).map_or(PermissionStatus::Unknown, |p| p.status);
+            if status == PermissionStatus::NotDetermined {
+                status = self.native.permissions.request(kind).await?;
+            }
+            if status == PermissionStatus::Denied {
+                return Err(PortError::PermissionDenied(format!(
+                    "acta no tiene permiso de «{name}». Actívalo en Ajustes del Sistema › Privacidad y seguridad › {name} y vuelve a grabar."
+                )));
+            }
+        }
+        Ok(())
+    }
+
     pub async fn session_start(&self, app: Option<MeetingApp>) -> PortResult<SessionSnapshot> {
+        self.ensure_capture_permissions().await?;
         self.session(SessionEvent::StartRequested { app, at: self.clock.now() }).await
     }
     pub async fn session_pause(&self) -> PortResult<SessionSnapshot> {
@@ -155,6 +178,12 @@ impl AppCore {
         self.session(SessionEvent::Dismiss).await
     }
     pub async fn prompt_answer(&self, prompt_id: PromptId, answer: PromptAnswer) -> PortResult<SessionSnapshot> {
+        // Aceptar «¿Grabar?» también empieza a capturar.
+        if answer == PromptAnswer::Accept
+            && matches!(self.session_get_state().await?.state, SessionState::Detected { .. })
+        {
+            self.ensure_capture_permissions().await?;
+        }
         self.session(SessionEvent::PromptAnswered { prompt_id, answer, at: self.clock.now() }).await
     }
     pub async fn capture_manual(&self) -> PortResult<Option<Capture>> {

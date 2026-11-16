@@ -62,6 +62,10 @@ struct Rig {
 }
 
 async fn rig() -> Rig {
+    rig_with(NativePorts::unavailable("tests")).await
+}
+
+async fn rig_with(native: NativePorts) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let layout = DataLayout::new(dir.path());
     let store = Arc::new(SqliteStore::open(&layout.db_path()).unwrap().with_layout(layout.clone()));
@@ -73,7 +77,7 @@ async fn rig() -> Rig {
         store,
         secrets: secrets.clone(),
         factory: Some(Arc::new(EchoFactory)),
-        native: NativePorts::unavailable("tests"),
+        native,
         emitter: events.clone(),
         supervisor_config: SupervisorConfig { tick: Duration::from_millis(30), stop_drain: Duration::from_millis(200) },
     })
@@ -257,4 +261,82 @@ async fn audio_inputs_need_the_sidecar_and_serialize_in_camel_case() {
     let dto = acta_core::api::AudioInput { uid: "u".into(), name: "Logitech StreamCam".into(), is_default: false, transport: "usb".into() };
     assert_eq!(serde_json::to_value(&dto).unwrap(), serde_json::json!({"uid":"u","name":"Logitech StreamCam","isDefault":false,"transport":"usb"}));
     assert_eq!(acta_core::api::command_names::AUDIO_INPUTS_LIST, "audio_inputs_list");
+}
+
+// ---------------------------------------------------------------------------
+// Permisos antes de grabar
+// ---------------------------------------------------------------------------
+
+use acta_core::permissions::{PermissionKind, PermissionState, PermissionStatus, PermissionsProbe};
+
+/// TCC de mentira: estado inicial por permiso y qué contesta el usuario al diálogo.
+struct FakeTcc {
+    status: Vec<(PermissionKind, PermissionStatus)>,
+    answer: PermissionStatus,
+    requested: Mutex<Vec<PermissionKind>>,
+}
+#[async_trait]
+impl PermissionsProbe for FakeTcc {
+    async fn status(&self) -> PortResult<Vec<PermissionState>> {
+        Ok(self.status.iter().map(|(kind, status)| PermissionState { kind: *kind, status: *status, target: None }).collect())
+    }
+    async fn request(&self, kind: PermissionKind) -> PortResult<PermissionStatus> {
+        self.requested.lock().unwrap().push(kind);
+        Ok(self.answer)
+    }
+}
+
+async fn rig_with_tcc(status: Vec<(PermissionKind, PermissionStatus)>, answer: PermissionStatus) -> (Rig, Arc<FakeTcc>) {
+    let tcc = Arc::new(FakeTcc { status, answer, requested: Mutex::default() });
+    let mut native = NativePorts::unavailable("tests");
+    native.permissions = tcc.clone();
+    (rig_with(native).await, tcc)
+}
+
+/// Tras reinstalar, macOS vuelve a preguntar por el micro. La captura se
+/// quedaba bloqueada en ese diálogo con la pastilla en «Grabando 00:00» y la
+/// reunión acababa vacía: hay que preguntar ANTES de empezar la sesión.
+#[tokio::test]
+async fn recording_asks_for_undetermined_permissions_before_starting() {
+    use PermissionKind::*;
+    let (r, tcc) = rig_with_tcc(
+        vec![(Microphone, PermissionStatus::NotDetermined), (SystemAudio, PermissionStatus::NotDetermined)],
+        PermissionStatus::Denied,
+    )
+    .await;
+    let err = r.core.session_start(None).await.unwrap_err();
+    assert!(matches!(&err, PortError::PermissionDenied(m) if m.contains("Micrófono")), "{err:?}");
+    assert_eq!(tcc.requested.lock().unwrap().clone(), vec![Microphone]);
+    assert_eq!(r.core.session_get_state().await.unwrap().state, SessionState::Idle, "no se llega a empezar");
+    assert!(r.core.meetings_list(MeetingQuery::default()).await.unwrap().items.is_empty());
+}
+
+#[tokio::test]
+async fn granted_dialogs_let_the_recording_start() {
+    use PermissionKind::*;
+    let (r, tcc) = rig_with_tcc(
+        vec![(Microphone, PermissionStatus::NotDetermined), (SystemAudio, PermissionStatus::NotDetermined)],
+        PermissionStatus::Granted,
+    )
+    .await;
+    // El audio es "no disponible" en este banco: basta con ver que se pasó de los permisos.
+    let _ = r.core.session_start(None).await;
+    assert_eq!(tcc.requested.lock().unwrap().clone(), vec![Microphone, SystemAudio]);
+    assert_eq!(r.core.meetings_list(MeetingQuery::default()).await.unwrap().items.len(), 1);
+}
+
+#[tokio::test]
+async fn a_denied_permission_fails_fast_and_granted_ones_never_prompt() {
+    use PermissionKind::*;
+    let (r, tcc) =
+        rig_with_tcc(vec![(Microphone, PermissionStatus::Granted), (SystemAudio, PermissionStatus::Denied)], PermissionStatus::Granted).await;
+    let err = r.core.session_start(None).await.unwrap_err();
+    assert!(matches!(&err, PortError::PermissionDenied(m) if m.contains("Audio del sistema")), "{err:?}");
+    assert!(tcc.requested.lock().unwrap().is_empty());
+
+    let (r, tcc) =
+        rig_with_tcc(vec![(Microphone, PermissionStatus::Granted), (SystemAudio, PermissionStatus::Unknown)], PermissionStatus::Denied).await;
+    let _ = r.core.session_start(None).await;
+    assert!(tcc.requested.lock().unwrap().is_empty());
+    assert_eq!(r.core.meetings_list(MeetingQuery::default()).await.unwrap().items.len(), 1);
 }

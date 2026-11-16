@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeBuildCommand": "pnpm exec tsc --noEmit && pnpm exec vite build"
+  },
+  "bundle": {
+    "externalBin": ["binaries/acta-mac"],
+    "macOS": {
+      "signingIdentity": null,
+      "hardenedRuntime": false
+    }
+  }
+}

@@ -8,3 +8,5 @@ dist/
 .env
 apps/desktop/src-tauri/gen/
 .swiftpm/
+
+apps/desktop/src-tauri/binaries/

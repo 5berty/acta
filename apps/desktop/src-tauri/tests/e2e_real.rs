@@ -50,6 +50,12 @@ struct Rig {
 }
 
 async fn rig(root: &Path) -> Rig {
+    rig_with(root, |n| n).await
+}
+
+/// Igual que [`rig`], pero deja sustituir algún puerto nativo (p. ej. el
+/// detector, que no se puede provocar sin una llamada de Teams de verdad).
+async fn rig_with(root: &Path, patch: impl FnOnce(acta_desktop_lib::native::NativePorts) -> acta_desktop_lib::native::NativePorts) -> Rig {
     let layout = DataLayout::new(root);
     for d in [layout.logs_dir(), layout.models_dir(), layout.meetings_dir()] {
         std::fs::create_dir_all(d).unwrap();
@@ -59,6 +65,7 @@ async fn rig(root: &Path) -> Rig {
     let store = store.with_embedder(Arc::new(acta_store::embeddings::FastEmbedder::new(shared_fastembed_dir())));
     let native = acta_desktop_lib::native::start(&layout).await;
     assert!(native.error.is_none(), "sidecar: {:?}", native.error);
+    let native = patch(native);
     let events = Arc::new(Events::default());
     let core = AppCore::start(CoreDeps {
         layout: layout.clone(),
@@ -194,6 +201,25 @@ async fn e2e_settings_providers_models_permissions_and_keychain() {
     let models = r.core.models_status().await.unwrap();
     eprintln!("models_status: {models:?}");
     assert!(models.iter().any(|m| m.name == "asr" && m.downloaded));
+    // Descarga real de un modelo que falte (el VAD pesa ~2 MB).
+    for missing in models.iter().filter(|m| !m.downloaded) {
+        r.core.models_download(missing.name.clone()).await.unwrap();
+        let start = Instant::now();
+        let last = loop {
+            let ev = r.events.0.lock().unwrap().iter().rev().find(|(n, _)| n == "model:download").map(|(_, v)| v.clone());
+            if let Some(v) = ev
+                && (v["done"] == true || !v["error"].is_null())
+            {
+                break v;
+            }
+            assert!(start.elapsed() < Duration::from_secs(300), "la descarga de {} no terminó", missing.name);
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        };
+        eprintln!("descarga de {}: {last}", missing.name);
+        assert!(last["error"].is_null(), "descarga de {}: {last}", missing.name);
+        let after = r.core.models_status().await.unwrap();
+        assert!(after.iter().any(|m| m.name == missing.name && m.downloaded), "{after:?}");
+    }
     let inputs = r.core.audio_inputs_list().await.unwrap();
     eprintln!("audio_inputs_list: {:?}", inputs.iter().map(|i| (&i.name, i.is_default)).collect::<Vec<_>>());
     assert!(inputs.iter().any(|i| i.is_default));
@@ -264,11 +290,18 @@ async fn e2e_live_recording_with_system_tap() {
     assert!(nonzero > 1_000, "el tap del sistema no grabó el sonido");
     let names = seen.lock().unwrap().clone();
     eprintln!("eventos: {names:?}");
-    for ev in ["session:state", "session:levels", "session:health", "processing:progress", "meeting:updated"] {
+    for ev in ["session:state", "session:levels", "processing:progress", "meeting:updated"] {
         assert!(names.contains(ev), "falta el evento {ev}");
     }
-    if health.iter().any(|h| format!("{:?}", h.issue).contains("AllZeros")) {
-        eprintln!("aviso trackAllZeros presente (micro a ceros: tapa cerrada / TCC)");
+    // `session:health` solo se emite si hay algún aviso (micro a ceros con la
+    // tapa cerrada o TCC denegado); con el micro sano la pista tiene señal.
+    let mic = std::fs::read(r.layout.meeting_dir(id).join("audio/mic.wav")).unwrap();
+    let mic_nonzero = mic[44..].chunks_exact(2).filter(|c| c != &[0, 0]).count();
+    eprintln!("mic.wav: {} muestras, {mic_nonzero} no nulas", (mic.len() - 44) / 2);
+    if health.is_empty() {
+        assert!(mic_nonzero > 1_000, "micro sin avisos pero a ceros");
+    } else {
+        assert!(names.contains("session:health"), "hay avisos {health:?} pero no se emitió session:health");
     }
     r.core.shutdown().await;
 }
@@ -477,5 +510,111 @@ async fn e2e_retry_failed_meetings_on_a_data_copy() {
         eprintln!("{id}: {:?} «{}» error={:?}\n{}", m.status, m.title, m.error, d.minutes.as_ref().map(|x| x.summary_md.as_str()).unwrap_or(""));
         assert_eq!(m.status, MeetingStatus::Ready, "{:?}", m.error);
     }
+    r.core.shutdown().await;
+}
+
+// ---------------------------------------------------------------------------
+// 6. Detección simulada → «¿Grabar?» → grabación real → colgar → «¿Parar?»
+//    sin responder → autoparada por silencio
+// ---------------------------------------------------------------------------
+
+/// Detector guionizado: lo único falso de la prueba (el audio, el sidecar y
+/// el procesado son reales).
+#[derive(Default)]
+struct ScriptedDetector(Mutex<Option<futures::channel::mpsc::UnboundedSender<acta_core::detection::DetectionEvent>>>);
+impl ScriptedDetector {
+    fn push(&self, ev: acta_core::detection::DetectionEvent) {
+        self.0.lock().unwrap().as_ref().expect("detector arrancado").unbounded_send(ev).unwrap();
+    }
+}
+#[async_trait::async_trait]
+impl acta_core::detection::MeetingDetector for ScriptedDetector {
+    async fn start(
+        &self,
+        _config: acta_core::detection::DetectionConfig,
+    ) -> acta_core::PortResult<acta_core::EventStream<acta_core::detection::DetectionEvent>> {
+        let (tx, rx) = futures::channel::mpsc::unbounded();
+        *self.0.lock().unwrap() = Some(tx);
+        Ok(Box::pin(rx))
+    }
+    async fn stop(&self) -> acta_core::PortResult<()> {
+        self.0.lock().unwrap().take();
+        Ok(())
+    }
+}
+
+async fn wait_state(core: &AppCore, what: &str, timeout: Duration, pred: impl Fn(&SessionState) -> bool) -> SessionState {
+    let start = Instant::now();
+    loop {
+        let s = core.session_get_state().await.unwrap().state;
+        if pred(&s) {
+            return s;
+        }
+        assert!(start.elapsed() < timeout, "no se llegó a «{what}» en {timeout:?}: {s:?}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+#[tokio::test]
+#[ignore = "real: graba audio con detección simulada (ACTA_E2E=1)"]
+async fn e2e_simulated_detection_prompts_and_auto_stops() {
+    use acta_core::detection::{Confidence, DetectionEvent, MeetingApp, Platform};
+    use acta_core::recording::{PromptAnswer, StopReason};
+    use acta_core::time::Clock;
+    if !enabled() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let detector = Arc::new(ScriptedDetector::default());
+    let d2 = detector.clone();
+    let r = rig_with(tmp.path(), move |mut n| {
+        n.detector = d2;
+        n
+    })
+    .await;
+    let mut s = r.core.settings_get().await.unwrap();
+    assert!(s.detection.enabled, "la detección viene activada de serie");
+    s.auto_stop.silence_threshold_dbfs = -20.0; // el ruido de fondo del micro cuenta como silencio
+    s.auto_stop.auto_stop_after_unanswered_ms = 4_000;
+    r.core.settings_update(s).await.unwrap();
+
+    // Sin PIDs de audio: el tap espera a que la app aparezca (aquí no hay llamada real).
+    let app = MeetingApp {
+        platform: Platform::Teams,
+        bundle_id: "com.microsoft.teams2".into(),
+        pid: i32::try_from(std::process::id()).unwrap(),
+        audio_pids: vec![],
+        name: "Microsoft Teams".into(),
+        title: Some("Sincro semanal | Microsoft Teams".into()),
+        url: None,
+    };
+    let now = || SystemClock.now();
+    detector.push(DetectionEvent::MeetingStarted { app: app.clone(), confidence: Confidence::High, at: now() });
+    let SessionState::Detected { prompt, .. } =
+        wait_state(&r.core, "detected", Duration::from_secs(5), |s| matches!(s, SessionState::Detected { .. })).await
+    else {
+        unreachable!()
+    };
+    eprintln!("pregunta de inicio: {prompt:?}");
+
+    let snap = r.core.prompt_answer(prompt.id, PromptAnswer::Accept).await.unwrap();
+    let SessionState::Recording(rec) = &snap.state else { panic!("no graba: {:?}", snap.state) };
+    let id = rec.meeting_id;
+    assert_eq!(r.core.meeting_get(id).await.unwrap().meeting.title, "Sincro semanal");
+    tokio::time::sleep(Duration::from_secs(4)).await;
+
+    detector.push(DetectionEvent::MeetingEnded { app, at: now() });
+    let s = wait_state(&r.core, "¿Parar?", Duration::from_secs(5), |s| {
+        matches!(s, SessionState::Recording(r) if r.stop_prompt.is_some())
+    })
+    .await;
+    eprintln!("pregunta de parada: {s:?}");
+    // Nadie responde y hay silencio: se para sola.
+    wait_state(&r.core, "autoparada", Duration::from_secs(30), |s| !matches!(s, SessionState::Recording(_))).await;
+    let manifest = acta_audio::writer::read_manifest(&r.layout, id).unwrap();
+    eprintln!("motivo de parada: {:?}", manifest.stop_reason);
+    assert_eq!(manifest.stop_reason, Some(StopReason::AutoSilence));
+    let m = wait_status(&r.core, id, Duration::from_secs(300)).await;
+    eprintln!("estado final: {:?} error={:?}", m.status, m.error);
     r.core.shutdown().await;
 }

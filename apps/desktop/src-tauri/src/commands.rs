@@ -73,6 +73,7 @@ cmd!(llm_cli_detect() -> CliDetection => |c| c.llm_cli_detect());
 cmd!(secret_set(provider_id: ProviderId, value: String) -> SecretRef => |c| c.secret_set(provider_id, value));
 cmd!(secret_delete(provider_id: ProviderId) -> () => |c| c.secret_delete(provider_id));
 cmd!(models_status() -> Vec<ModelStatus> => |c| c.models_status());
+cmd!(audio_inputs_list() -> Vec<AudioInput> => |c| c.audio_inputs_list());
 cmd!(models_download(name: String) -> () => |c| c.models_download(name));
 cmd!(permissions_status() -> Vec<PermissionState> => |c| c.permissions_status());
 cmd!(permissions_request(kind: PermissionKind) -> PermissionStatus => |c| c.permissions_request(kind));

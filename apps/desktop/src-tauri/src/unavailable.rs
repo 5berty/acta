@@ -2,7 +2,7 @@
 //! permisos, crash al iniciar), la app sigue abriendo la biblioteca y explica
 //! el motivo en cada acción nativa en lugar de morir.
 
-use crate::native::ModelManager;
+use crate::native::{InputDevices, ModelManager};
 use acta_core::api::ModelStatus;
 use acta_core::api::ModelDownload;
 use acta_core::detection::*;
@@ -100,6 +100,13 @@ impl ModelManager for Unavailable {
         self.err()
     }
     async fn download(&self, _name: &str) -> PortResult<EventStream<ModelDownload>> {
+        self.err()
+    }
+}
+
+#[async_trait]
+impl InputDevices for Unavailable {
+    async fn inputs(&self) -> PortResult<Vec<acta_core::api::AudioInput>> {
         self.err()
     }
 }

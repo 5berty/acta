@@ -249,3 +249,12 @@ async fn without_the_sidecar_recording_fails_cleanly_and_library_still_works() {
     assert!(matches!(r.core.models_download("bogus".into()).await, Err(PortError::InvalidInput(_))));
     assert!(r.core.app_info().data_dir.ends_with(r.layout.root().file_name().unwrap().to_str().unwrap()));
 }
+
+#[tokio::test]
+async fn audio_inputs_need_the_sidecar_and_serialize_in_camel_case() {
+    let r = rig().await;
+    assert!(matches!(r.core.audio_inputs_list().await, Err(PortError::Unavailable(_))));
+    let dto = acta_core::api::AudioInput { uid: "u".into(), name: "Logitech StreamCam".into(), is_default: false, transport: "usb".into() };
+    assert_eq!(serde_json::to_value(&dto).unwrap(), serde_json::json!({"uid":"u","name":"Logitech StreamCam","isDefault":false,"transport":"usb"}));
+    assert_eq!(acta_core::api::command_names::AUDIO_INPUTS_LIST, "audio_inputs_list");
+}

@@ -532,6 +532,10 @@ impl AppCore {
         Ok(())
     }
 
+    pub async fn audio_inputs_list(&self) -> PortResult<Vec<AudioInput>> {
+        self.native.devices.inputs().await
+    }
+
     pub async fn permissions_status(&self) -> PortResult<Vec<PermissionState>> {
         self.native.permissions.status().await
     }

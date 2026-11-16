@@ -39,6 +39,7 @@
 //! | `secret_set` | `{ providerId, value }` | `SecretRef` (Llavero; nunca se guarda en SQLite) |
 //! | `secret_delete` | `{ providerId }` | `null` |
 //! | `models_status` | — | `ModelStatus[]` |
+//! | `audio_inputs_list` | — | `AudioInput[]` (micros para `Settings.recording.micDeviceUid`) |
 //! | `models_download` | `{ name }` (`asr` \| `diarizer` \| `vad`) | `null` (+ eventos `model:download`) |
 //! | `permissions_status` | — | `PermissionState[]` |
 //! | `permissions_request` | `{ kind }` | `PermissionStatus` |
@@ -98,6 +99,7 @@ pub mod command_names {
     pub const SECRET_SET: &str = "secret_set";
     pub const SECRET_DELETE: &str = "secret_delete";
     pub const MODELS_STATUS: &str = "models_status";
+    pub const AUDIO_INPUTS_LIST: &str = "audio_inputs_list";
     pub const MODELS_DOWNLOAD: &str = "models_download";
     pub const PERMISSIONS_STATUS: &str = "permissions_status";
     pub const PERMISSIONS_REQUEST: &str = "permissions_request";
@@ -145,6 +147,18 @@ pub struct CliDetection {
     pub claude_env: BTreeMap<String, String>,
     #[serde(default)]
     pub codex_env: BTreeMap<String, String>,
+}
+
+/// Micrófono disponible. `uid` es lo que se guarda en
+/// `Settings.recording.micDeviceUid` (`null` = el de por defecto del sistema).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioInput {
+    pub uid: String,
+    pub name: String,
+    pub is_default: bool,
+    /// "builtin" | "bluetooth" | "usb" | "virtual" | "other"
+    pub transport: String,
 }
 
 /// Estado de un modelo local (FluidAudio: `asr`, `diarizer`, `vad`).

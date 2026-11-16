@@ -1,7 +1,7 @@
 //! Adaptadores nativos (sidecar Swift en macOS) y su alternativa "no disponible".
 
 use crate::unavailable::Unavailable;
-use acta_core::api::{ModelDownload, ModelStatus};
+use acta_core::api::{AudioInput, ModelDownload, ModelStatus};
 use acta_core::detection::{MeetingDetector, SpeakerNameSource};
 use acta_core::permissions::PermissionsProbe;
 use acta_core::recording::AudioSource;
@@ -18,6 +18,12 @@ pub trait ModelManager: Send + Sync {
     async fn download(&self, name: &str) -> PortResult<EventStream<ModelDownload>>;
 }
 
+/// Micrófonos del sistema (para elegir uno en Ajustes).
+#[async_trait]
+pub trait InputDevices: Send + Sync {
+    async fn inputs(&self) -> PortResult<Vec<AudioInput>>;
+}
+
 #[derive(Clone)]
 pub struct NativePorts {
     pub audio: Arc<dyn AudioSource>,
@@ -29,6 +35,7 @@ pub struct NativePorts {
     pub diarizer: Arc<dyn Diarizer>,
     pub permissions: Arc<dyn PermissionsProbe>,
     pub models: Arc<dyn ModelManager>,
+    pub devices: Arc<dyn InputDevices>,
     pub sidecar_version: Option<String>,
     pub macos_version: Option<String>,
     /// Por qué no hay sidecar (para el log y Ajustes).
@@ -50,7 +57,8 @@ impl NativePorts {
             transcriber: u.clone(),
             diarizer: u.clone(),
             permissions: u.clone(),
-            models: u,
+            models: u.clone(),
+            devices: u,
             sidecar_version: None,
             macos_version: None,
             error: Some(reason),
@@ -73,6 +81,20 @@ mod mac {
     use acta_mac_bridge::transcription::{MacDiarizer, MacLiveTranscriber, MacModels, MacTranscriber};
 
     struct Models(MacModels);
+
+    struct Devices(SidecarClient);
+
+    #[async_trait]
+    impl InputDevices for Devices {
+        async fn inputs(&self) -> PortResult<Vec<AudioInput>> {
+            use acta_mac_bridge::protocol::{Command, DevicesListResult};
+            let r: DevicesListResult = self.0.call_typed(Command::DevicesList, None).await?;
+            Ok(r.inputs
+                .into_iter()
+                .map(|d| AudioInput { uid: d.uid, name: d.name, is_default: d.is_default, transport: d.transport })
+                .collect())
+        }
+    }
 
     #[async_trait]
     impl ModelManager for Models {
@@ -116,6 +138,7 @@ mod mac {
             diarizer: Arc::new(MacDiarizer::new(client.clone())),
             permissions: Arc::new(MacPermissions::new(client.clone())),
             models: Arc::new(Models(MacModels::new(client.clone()))),
+            devices: Arc::new(Devices(client.clone())),
             sidecar_version: hello.as_ref().map(|h| h.sidecar_version.clone()),
             macos_version: hello.map(|h| h.macos_version),
             error: None,

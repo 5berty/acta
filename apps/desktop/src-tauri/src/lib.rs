@@ -214,6 +214,7 @@ pub fn run() {
             commands::secret_set,
             commands::secret_delete,
             commands::models_status,
+            commands::audio_inputs_list,
             commands::models_download,
             commands::permissions_status,
             commands::permissions_request,

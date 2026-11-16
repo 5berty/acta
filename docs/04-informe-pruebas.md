@@ -2,7 +2,7 @@
 
 16 de noviembre de 2026 · macOS 26.5.2 arm64 · `acta.app` sin firmar instalada con `scripts/install-mac.sh`.
 
-**Resultado**: todo lo que se puede probar sin una llamada real pasa. Se encontraron y arreglaron 4 fallos de producto. Queda 1 fallo abierto fuera de mi zona (el CLI de Claude bloqueado por un diálogo de macOS) y lo que necesita una llamada de Teams o Meet de verdad.
+**Resultado**: todo lo que se puede probar sin una llamada real pasa. Se encontraron y arreglaron 6 fallos de producto. Queda 1 limitación abierta (macOS pregunta por la carpeta Documentos cuando acta ejecuta `claude`, y el resumen espera a que contestes) y lo que necesita una llamada de Teams o Meet de verdad.
 
 ## Cómo se ha probado
 
@@ -11,7 +11,7 @@
 | Unitarias e integración | Fakes de todos los puertos | `scripts/verify.sh` |
 | Sidecar Swift | Lógica pura, sin hardware | `cd sidecars/acta-mac && swift test --disable-get-task-allow-entitlement` |
 | E2E real | Sidecar real, FluidAudio, SQLite temporal, `claude` real, Llavero | Ver abajo |
-| Humo | La app instalada, con los datos reales | A mano, con capturas en `docs/screenshots/smoke/` |
+| Humo | La app instalada: con los datos reales y con un directorio de datos nuevo (bienvenida) | A mano, con capturas en `docs/screenshots/smoke/` |
 
 ```bash
 ACTA_E2E=1 ACTA_MAC_SIDECAR=$PWD/sidecars/acta-mac/.build/release/acta-mac \
@@ -22,7 +22,7 @@ ACTA_E2E_DATA_COPY=<copia de ~/Library/Application Support/acta> \
 
 La reunión de prueba dura 57 s y tiene dos pistas: Mónica en el micro («Yo») y dos voces (Eddy y Flo) en el sistema, generadas con `say` a 16 kHz. Los datos de las pruebas van siempre a un directorio temporal (`ACTA_DATA_DIR`).
 
-Recuentos (con `verify.sh` en verde): 366 pruebas Rust (11 más ignoradas: las E2E), 67 Swift, 226 de frontend, 7 E2E reales.
+Recuentos (con `verify.sh` en verde): 368 pruebas Rust (11 más ignoradas: las E2E), 67 Swift, 228 de frontend, 7 E2E reales.
 
 ## Resultados
 
@@ -50,7 +50,13 @@ Recuentos (con `verify.sh` en verde): 366 pruebas Rust (11 más ignoradas: las E
 | Reintentar una reunión sin audio | PASS (tras arreglo) | Antes pasaba a «Lista» vacía; ahora vuelve a fallar con «No se grabó audio…» | `049c8a2` |
 | Grabar tras reinstalar (permisos sin decidir) | PASS (tras arreglo) | Antes: «Grabando 00:00» y reunión vacía. Ahora se pregunta antes de empezar | `6f827c0` |
 | Menú de la barra según el estado | PASS (tras arreglo) | Capturas 07, 08 y 09 | `596d905` |
-| Resumen con la app instalada | FAIL (abierto) | `claude` se queda parado hasta contestar «acta.app quiere acceder a los archivos de tu carpeta Documentos» | Ver «Fallo abierto» |
+| Resumen con la app instalada | PASS con aviso | «Lista» en 26 s. Tras reinstalar, `claude` espera hasta que contestes «acta.app quiere acceder a los archivos de tu carpeta Documentos» | Ver «Limitación abierta» |
+| Bienvenida de primer arranque | PASS | Los 6 pasos en la app real con datos nuevos; `onboarding.completed` queda en `true` | — |
+| Bienvenida: conceder permisos | PASS | «Conceder» abre el diálogo de macOS y el estado pasa a «Concedido» | — |
+| Bienvenida: Ollama y LM Studio sin instalar | PASS | «No está en marcha» y enlace para instalar; «Continuar» desactivado | — |
+| Bienvenida: «Crear cuenta» de NaN Builders | PASS | Abre `https://cloud.nan.builders/r/YZ524NPK` en el navegador por defecto (Brave) | — |
+| Filas de Automatización con dos navegadores | PASS (tras arreglo) | Antes salían dos filas iguales; ahora «Automatización (Google Chrome)» y «(Brave)» | `b773573` |
+| Contrato de comandos Rust ↔ TypeScript | PASS (tras arreglo) | Faltaban 3 comandos en Rust y `audio_inputs_list` en TypeScript | `801fb3d` |
 | Nombres de Teams por Accesibilidad | PENDIENTE-HARDWARE | Hace falta una llamada real | — |
 | Detección real de Teams y Meet | PENDIENTE-HARDWARE | Hace falta una llamada real | — |
 | Capturas de pantalla compartida | PENDIENTE-HARDWARE | Hace falta alguien compartiendo | — |
@@ -88,12 +94,21 @@ Procesando mantiene «Grabar ahora» porque procesar no bloquea una grabación n
 
 «Reintentar» empieza en «Transcribir», después de la comprobación del paso «Unir el audio». Ahora la comprobación también se hace al transcribir.
 
-## Fallo abierto: el resumen se bloquea en la app instalada
+### 5. Dos filas iguales de «Automatización» (`b773573`)
 
-- **Síntoma**: «Resumiendo…» durante minutos. En la prueba de humo fueron 9 minutos, hasta contestar el diálogo.
-- **Causa**: el `claude` que lanza acta carga la configuración del usuario (hooks y skills que viven en `~/Documents`). macOS atribuye ese acceso a `acta.app` y pregunta «acta.app quiere acceder a los archivos de tu carpeta Documentos». Mientras nadie contesta, `claude` espera sin CPU ni red. Vuelve a pasar tras cada reinstalación.
-- **Arreglo propuesto**: lanzar `claude` con `--safe-mode` (sin hooks, skills ni `CLAUDE.md`; la autenticación y el modelo siguen igual). Está en `crates/acta-llm/src/providers/claude.rs`, que ahora es de otro agente.
-- **Mientras tanto**: contesta el diálogo. Con «No permitir» el resumen terminó en 20 s.
+macOS da un permiso de Automatización por navegador abierto. La bienvenida y Ajustes pintaban dos filas idénticas con la misma clave de React. Ahora cada fila dice su navegador.
+
+### 6. Comandos fuera del contrato (`801fb3d`)
+
+`llm_list_models`, `llm_detect_local` y `open_external_url` no estaban en `acta_core::api::command_names`, y `audio_inputs_list` no estaba en el contrato de TypeScript.
+
+## Limitación abierta: macOS pregunta por la carpeta Documentos
+
+- **Síntoma**: tras reinstalar, «Resumiendo…» o «Probando…» no terminan. En la primera prueba de humo fueron 9 minutos, hasta contestar el diálogo.
+- **Causa**: el `claude` que ejecuta acta abre algo dentro de `~/Documents` y macOS atribuye ese acceso a `acta.app`. Mientras nadie contesta, `claude` queda bloqueado en esa lectura, sin CPU ni red. No he podido ver qué ruta abre.
+- **Lo que no lo arregla**: `--safe-mode`. Lo probé (`b4d1d55`) y el diálogo sigue saliendo. Lo he dejado puesto porque esas llamadas no necesitan tus hooks ni tus skills.
+- **Lo que sí he hecho**: el diálogo ahora explica quién lo pide y que puedes denegarlo (`459f51b`), y está documentado en `docs/03-instalacion.md`.
+- **Qué hacer**: contesta el diálogo una vez por instalación. Con «No permitir» el resumen terminó en 20 s y la prueba de conexión dio «Conexión correcta».
 
 ## Prueba de humo con la app instalada
 
@@ -109,12 +124,29 @@ Procesando mantiene «Grabar ahora» porque procesar no bloquea una grabación n
 
 La reunión de las 15:31 ya estaba en «Lista» al empezar: alguien la reintentó a las 16:42 con el arreglo de `$schema`.
 
+### Bienvenida y grabación con datos nuevos
+
+Lanzada con `open -a ~/Applications/acta.app --env ACTA_DATA_DIR=<carpeta vacía>`, para no gastar tu bienvenida.
+
+| Paso | Resultado | Captura |
+|---|---|---|
+| 1. Bienvenida | Aparece sola | `smoke/13-bienvenida-1.png` |
+| 2. Permisos | Micro y audio del sistema pasan a «Concedido» | `smoke/14-bienvenida-permisos.png` |
+| 3. Transcripción | Los tres modelos descargados | `smoke/15-bienvenida-transcripcion.png` |
+| 4. Inteligencia artificial | Claude Code detectado, «Conexión correcta» | `smoke/16-bienvenida-ia.png` |
+| 4. Modelo local | Ollama y LM Studio «No está en marcha» | `smoke/17-bienvenida-modelo-local.png` |
+| 4. NaN Builders | «Crear cuenta» abre el enlace en Brave | `smoke/18-bienvenida-nan.png` |
+| 5. Detección | Valores por defecto | `smoke/19-bienvenida-deteccion.png` |
+| 6. Listo | Resumen con los cuatro puntos en verde | `smoke/20-bienvenida-listo.png` |
+| Grabar 17 s y parar | «Cierre de versión e informe de pruebas», «Lista» en 26 s | `smoke/12-final-grabando.png`, `smoke/21-final-reunion.png` |
+
 ## Lo que he tocado en tu Mac
 
-- **Permisos**: pulsé «Permitir» en los diálogos de micrófono y de audio del sistema de acta, y «No permitir» en el de la carpeta Documentos. La siguiente reinstalación los vuelve a pedir.
+- **Permisos**: pulsé «Permitir» en los diálogos de micrófono y de audio del sistema de acta, y «No permitir» en el de la carpeta Documentos. En una de las compilaciones intermedias pulsé «Permitir» en el de Documentos por error; la compilación siguiente volvió a preguntar, así que no ha quedado concedido. Cada reinstalación los vuelve a pedir, también la última: te los pedirá a ti.
+- **Navegador**: la prueba de «Crear cuenta» abrió una pestaña de NaN Builders en Brave.
 - **Disco**: se llenó (226 MB libres) durante las pruebas. Borré 14 GB de cachés de compilación antiguas en `target/` (`wp1`…`wp6*` y `fix`).
 - **Modelos**: se descargó el modelo `vad` en la carpeta real de modelos.
-- **Reuniones de prueba en tus datos**: 4 de hoy (17:28, 17:45, 17:48 y 17:50). Bórralas desde la app si no las quieres.
+- **Reuniones de prueba en tus datos**: 5 de hoy (17:28, 17:45, 17:48, 17:50 y 18:08). Bórralas desde la app si no las quieres.
 
 ## Lo que tienes que probar tú
 
@@ -125,3 +157,4 @@ La reunión de las 15:31 ya estaba en «Lista» al empezar: alguien la reintent�
 5. AirPods: conectar y desconectar a mitad de llamada.
 6. Una reunión de 10 min y otra larga: tiempo y memoria.
 7. Actualizar el CLI de Codex y repetir «Probar».
+8. La bienvenida te saldrá una vez con tus datos reales: complétala o pulsa «Saltar».

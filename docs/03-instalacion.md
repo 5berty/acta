@@ -68,7 +68,7 @@ En macOS 15+ ya no vale el clic derecho › Abrir. No hace falta quitar atributo
 
 Si un permiso está sin decidir, acta lo pide **antes** de empezar a grabar; si lo deniegas, no se crea la reunión y te dice cuál falta.
 
-Al redactar el primer acta puede salir un diálogo más: «acta.app quiere acceder a los archivos de tu carpeta Documentos». Lo provoca el CLI de Claude al cargar tus hooks y skills. El resumen espera hasta que lo contestes (vale cualquiera de las dos respuestas).
+Al redactar el primer acta puede salir un diálogo más: «acta.app quiere acceder a los archivos de tu carpeta Documentos». Lo provoca el CLI de Claude que ejecuta acta. El resumen espera hasta que lo contestes (vale cualquiera de las dos respuestas).
 
 TCC asocia los permisos a **acta.app** (el proceso responsable; el sidecar va dentro). En una app sin firmar la identidad es ruta + cdhash, así que recompilar **puede** volver a pedir permisos. Se comprueba en `docs/02-verificacion-manual.md`.
 

@@ -201,11 +201,108 @@ impl AppCore {
         self.store.list_meetings(query).await
     }
 
+    /// Abrir el detalle cuenta como uso (protege la reunión de la limpieza).
     pub async fn meeting_get(&self, id: MeetingId) -> PortResult<MeetingDetail> {
-        self.store
+        let detail = self
+            .store
             .get_meeting_detail(id)
             .await?
-            .ok_or_else(|| PortError::NotFound("No existe esa reunión.".into()))
+            .ok_or_else(|| PortError::NotFound("No existe esa reunión.".into()))?;
+        self.touch(&[id], MeetingTouch::Opened).await;
+        Ok(detail)
+    }
+
+    /// Apunta el uso de unas reuniones. Mejor esfuerzo: nunca falla un comando por esto.
+    async fn touch(&self, ids: &[MeetingId], touch: MeetingTouch) {
+        let now = self.clock.now();
+        let mut seen: Vec<MeetingId> = Vec::new();
+        for id in ids {
+            if seen.contains(id) {
+                continue;
+            }
+            seen.push(*id);
+            if let Err(e) = self.store.touch_meeting(*id, touch, now).await {
+                tracing::debug!(%id, "no se pudo apuntar el uso: {e}");
+            }
+        }
+    }
+
+    pub async fn meeting_set_favourite(&self, id: MeetingId, favourite: bool) -> PortResult<Meeting> {
+        let m = self.store.set_meeting_favourite(id, favourite).await.map_err(|e| match e {
+            PortError::NotFound(_) => PortError::NotFound("No existe esa reunión.".into()),
+            other => other,
+        })?;
+        self.emit(
+            event_names::MEETING_UPDATED,
+            &MeetingUpdated { meeting_id: id, status: m.status, title: m.title.clone() },
+        );
+        Ok(m)
+    }
+
+    // ------------------------------------------------------------------
+    // Limpieza de reuniones antiguas (solo sugiere; borra lo que el usuario elige)
+    // ------------------------------------------------------------------
+
+    pub async fn cleanup_suggestions(&self) -> PortResult<CleanupSuggestions> {
+        let cleanup = self.settings().cleanup;
+        let min_age_days = cleanup.min_age_days.max(1);
+        if !cleanup.enabled {
+            return Ok(CleanupSuggestions { min_age_days, ..CleanupSuggestions::default() });
+        }
+        let now = self.clock.now();
+        let mut candidates = Vec::new();
+        for f in self.store.cleanup_facts().await? {
+            let Some(reasons) = evaluate(&f, min_age_days, now) else { continue };
+            let bytes = crate::system::dir_size(self.layout.meeting_dir(f.id)).await;
+            candidates.push(CleanupCandidate {
+                meeting_id: f.id,
+                title: f.title,
+                started_at: f.started_at,
+                duration: f.duration,
+                reasons,
+                bytes,
+            });
+        }
+        sort_candidates(&mut candidates);
+        let total_bytes = candidates.iter().map(|c| c.bytes).sum();
+        Ok(CleanupSuggestions { candidates, total_bytes, min_age_days })
+    }
+
+    /// Borra las reuniones elegidas en la hoja de revisión (filas, índice y
+    /// carpeta con audio, capturas y transcript). Las favoritas, las de un
+    /// grupo con estrella y la que se esté grabando se saltan siempre.
+    pub async fn cleanup_delete(&self, ids: Vec<MeetingId>) -> PortResult<CleanupResult> {
+        let facts = self.store.cleanup_facts().await?;
+        let mut result = CleanupResult::default();
+        for id in ids {
+            let protected = facts.iter().find(|f| f.id == id).is_none_or(|f| f.favourite || f.in_favourite_group);
+            if protected {
+                result.skipped.push(id);
+                continue;
+            }
+            let bytes = crate::system::dir_size(self.layout.meeting_dir(id)).await;
+            match self.meeting_delete(id).await {
+                Ok(()) => {
+                    result.deleted.push(id);
+                    result.freed_bytes += bytes;
+                }
+                Err(e) => {
+                    tracing::warn!(%id, "limpieza: no se pudo borrar: {e}");
+                    result.skipped.push(id);
+                }
+            }
+        }
+        Ok(result)
+    }
+
+    pub async fn cleanup_keep(&self, ids: Vec<MeetingId>) -> PortResult<()> {
+        for id in ids {
+            match self.store.set_cleanup_keep(id, true).await {
+                Ok(()) | Err(PortError::NotFound(_)) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
     }
 
     pub async fn meeting_update(&self, id: MeetingId, title: String) -> PortResult<Meeting> {
@@ -318,6 +415,9 @@ impl AppCore {
     pub async fn group_delete(&self, id: GroupId) -> PortResult<()> {
         self.store.delete_group(id).await
     }
+    pub async fn group_set_favourite(&self, id: GroupId, favourite: bool) -> PortResult<Group> {
+        self.store.set_group_favourite(id, favourite).await
+    }
     pub async fn group_add_meeting(&self, group_id: GroupId, meeting_id: MeetingId) -> PortResult<()> {
         GroupStore::add_meeting(self.store.as_ref(), group_id, meeting_id).await
     }
@@ -381,8 +481,12 @@ impl AppCore {
     // Búsqueda y chat
     // ------------------------------------------------------------------
 
+    /// Las reuniones que salen en una búsqueda cuentan como usadas.
     pub async fn search(&self, query: SearchQuery) -> PortResult<Vec<SearchHit>> {
-        self.store.search(query).await
+        let hits = self.store.search(query).await?;
+        let ids: Vec<MeetingId> = hits.iter().map(|h| h.meeting_id).collect();
+        self.touch(&ids, MeetingTouch::Used).await;
+        Ok(hits)
     }
     pub async fn chat_threads_list(&self, scope: Option<ChatScope>) -> PortResult<Vec<ChatThread>> {
         self.store.list_threads(scope).await
@@ -441,6 +545,9 @@ impl AppCore {
             created_at: self.clock.now(),
         };
         self.store.append_message(user_message.clone()).await?;
+        if let ChatScope::Meeting { meeting_id } = &thread.scope {
+            self.touch(&[*meeting_id], MeetingTouch::Used).await;
+        }
         let engine = LlmChatEngine::new(provider, self.store.clone(), self.store.clone(), settings.user.clone());
         let assistant_message_id = ChatMessageId::new();
         let mut stream = engine.ask(&thread, &history, &text, assistant_message_id).await?;
@@ -463,6 +570,11 @@ impl AppCore {
             }
             if content.trim().is_empty() {
                 return;
+            }
+            // Las reuniones citadas en la respuesta cuentan como usadas.
+            let now = clock.now();
+            for c in &citations {
+                let _ = store.touch_meeting(c.meeting_id, MeetingTouch::Used, now).await;
             }
             let msg = ChatMessage {
                 id: assistant_message_id,

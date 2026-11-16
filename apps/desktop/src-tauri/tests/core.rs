@@ -12,6 +12,7 @@ use acta_core::llm::*;
 use acta_core::recording::SessionState;
 use acta_core::screen::{Capture, CaptureReason};
 use acta_core::time::{MediaMs, SystemClock, UnixMs};
+use acta_core::library::cleanup::DAY_MS;
 use acta_core::{EventStream, PortError, PortResult};
 use acta_desktop_lib::app::{AppCore, CoreDeps, Emit};
 use acta_desktop_lib::native::NativePorts;
@@ -348,4 +349,134 @@ fn provider_ui_commands_are_in_the_contract() {
     assert_eq!(c::LLM_LIST_MODELS, "llm_list_models");
     assert_eq!(c::LLM_DETECT_LOCAL, "llm_detect_local");
     assert_eq!(c::OPEN_EXTERNAL_URL, "open_external_url");
+}
+
+// ----------------------------------------------------------------------
+// Favoritas y limpieza de reuniones antiguas
+// ----------------------------------------------------------------------
+
+/// Reunión de hace tres años (la de `meeting`) con `bytes` de audio en disco.
+async fn old_meeting(r: &Rig, n: u128, bytes: usize) -> MeetingId {
+    let id = meeting(&r.core, n).await;
+    r.core
+        .store
+        .patch_meeting(id, MeetingPatch { status: Some(MeetingStatus::Ready), ..MeetingPatch::default() })
+        .await
+        .unwrap();
+    let dir = r.layout.meeting_dir(id);
+    std::fs::create_dir_all(dir.join("audio")).unwrap();
+    std::fs::write(dir.join("audio/mix.wav"), vec![0u8; bytes]).unwrap();
+    id
+}
+
+#[tokio::test]
+async fn stars_on_meetings_and_groups_persist() {
+    let r = rig().await;
+    let id = meeting(&r.core, 20).await;
+    assert!(r.core.meeting_set_favourite(id, true).await.unwrap().favourite);
+    assert!(r.events.0.lock().unwrap().iter().any(|(n, _)| n == "meeting:updated"));
+    let page = r.core.meetings_list(MeetingQuery { favourites_only: true, ..MeetingQuery::default() }).await.unwrap();
+    assert_eq!(page.items.len(), 1);
+    let g = r.core.group_create("Proyecto".into(), None).await.unwrap();
+    assert!(r.core.group_set_favourite(g.id, true).await.unwrap().favourite);
+    assert!(matches!(r.core.meeting_set_favourite(MeetingId::from_u128(999), true).await, Err(PortError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn old_unused_meetings_are_suggested_with_their_size_and_never_the_protected_ones() {
+    let r = rig().await;
+    let plain = old_meeting(&r, 30, 1_000).await;
+    let starred = old_meeting(&r, 31, 500).await;
+    r.core.meeting_set_favourite(starred, true).await.unwrap();
+    let in_group = old_meeting(&r, 32, 500).await;
+    let g = r.core.group_create("G".into(), None).await.unwrap();
+    r.core.group_add_meeting(g.id, in_group).await.unwrap();
+    r.core.group_set_favourite(g.id, true).await.unwrap();
+    let opened = old_meeting(&r, 33, 500).await;
+    r.core.meeting_get(opened).await.unwrap(); // abrirla hoy la protege
+
+    let s = r.core.cleanup_suggestions().await.unwrap();
+    assert_eq!(s.candidates.iter().map(|c| c.meeting_id).collect::<Vec<_>>(), vec![plain]);
+    assert_eq!((s.candidates[0].bytes, s.total_bytes, s.min_age_days), (1_000, 1_000, 90));
+    assert!(s.candidates[0].reasons.contains(&CleanupReason::NeverUsed));
+
+    // «Mantener» la quita para siempre; apagar las sugerencias las vacía.
+    r.core.cleanup_keep(vec![plain]).await.unwrap();
+    assert!(r.core.cleanup_suggestions().await.unwrap().candidates.is_empty());
+    let another = old_meeting(&r, 34, 10).await;
+    assert_eq!(r.core.cleanup_suggestions().await.unwrap().candidates[0].meeting_id, another);
+    let mut settings = r.core.settings_get().await.unwrap();
+    settings.cleanup.enabled = false;
+    r.core.settings_update(settings).await.unwrap();
+    assert!(r.core.cleanup_suggestions().await.unwrap().candidates.is_empty());
+}
+
+#[tokio::test]
+async fn the_configured_age_decides_what_counts_as_old() {
+    let r = rig().await;
+    let id = MeetingId::from_u128(40);
+    let ten_days_ago = UnixMs(acta_core::time::Clock::now(&SystemClock).0 - 10 * DAY_MS);
+    r.core
+        .store
+        .create_meeting(NewMeeting { id, title: "Reciente".into(), platform: Platform::Teams, app_bundle_id: None, started_at: ten_days_ago, language: "es".into() })
+        .await
+        .unwrap();
+    r.core.store.patch_meeting(id, MeetingPatch { status: Some(MeetingStatus::Ready), ..MeetingPatch::default() }).await.unwrap();
+    assert!(r.core.cleanup_suggestions().await.unwrap().candidates.is_empty());
+    let mut settings = r.core.settings_get().await.unwrap();
+    settings.cleanup.min_age_days = 7;
+    r.core.settings_update(settings).await.unwrap();
+    let s = r.core.cleanup_suggestions().await.unwrap();
+    assert_eq!((s.candidates.len(), s.min_age_days), (1, 7));
+}
+
+#[tokio::test]
+async fn deleting_selected_meetings_frees_disk_and_never_touches_favourites() {
+    let r = rig().await;
+    let a = old_meeting(&r, 50, 4_000).await;
+    let b = old_meeting(&r, 51, 6_000).await;
+    let starred = old_meeting(&r, 52, 9_000).await;
+    r.core.meeting_set_favourite(starred, true).await.unwrap();
+    let ghost = MeetingId::from_u128(59);
+
+    let res = r.core.cleanup_delete(vec![a, b, starred, ghost]).await.unwrap();
+    assert_eq!(res.deleted, vec![a, b]);
+    assert_eq!(res.skipped, vec![starred, ghost]);
+    assert_eq!(res.freed_bytes, 10_000);
+    assert!(!r.layout.meeting_dir(a).exists() && !r.layout.meeting_dir(b).exists());
+    assert!(r.layout.meeting_dir(starred).join("audio/mix.wav").exists());
+    assert!(matches!(r.core.meeting_get(a).await, Err(PortError::NotFound(_))));
+    assert!(r.core.meeting_get(starred).await.is_ok());
+}
+
+#[tokio::test]
+async fn searching_marks_the_meetings_it_finds_as_used() {
+    use acta_core::recording::Track;
+    use acta_core::transcription::{NameSource, Speaker, Transcript, Utterance};
+    let r = rig().await;
+    let id = old_meeting(&r, 60, 10).await;
+    let sp = SpeakerId::from_u128(1);
+    r.core
+        .store
+        .save_transcript(Transcript {
+            meeting_id: id,
+            speakers: vec![Speaker { id: sp, meeting_id: id, label: "Yo".into(), display_name: None, is_me: true, track: Track::Mic, diarization_label: None, name_source: NameSource::Me, confirmed: false, voiceprint_id: None }],
+            utterances: vec![Utterance { idx: 0, speaker_id: sp, track: Track::Mic, start: MediaMs(0), end: MediaMs(900), text: "revisamos el presupuesto".into(), confidence: None }],
+        })
+        .await
+        .unwrap();
+    r.core.store.index_meeting(id).await.unwrap();
+    assert_eq!(r.core.cleanup_suggestions().await.unwrap().candidates.len(), 1);
+    let hits = r.core.search(SearchQuery { text: "presupuesto".into(), scope: SearchScope::All, limit: 5 }).await.unwrap();
+    assert_eq!(hits.len(), 1);
+    assert!(r.core.cleanup_suggestions().await.unwrap().candidates.is_empty(), "usada hoy: ya no se sugiere");
+}
+
+#[test]
+fn favourites_and_cleanup_commands_are_in_the_contract() {
+    use acta_core::api::command_names as c;
+    assert_eq!(
+        [c::MEETING_SET_FAVOURITE, c::GROUP_SET_FAVOURITE, c::CLEANUP_SUGGESTIONS, c::CLEANUP_DELETE, c::CLEANUP_KEEP],
+        ["meeting_set_favourite", "group_set_favourite", "cleanup_suggestions", "cleanup_delete", "cleanup_keep"]
+    );
 }

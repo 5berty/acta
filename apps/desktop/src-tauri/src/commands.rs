@@ -45,6 +45,11 @@ cmd!(meetings_list(query: MeetingQuery) -> Page<MeetingSummary> => |c| c.meeting
 cmd!(meeting_get(id: MeetingId) -> MeetingDetail => |c| c.meeting_get(id));
 cmd!(meeting_update(id: MeetingId, title: String) -> Meeting => |c| c.meeting_update(id, title));
 cmd!(meeting_delete(id: MeetingId) -> () => |c| c.meeting_delete(id));
+cmd!(meeting_set_favourite(id: MeetingId, favourite: bool) -> Meeting => |c| c.meeting_set_favourite(id, favourite));
+cmd!(group_set_favourite(id: GroupId, favourite: bool) -> Group => |c| c.group_set_favourite(id, favourite));
+cmd!(cleanup_suggestions() -> CleanupSuggestions => |c| c.cleanup_suggestions());
+cmd!(cleanup_delete(ids: Vec<MeetingId>) -> CleanupResult => |c| c.cleanup_delete(ids));
+cmd!(cleanup_keep(ids: Vec<MeetingId>) -> () => |c| c.cleanup_keep(ids));
 cmd!(meeting_reprocess(request: ReprocessRequest) -> () => |c| c.meeting_reprocess(request));
 cmd!(speaker_rename(meeting_id: MeetingId, speaker_id: SpeakerId, display_name: String, remember: bool) -> () =>
     |c| c.speaker_rename(meeting_id, speaker_id, display_name, remember));

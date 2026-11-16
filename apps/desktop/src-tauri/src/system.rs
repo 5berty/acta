@@ -21,6 +21,23 @@ pub fn disk_free(path: &Path) -> Option<u64> {
     Some((st.f_bavail as u64).saturating_mul(st.f_frsize as u64))
 }
 
+/// Bytes que ocupa una carpeta (recursivo, sin seguir enlaces). 0 si no existe.
+pub fn dir_size_sync(path: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(path) else { return 0 };
+    entries
+        .flatten()
+        .map(|e| match e.file_type() {
+            Ok(t) if t.is_dir() => dir_size_sync(&e.path()),
+            Ok(t) if t.is_file() => e.metadata().map_or(0, |m| m.len()),
+            _ => 0,
+        })
+        .sum()
+}
+
+pub async fn dir_size(path: std::path::PathBuf) -> u64 {
+    tokio::task::spawn_blocking(move || dir_size_sync(&path)).await.unwrap_or(0)
+}
+
 /// Variable para usar otra carpeta de datos (pruebas, sin tocar la real).
 pub const DATA_DIR_ENV: &str = "ACTA_DATA_DIR";
 
@@ -56,6 +73,16 @@ mod tests {
         assert_eq!(data_root(Some("".into()), support.clone()).unwrap(), Path::new("/Users/e/Library/Application Support/acta"));
         assert_eq!(data_root(None, support).unwrap(), Path::new("/Users/e/Library/Application Support/acta"));
         assert_eq!(data_root(None, None), None);
+    }
+
+    #[test]
+    fn dir_size_adds_nested_files_and_missing_is_zero() {
+        let d = tempfile::tempdir().expect("tmp");
+        std::fs::create_dir_all(d.path().join("a/b")).expect("dirs");
+        std::fs::write(d.path().join("x"), [0u8; 10]).expect("x");
+        std::fs::write(d.path().join("a/b/y"), [0u8; 32]).expect("y");
+        assert_eq!(dir_size_sync(d.path()), 42);
+        assert_eq!(dir_size_sync(&d.path().join("nope")), 0);
     }
 
     #[test]

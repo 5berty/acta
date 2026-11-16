@@ -344,7 +344,7 @@ Requiere el permiso de Grabación de pantalla y `Settings.screen.enabled = true`
    - Cada captura se asocia a la ruta del tema de la escaleta que la contiene (`topic_path` "2.1").
    - Las refs `cN` que el LLM puso en `tareas[].capturas` se guardan en `capture_action_items`.
    - Las capturas aparecen en el timeline como `capture`.
-8. Ficheros JPEG (calidad 0,8), escritos con `.tmp` + rename. Nombre: `captures/<media_ms 9 dígitos>-<reason>.jpg`.
+8. Ficheros JPEG (calidad 0,8), escritos con `.tmp` + rename. El sidecar los deja como `captures/<unix_ms>-<reason>.jpg` (candidatas: `captures/candidates/<unix_ms>.jpg`) y el supervisor los **renombra** a `captures/<media_ms 9 dígitos>-<reason>.jpg` con `wall_to_media` del manifiesto en memoria (`DataLayout::capture_rel_path`). La UI muestra `<dataDir>/meetings/<id>/<path>`; `topicPath` es la ruta 1-based del tema más profundo ("2.1").
 
 ---
 
@@ -424,7 +424,7 @@ Tabla completa de comandos: `crates/acta-core/src/api/commands.rs` (documentaci�
 | Grupos | `groups_list`, `group_create`, `group_update`, `group_delete`, `group_add_meeting`, `group_remove_meeting`, `group_suggestions_list`, `group_suggestions_refresh`, `group_suggestion_accept`, `group_suggestion_dismiss` |
 | Búsqueda y chat | `search{query}`, `chat_threads_list`, `chat_thread_create`, `chat_thread_delete`, `chat_messages_list`, `chat_send{threadId, text}` (devuelve `ChatSendResult` y luego llegan `chat:delta`) |
 | Huellas | `voiceprints_list`, `voiceprint_delete{id}` |
-| Ajustes y diagnóstico | `settings_get`, `settings_update{settings}`, `llm_provider_test{providerId}`, `llm_cli_detect`, `permissions_status`, `permissions_request{kind}`, `open_system_settings{kind}`, `health_get`, `app_info` |
+| Ajustes y diagnóstico | `settings_get`, `settings_update{settings}`, `llm_provider_test{providerId}`, `llm_cli_detect`, `secret_set{providerId, value}`, `secret_delete{providerId}`, `models_status`, `models_download{name}`, `permissions_status`, `permissions_request{kind}`, `open_system_settings{kind}`, `health_get`, `app_info` |
 | Ventanas | `overlay_set_expanded{expanded}`, `main_window_show{meetingId?}` |
 
 | Evento | Payload | Frecuencia |
@@ -438,6 +438,7 @@ Tabla completa de comandos: `crates/acta-core/src/api/commands.rs` (documentaci�
 | `chat:delta` | `ChatDelta` | streaming |
 | `live:partial` | `LivePartial` | solo con previsualización en vivo |
 | `model:download` | `ModelDownload` | descargas |
+| `main:navigate` | `MainNavigate{meetingId}` | `main_window_show{meetingId}` (la pastilla abre una reunión) |
 
 Ventanas (`tauri.conf.json`):
 
@@ -488,3 +489,31 @@ WP1 a WP5 en paralelo, y después WP6. Primer hito integrado (fase 1 de `00-anal
 
 - `scripts/verify.sh` hace guards, `cargo check`, clippy con `-D warnings`, `cargo test`, `swift build` sin codesign, `tsc` y `vitest`.
 - Checklist manual: `docs/02-verificacion-manual.md`.
+
+---
+
+## 14. Integración (WP6) y cambios de contrato
+
+WP6 es ahora dueño de la integración y de los contratos. Cambios hechos (Rust, Swift y TS sincronizados):
+
+| Dónde | Cambio | Por qué |
+|---|---|---|
+| `llm::ProviderKind::ClaudeCli` | `effort: Option<String>` → `claude -p --effort <nivel>` | WP3 |
+| `settings::DetectionSettings` | `denylist: Vec<String>` (bundle ids que nunca disparan; se quitan de `rules` y se filtran los eventos) | WP5 |
+| `api::CliDetection` | `claude_env`, `codex_env` (variables del alias con `$HOME` expandido). La detección prueba `zsh -lc` y, si no, `zsh -ic` (lee `~/.zshrc`) | El `claude` de Edu es un alias con `CLAUDE_CONFIG_DIR` |
+| `api` | Comandos `secret_set`, `secret_delete` (Llavero, cuenta `provider:<id>`), `models_status`, `models_download`; DTO `ModelStatus`; evento `main:navigate` | WP5 |
+| `library::SearchIndex` | `remove_meeting` → `unindex_meeting`; `stale_meetings()` | Choque de nombres con `GroupStore::remove_meeting`; reindexar reuniones cuyo embedding falló |
+| `library::MeetingStore` | `save_screen_shares`, `get_capture` | Timeline con `screenShare`; borrar el fichero de una captura |
+| `screen::ScreenShare` | Nuevo `{start, end?, presenter?}` en tiempo media | Timeline |
+| `layout` | `live/screen.jsonl`, `transcript/segments-<track>.json`, `transcript/diarization-result.json`, `llm/minutes.json`, `capture_rel_path` | Cachés del pipeline para reprocesar pasos sueltos |
+| store (migración `0002`) | `meetings.title_edited`, `meetings.index_stale`, tabla `screen_shares`; `save_minutes` aplica `suggested_title` si el usuario no editó el título y conserva `done` de tareas con el mismo texto | WP2 |
+| `Protocol.swift` / `protocol.rs` | `init` públicos en todos los structs (adiós a `Wire.make`); constante `speakerEmbeddingModel` / `SPEAKER_EMBEDDING_MODEL` = `fluidaudio-wespeaker-community1-256` | WP4 |
+| `SegmentWriter` | `manifest()`, `recorded_ms()`, `meeting_id()`. Al reanudar ya rebasaba el origen de `pts_us` (sin rellenar el salto): test de regresión añadido | WP4 |
+
+Piezas de WP6:
+
+- `acta-audio::supervisor`: actor único (máquina de estados + efectos). Los frames NO pasan por el actor: una tarea los escribe en el writer y al parar se vacía el stream antes de cerrar. Niveles a ≈10 Hz, snapshot a 1 Hz, watchdog con espacio libre (`statvfs`), autoparada, caducidad de "¿Grabar?", señales en vivo a `live/*.jsonl`, capturas renombradas a tiempo media, momentos importantes → `screen.snapshot{keyword}`. Cola de procesado propia: nunca bloquea grabar otra. Al arrancar recupera sesiones a medias y reencola las que quedaron procesando.
+- `acta-audio::processing::DefaultPipeline`: pasos con cachés en disco (se puede reprocesar uno suelto). Si falla el resumen se indexa igualmente y la reunión queda `failed` con el paso que falló.
+- `apps/desktop/src-tauri`: `AppCore` (lógica de comandos, testeada sin Tauri), comandos finos, NSPanel no activable (`tauri-nspanel`, nivel Status, todos los Spaces, pantalla completa), icono en la barra de menús ("Grabar ahora"), sidecar localizado en `Contents/MacOS/acta-mac` (externalBin solo en `tauri.bundle.conf.json`, porque `tauri-build` falla en `cargo check` si el binario no existe). Sin sidecar la app abre igual y explica el error en cada acción nativa.
+- Embeddings: feature `local-embeddings` de la app (la activa `scripts/install-mac.sh`). Sin ella no hay embedder (solo FTS5), para no mezclar vectores de modelos distintos.
+- Instalación: `docs/03-instalacion.md`. Verificación manual: `docs/02-verificacion-manual.md`.

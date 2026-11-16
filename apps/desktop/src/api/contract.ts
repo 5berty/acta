@@ -59,6 +59,16 @@ export const COMMANDS = {
   llmListModels: "llm_list_models",
   llmDetectLocal: "llm_detect_local",
   openExternalUrl: "open_external_url",
+  meetingSetFavourite: "meeting_set_favourite",
+  groupSetFavourite: "group_set_favourite",
+  cleanupSuggestions: "cleanup_suggestions",
+  cleanupDelete: "cleanup_delete",
+  cleanupKeep: "cleanup_keep",
+  localLlmStatus: "local_llm_status",
+  localLlmDownload: "local_llm_download",
+  localLlmCancel: "local_llm_cancel",
+  localLlmDelete: "local_llm_delete",
+  localLlmTest: "local_llm_test",
 } as const;
 
 export const EVENTS = {
@@ -71,6 +81,7 @@ export const EVENTS = {
   chatDelta: "chat:delta",
   livePartial: "live:partial",
   modelDownload: "model:download",
+  localLlmDownload: "localmodel:download",
   mainNavigate: "main:navigate",
 } as const;
 
@@ -85,6 +96,7 @@ export interface EventPayloads {
   "chat:delta": T.ChatDelta;
   "live:partial": T.LivePartial;
   "model:download": T.ModelDownload;
+  "localmodel:download": T.LocalLlmDownload;
   "main:navigate": T.MainNavigate;
 }
 
@@ -107,6 +119,8 @@ export interface ActaApi {
   meetingGet(id: T.MeetingId): Promise<T.MeetingDetail>;
   meetingUpdate(id: T.MeetingId, title: string): Promise<T.Meeting>;
   meetingDelete(id: T.MeetingId): Promise<void>;
+  /** Pone o quita la estrella. Las favoritas nunca se sugieren para borrar. */
+  meetingSetFavourite(id: T.MeetingId, favourite: boolean): Promise<T.Meeting>;
   meetingReprocess(request: T.ReprocessRequest): Promise<void>;
   speakerRename(
     meetingId: T.MeetingId,
@@ -122,12 +136,21 @@ export interface ActaApi {
   groupCreate(name: string, description?: string | null): Promise<T.Group>;
   groupUpdate(id: T.GroupId, name?: string | null, description?: string | null): Promise<T.Group>;
   groupDelete(id: T.GroupId): Promise<void>;
+  groupSetFavourite(id: T.GroupId, favourite: boolean): Promise<T.Group>;
   groupAddMeeting(groupId: T.GroupId, meetingId: T.MeetingId): Promise<void>;
   groupRemoveMeeting(groupId: T.GroupId, meetingId: T.MeetingId): Promise<void>;
   groupSuggestionsList(): Promise<T.GroupSuggestion[]>;
   groupSuggestionsRefresh(): Promise<T.GroupSuggestion[]>;
   groupSuggestionAccept(id: T.GroupId, name?: string | null): Promise<T.Group>;
   groupSuggestionDismiss(id: T.GroupId): Promise<void>;
+
+  // limpieza de reuniones antiguas (solo sugiere)
+  /** Vacío si las sugerencias están apagadas en Ajustes. */
+  cleanupSuggestions(): Promise<T.CleanupSuggestions>;
+  /** Borra audio, capturas, transcript e índice de las elegidas. Nunca favoritas. */
+  cleanupDelete(ids: T.MeetingId[]): Promise<T.CleanupResult>;
+  /** «Mantener»: esas reuniones no se vuelven a sugerir. */
+  cleanupKeep(ids: T.MeetingId[]): Promise<void>;
 
   // búsqueda y chat
   search(query: T.SearchQuery): Promise<T.SearchHit[]>;
@@ -150,6 +173,15 @@ export interface ActaApi {
   llmListModels(baseUrl: string, providerId?: T.ProviderId | null): Promise<string[]>;
   /** Ollama y LM Studio en sus puertos por defecto. Que no estén no es un error. */
   llmDetectLocal(): Promise<T.LocalDetection>;
+  /** Modelo local integrado: hardware, niveles, qué hay descargado y recomendación. */
+  localLlmStatus(): Promise<T.LocalLlmStatus>;
+  /** Descarga (reanudable) llama.cpp y el modelo. Progreso: `localmodel:download`. */
+  localLlmDownload(modelId: string): Promise<void>;
+  /** Pausa la descarga; lo bajado queda para reanudar. */
+  localLlmCancel(modelId: string): Promise<void>;
+  localLlmDelete(modelId: string): Promise<void>;
+  /** Carga el modelo y le pide una palabra. */
+  localLlmTest(modelId: string): Promise<T.ProviderTestResult>;
   secretSet(providerId: T.ProviderId, value: string): Promise<T.SecretRef>;
   secretDelete(providerId: T.ProviderId): Promise<void>;
   modelsStatus(): Promise<T.ModelStatus[]>;

@@ -299,6 +299,8 @@ export interface Meeting {
   language: string;
   createdAt: UnixMs;
   updatedAt: UnixMs;
+  /** Marcada con la estrella. */
+  favourite: boolean;
 }
 
 export interface MeetingSummary {
@@ -313,6 +315,8 @@ export interface MeetingSummary {
   groupIds: GroupId[];
   captureCount: number;
   snippet: string | null;
+  /** Estrella de la reunión (no cuenta la de sus grupos). */
+  favourite: boolean;
 }
 
 /** Rutas absolutas; usar `convertFileSrc` para reproducir. */
@@ -339,6 +343,8 @@ export interface MeetingQuery {
   platform?: Platform | null;
   from?: UnixMs | null;
   to?: UnixMs | null;
+  /** Solo favoritas: reuniones con estrella y reuniones de grupos con estrella. */
+  favouritesOnly?: boolean;
   limit?: number | null;
   cursor?: string | null;
 }
@@ -358,6 +364,42 @@ export interface Group {
   meetingCount: number;
   createdAt: UnixMs;
   updatedAt: UnixMs;
+  /** Grupo con estrella: sus reuniones cuentan como favoritas. */
+  favourite: boolean;
+}
+
+// ---------------------------------------------------------------- limpieza
+
+/** Por qué se sugiere borrar una reunión (espejo de `library::cleanup::CleanupReason`). */
+export type CleanupReason =
+  | { kind: "old"; days: number }
+  | { kind: "neverUsed" }
+  | { kind: "unusedFor"; days: number }
+  | { kind: "short"; durationMs: number }
+  | { kind: "littleContent"; words: number }
+  | { kind: "failed" };
+
+export interface CleanupCandidate {
+  meetingId: MeetingId;
+  title: string;
+  startedAt: UnixMs;
+  duration: MediaMs;
+  reasons: CleanupReason[];
+  /** Lo que ocupa en disco (audio, capturas, transcript). */
+  bytes: number;
+}
+
+export interface CleanupSuggestions {
+  candidates: CleanupCandidate[];
+  totalBytes: number;
+  minAgeDays: number;
+}
+
+export interface CleanupResult {
+  deleted: MeetingId[];
+  /** No se borraron: favoritas, en grabación o ya inexistentes. */
+  skipped: MeetingId[];
+  freedBytes: number;
 }
 
 export interface GroupSuggestion {
@@ -371,6 +413,8 @@ export interface GroupSuggestion {
 
 export type SearchScope =
   | { kind: "all" }
+  /** Reuniones con estrella y reuniones de grupos con estrella. */
+  | { kind: "favourites" }
   | { kind: "group"; groupId: GroupId }
   | { kind: "meeting"; meetingId: MeetingId };
 
@@ -452,7 +496,9 @@ export type ProviderKind =
   | { type: "claudeCli"; binaryPath: string; model: string | null; effort: string | null; extraEnv: Record<string, string> }
   | { type: "codexCli"; binaryPath: string; model: string | null; extraEnv: Record<string, string> }
   | { type: "openAiCompatible"; baseUrl: string; model: string; apiKey: SecretRef | null }
-  | { type: "anthropic"; model: string; apiKey: SecretRef };
+  | { type: "anthropic"; model: string; apiKey: SecretRef }
+  /** Modelo local integrado: acta lo descarga y lo ejecuta (sin Ollama). */
+  | { type: "builtIn"; modelId: string };
 
 export interface ProviderConfig {
   id: ProviderId;
@@ -487,6 +533,88 @@ export interface LocalRuntime {
 export interface LocalDetection {
   ollama: LocalRuntime;
   lmStudio: LocalRuntime;
+}
+
+// ------------------------------------------------- modelo local integrado
+// Espejo de `acta_core::llm::local`.
+
+export type ModelTier = "tiny" | "medium" | "large";
+
+export interface LocalModel {
+  /** Es el `modelId` de un proveedor `builtIn`. */
+  id: string;
+  tier: ModelTier;
+  name: string;
+  params: string;
+  quant: string;
+  repo: string;
+  file: string;
+  revision: string;
+  url: string;
+  sizeBytes: number;
+  sha256: string;
+  license: string;
+  licenseUrl: string;
+  minRamGb: number;
+  comfortableRamGb: number;
+  ramNeededBytes: number;
+  contextTokens: number;
+  baseTokensPerS: number;
+  description: string;
+}
+
+export interface HardwareInfo {
+  ramBytes: number;
+  /** "Apple M2 Pro". */
+  chip: string;
+  appleSilicon: boolean;
+  freeDiskBytes: number | null;
+}
+
+/** Si un modelo cabe en este Mac. `tooBig` y `noDisk` no se pueden descargar. */
+export type ModelFit = "comfortable" | "tight" | "tooBig" | "noDisk";
+
+export type RuntimeSource = "env" | "bundled" | "downloaded" | "homebrew";
+
+export interface LocalRuntimeStatus {
+  available: boolean;
+  source: RuntimeSource | null;
+  path: string | null;
+  pinnedVersion: string;
+  downloadBytes: number;
+}
+
+export interface LocalModelStatus {
+  model: LocalModel;
+  fit: ModelFit;
+  recommended: boolean;
+  downloaded: boolean;
+  /** Bytes de una descarga a medias (se reanuda). */
+  partialBytes: number;
+  downloading: boolean;
+  expectedTokensPerS: number;
+}
+
+export interface LocalLlmStatus {
+  hardware: HardwareInfo;
+  runtime: LocalRuntimeStatus;
+  models: LocalModelStatus[];
+  recommended: string | null;
+  /** Modelo cargado ahora en memoria. */
+  running: string | null;
+}
+
+export type LocalDownloadStage = "runtime" | "model" | "verifying" | "done";
+
+/** Evento `localmodel:download`. */
+export interface LocalLlmDownload {
+  modelId: string;
+  stage: LocalDownloadStage;
+  receivedBytes: number;
+  totalBytes: number;
+  fraction: number;
+  done: boolean;
+  error: string | null;
 }
 
 /** Un micrófono del sistema (`audio_inputs_list`). */
@@ -564,6 +692,14 @@ export interface Settings {
   embeddings: { model: string };
   /** Bienvenida de primer arranque: se marca al terminarla o saltarla. */
   onboarding: { completed: boolean };
+  /** Sugerencias de borrado de reuniones antiguas (nunca borra sola). */
+  cleanup: {
+    enabled: boolean;
+    /** Antigüedad mínima en días. */
+    minAgeDays: number;
+    /** «Recordármelo más tarde»: el aviso no vuelve hasta esta fecha. */
+    snoozedUntil: UnixMs | null;
+  };
 }
 
 export interface AppInfo {

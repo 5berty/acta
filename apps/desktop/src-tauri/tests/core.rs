@@ -584,7 +584,7 @@ async fn the_built_in_model_downloads_tests_runs_as_a_provider_and_deletes() {
     r.core.local_llm_download(TINY.into()).await.unwrap();
     let mut done = None;
     for _ in 0..200 {
-        done = r.events.0.lock().unwrap().iter().find(|(n, p)| n == "local-llm:download" && p["done"] == true).map(|(_, p)| p.clone());
+        done = r.events.0.lock().unwrap().iter().find(|(n, p)| n == "localmodel:download" && p["done"] == true).map(|(_, p)| p.clone());
         if done.is_some() {
             break;
         }
@@ -628,5 +628,5 @@ fn local_model_commands_and_event_are_in_the_contract() {
         [c::LOCAL_LLM_STATUS, c::LOCAL_LLM_DOWNLOAD, c::LOCAL_LLM_CANCEL, c::LOCAL_LLM_DELETE, c::LOCAL_LLM_TEST],
         ["local_llm_status", "local_llm_download", "local_llm_cancel", "local_llm_delete", "local_llm_test"]
     );
-    assert_eq!(e::LOCAL_LLM_DOWNLOAD, "local-llm:download");
+    assert_eq!(e::LOCAL_LLM_DOWNLOAD, "localmodel:download");
 }

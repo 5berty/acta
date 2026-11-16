@@ -301,7 +301,7 @@ pub enum LocalDownloadStage {
     Done,
 }
 
-/// Evento `local-llm:download`.
+/// Evento `localmodel:download`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalLlmDownload {

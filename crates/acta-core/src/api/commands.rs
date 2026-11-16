@@ -44,7 +44,7 @@
 //! | `secret_set` | `{ providerId, value }` | `SecretRef` (Llavero; nunca se guarda en SQLite) |
 //! | `secret_delete` | `{ providerId }` | `null` |
 //! | `local_llm_status` | — | `LocalLlmStatus` (hardware, runtime, niveles y recomendación) |
-//! | `local_llm_download` | `{ modelId }` | `null` (+ eventos `local-llm:download`; reanuda) |
+//! | `local_llm_download` | `{ modelId }` | `null` (+ eventos `localmodel:download`; reanuda) |
 //! | `local_llm_cancel` | `{ modelId }` | `null` (la descarga queda a medias y se puede reanudar) |
 //! | `local_llm_delete` | `{ modelId }` | `null` |
 //! | `local_llm_test` | `{ modelId }` | `ProviderTestResult` |

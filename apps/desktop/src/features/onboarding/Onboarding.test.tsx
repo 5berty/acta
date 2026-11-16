@@ -125,7 +125,7 @@ describe("bienvenida de primer arranque", () => {
   it("IA: un modelo local detectado en este Mac", async () => {
     const { dialog, controls } = await firstRun({ local: OLLAMA });
     await goToStep(4);
-    await userEvent.click(within(dialog).getByRole("radio", { name: /Modelo local/ }));
+    await userEvent.click(within(dialog).getByRole("radio", { name: /Ollama o LM Studio/ }));
     expect(screen.getByRole("button", { name: "Continuar" })).toBeDisabled();
     const ollama = await within(dialog).findByRole("listitem", { name: "Ollama" });
     await userEvent.selectOptions(await within(ollama).findByRole("combobox", { name: "Modelo de Ollama" }), "llama3.2:latest");
@@ -138,7 +138,7 @@ describe("bienvenida de primer arranque", () => {
   it("IA: sin servidor local, enseña cómo instalarlo", async () => {
     const { dialog } = await firstRun();
     await goToStep(4);
-    await userEvent.click(within(dialog).getByRole("radio", { name: /Modelo local/ }));
+    await userEvent.click(within(dialog).getByRole("radio", { name: /Ollama o LM Studio/ }));
     const ollama = await within(dialog).findByRole("listitem", { name: "Ollama" });
     expect(await within(ollama).findByText("No está en marcha")).toBeInTheDocument();
     expect(within(ollama).getByRole("button", { name: "Cómo instalar Ollama" })).toBeInTheDocument();

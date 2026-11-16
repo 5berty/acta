@@ -5,12 +5,14 @@ import type { CliDetection, SecretRef, Settings } from "../../api";
 import type { LocalKind } from "../providers/LocalModels";
 import { PRESETS, assignAll, presetOf, upsertPreset, type PresetId } from "../providers/presets";
 
-export type AiChoice = "claudeCode" | "codex" | "local" | "nan" | "own";
+export type AiChoice = "claudeCode" | "codex" | "builtIn" | "local" | "nan" | "own";
 export type OwnService = "openAi" | "anthropic" | "openRouter" | "custom";
 type Llm = Settings["llm"];
 
 export interface AiState {
   choice: AiChoice | null;
+  /** Modelo integrado elegido (ya descargado). */
+  builtIn: { modelId: string } | null;
   local: { kind: LocalKind; model: string; baseUrl: string } | null;
   nan: { apiKey: SecretRef | null; model: string };
   own: { service: OwnService; apiKey: SecretRef | null; model: string; baseUrl: string };
@@ -19,6 +21,7 @@ export interface AiState {
 const CHOICE_OF: Record<PresetId, AiChoice> = {
   claudeCode: "claudeCode",
   codex: "codex",
+  builtIn: "builtIn",
   ollama: "local",
   lmStudio: "local",
   nan: "nan",
@@ -35,6 +38,7 @@ export function initialAi(llm: Llm): AiState {
   const k = current?.kind;
   const state: AiState = {
     choice: preset ? CHOICE_OF[preset] : null,
+    builtIn: k?.type === "builtIn" && k.modelId ? { modelId: k.modelId } : null,
     local: null,
     nan: { apiKey: null, model: PRESETS.nan.defaultModel ?? "" },
     own: { service: "openAi", apiKey: null, model: "", baseUrl: "" },
@@ -51,6 +55,7 @@ function presetFor(ai: AiState): PresetId | null {
   switch (ai.choice) {
     case "claudeCode":
     case "codex":
+    case "builtIn":
     case "nan":
       return ai.choice;
     case "local":
@@ -75,6 +80,7 @@ export function applyAi(llm: Llm, ai: AiState, cli: CliDetection | null): Llm {
   let next: ReturnType<typeof upsertPreset>;
   if (preset === "claudeCode") next = upsertPreset(llm, preset, cli?.claude ? { binaryPath: cli.claude, extraEnv: cli.claudeEnv } : {});
   else if (preset === "codex") next = upsertPreset(llm, preset, cli?.codex ? { binaryPath: cli.codex, extraEnv: cli.codexEnv } : {});
+  else if (ai.choice === "builtIn") next = upsertPreset(llm, preset, ai.builtIn ? { model: ai.builtIn.modelId } : {});
   else if (ai.choice === "local" && ai.local) next = upsertPreset(llm, preset, { model: ai.local.model, baseUrl: ai.local.baseUrl });
   else if (ai.choice === "nan") next = upsertPreset(llm, preset, { model: ai.nan.model, apiKey: ai.nan.apiKey });
   else next = upsertPreset(llm, preset, { model: ai.own.model, apiKey: ai.own.apiKey, ...(ai.own.service === "custom" ? { baseUrl: ai.own.baseUrl } : {}) });
@@ -90,6 +96,8 @@ export function aiProblem(ai: AiState, cli: CliDetection | null, cliPending: boo
       return cliPending || cli?.claude ? null : "Claude Code no está instalado en este Mac. Elige otra opción o instálalo y vuelve a buscar.";
     case "codex":
       return cliPending || cli?.codex ? null : "Codex no está instalado en este Mac. Elige otra opción o instálalo y vuelve a buscar.";
+    case "builtIn":
+      return ai.builtIn ? null : "Descarga un modelo y pulsa «Elegir» para continuar.";
     case "local":
       return ai.local?.model ? null : "Elige un modelo de los que tienes en tu Mac.";
     case "nan":

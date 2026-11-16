@@ -95,3 +95,87 @@ describe("contract names", () => {
     for (const name of Object.values(EVENTS)) expect(name).toMatch(/^[a-z]+:[a-z-]+$/);
   });
 });
+
+describe("favourites, cleanup and the built-in local model (mock)", () => {
+  it("stars a meeting and a group and filters by favourites", async () => {
+    const { api, controls } = createMockApi();
+    const id = controls.state.meetings[0]!.meeting.id;
+    expect((await api.meetingsList({})).items[0]!.favourite).toBe(false);
+    expect((await api.meetingsList({ favouritesOnly: true })).items).toHaveLength(0);
+    expect((await api.meetingSetFavourite(id, true)).favourite).toBe(true);
+    expect((await api.meetingsList({ favouritesOnly: true })).items.map((m) => m.id)).toEqual([id]);
+    await api.meetingSetFavourite(id, false);
+
+    // Una reunión de un grupo con estrella también cuenta como favorita.
+    const g = await api.groupCreate("Proyecto");
+    await api.groupAddMeeting(g.id, id);
+    expect((await api.groupSetFavourite(g.id, true)).favourite).toBe(true);
+    expect((await api.meetingsList({ favouritesOnly: true })).items).toHaveLength(1);
+    expect(await api.search({ text: "presupuesto", scope: { kind: "favourites" }, limit: 5 })).toHaveLength(1);
+    await api.groupSetFavourite(g.id, false);
+    expect(await api.search({ text: "presupuesto", scope: { kind: "favourites" }, limit: 5 })).toHaveLength(0);
+  });
+
+  it("suggests old meetings, never favourites, and deletes or keeps the chosen ones", async () => {
+    const { api, controls } = createMockApi();
+    const id = controls.state.meetings[0]!.meeting.id;
+    controls.state.cleanup = [
+      { meetingId: id, title: "Daily del equipo", startedAt: 1, duration: 60_000, reasons: [{ kind: "old", days: 120 }, { kind: "neverUsed" }], bytes: 5_000 },
+    ];
+    const s = await api.cleanupSuggestions();
+    expect(s.candidates).toHaveLength(1);
+    expect(s).toMatchObject({ totalBytes: 5_000, minAgeDays: 90 });
+
+    await api.meetingSetFavourite(id, true);
+    expect((await api.cleanupSuggestions()).candidates).toHaveLength(0);
+    expect(await api.cleanupDelete([id])).toEqual({ deleted: [], skipped: [id], freedBytes: 0 });
+    await api.meetingSetFavourite(id, false);
+
+    await api.cleanupKeep([id]);
+    expect((await api.cleanupSuggestions()).candidates).toHaveLength(0);
+    controls.state.kept = [];
+    expect(await api.cleanupDelete([id])).toEqual({ deleted: [id], skipped: [], freedBytes: 5_000 });
+    expect(controls.state.meetings).toHaveLength(0);
+  });
+
+  it("turning suggestions off empties them", async () => {
+    const { api, controls } = createMockApi();
+    const id = controls.state.meetings[0]!.meeting.id;
+    controls.state.cleanup = [{ meetingId: id, title: "x", startedAt: 1, duration: 1, reasons: [], bytes: 1 }];
+    const settings = await api.settingsGet();
+    expect(settings.cleanup).toEqual({ enabled: true, minAgeDays: 90, snoozedUntil: null });
+    await api.settingsUpdate({ ...settings, cleanup: { ...settings.cleanup, enabled: false } });
+    expect((await api.cleanupSuggestions()).candidates).toHaveLength(0);
+  });
+
+  it("offers three local tiers, recommends one for this Mac and downloads with stages", async () => {
+    const { api } = createMockApi();
+    const status = await api.localLlmStatus();
+    expect(status.models.map((m) => m.model.tier)).toEqual(["tiny", "medium", "large"]);
+    expect(status.models.filter((m) => m.recommended)).toHaveLength(1);
+    expect(status.recommended).toBe(status.models.find((m) => m.recommended)!.model.id);
+    expect(status.runtime.available).toBe(false);
+
+    const stages: string[] = [];
+    await api.on("localmodel:download", (e) => {
+      if (stages[stages.length - 1] !== e.stage) stages.push(e.stage);
+    });
+    const tiny = status.models[0]!.model.id;
+    await api.localLlmDownload(tiny);
+    expect(stages).toEqual(["runtime", "model", "verifying", "done"]);
+    const after = await api.localLlmStatus();
+    expect(after.models[0]!.downloaded).toBe(true);
+    expect(after.runtime.available).toBe(true);
+    expect((await api.localLlmTest(tiny)).ok).toBe(true);
+
+    await api.localLlmDelete(tiny);
+    expect((await api.localLlmStatus()).models[0]!.downloaded).toBe(false);
+    expect((await api.localLlmTest(tiny)).ok).toBe(false);
+  });
+
+  it("refuses a model that does not fit this Mac", async () => {
+    const { api, controls } = createMockApi();
+    controls.state.localLlm.models[2]!.fit = "tooBig";
+    await expect(api.localLlmDownload(controls.state.localLlm.models[2]!.model.id)).rejects.toMatchObject({ code: "invalidInput" });
+  });
+});

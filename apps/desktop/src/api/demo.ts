@@ -219,8 +219,8 @@ export function createDemoApi(overlay: DemoOverlay = "idle", opts: DemoOptions =
   const meetings = drafts.map((d) => build(d, now)).sort((a, b) => b.meeting.startedAt - a.meeting.startedAt);
   const byTitle = (t: string) => meetings.find((m) => m.meeting.title === t)!;
 
-  const atlas: T.Group = { id: id("group"), name: "Proyecto Atlas", description: "Todo lo del lanzamiento de la v1", kind: "manual", meetingCount: 0, createdAt: now, updatedAt: now };
-  const oneOnOne: T.Group = { id: id("group"), name: "Uno a uno con Ana", description: null, kind: "manual", meetingCount: 0, createdAt: now, updatedAt: now };
+  const atlas: T.Group = { id: id("group"), name: "Proyecto Atlas", description: "Todo lo del lanzamiento de la v1", kind: "manual", meetingCount: 0, createdAt: now, updatedAt: now, favourite: false };
+  const oneOnOne: T.Group = { id: id("group"), name: "Uno a uno con Ana", description: null, kind: "manual", meetingCount: 0, createdAt: now, updatedAt: now, favourite: false };
   for (const [g, titles] of [
     [atlas, ["Planificación del lanzamiento", "Kickoff del proyecto Atlas", "Retrospectiva del sprint 14"]],
     [oneOnOne, ["Uno a uno con Ana"]],

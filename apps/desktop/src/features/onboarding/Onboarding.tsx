@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CliDetection, ModelDownload, ModelStatus, PermissionState, ProviderTestResult, Settings } from "../../api";
 import { useApi, useApiEvent } from "../../app/ApiContext";
 import { Button, errorMessage } from "../../shared/ui/ui";
+import { useBuiltInModels } from "../providers/BuiltInModels";
 import { useLocalDetection } from "../providers/LocalModels";
 import { NAN_REFERRAL_URL } from "../providers/presets";
 import { PERMISSION_LABEL, PERMISSION_REQUIRED } from "../settings/PermissionsSection";
@@ -34,6 +35,7 @@ export function Onboarding({ onClose }: { onClose(): void }) {
   const [test, setTest] = useState<ProviderTestResult | "pending" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { detection: local, refresh: refreshLocal } = useLocalDetection();
+  const builtIn = useBuiltInModels();
   const savedRef = useRef<Settings | null>(null);
   savedRef.current = saved;
 
@@ -178,6 +180,7 @@ export function Onboarding({ onClose }: { onClose(): void }) {
               cli={cli}
               onDetectCli={detectCli}
               local={local}
+              builtIn={builtIn}
               onRefreshLocal={refreshLocal}
               onOpenUrl={(url) => void api.openExternalUrl(url)}
               onCreateNanAccount={() => void api.openExternalUrl(NAN_REFERRAL_URL)}

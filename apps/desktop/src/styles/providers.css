@@ -42,3 +42,33 @@
 .local-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .how-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: var(--fg-2); line-height: 1.5; }
 .how-list li::marker { color: var(--fg-3); font-weight: 600; }
+
+/* Modelo local integrado: tres niveles, uno recomendado para este Mac. */
+.builtin { display: flex; flex-direction: column; }
+.builtin-loading { display: flex; align-items: center; gap: 10px; }
+.builtin-mac { display: flex; align-items: center; gap: 8px; margin: 0 4px 10px; color: var(--fg-2); font-size: var(--t-small); }
+.builtin-mac strong { color: var(--fg); font-weight: 600; }
+.builtin-row { align-items: flex-start; padding-top: 16px; padding-bottom: 16px; gap: 14px; }
+.builtin-row > .row-control { align-self: center; }
+.builtin-row .row-text { gap: 6px; }
+.builtin-tier {
+  --c: #8e8e93; width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 11px;
+  font: 700 13px/1 var(--font-rounded, inherit); letter-spacing: -0.02em; color: #fff;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--c) 72%, #fff), var(--c)); box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.45);
+}
+.builtin-tier[data-tier="tiny"] { --c: #30b0c7; }
+.builtin-tier[data-tier="medium"] { --c: #5e5ce6; }
+.builtin-tier[data-tier="large"] { --c: #bf5af2; }
+.builtin-kind { color: var(--fg-2); font-weight: 500; font-size: var(--t-small); }
+.builtin-facts { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 2px 0 0; }
+.builtin-facts div { display: flex; flex-direction: column; gap: 1px; }
+.builtin-facts dt { font-size: var(--t-caption); color: var(--fg-3); font-weight: 500; }
+.builtin-facts dd { margin: 0; font-size: var(--t-small); font-weight: 600; color: var(--fg); }
+.builtin-note { display: inline-flex; align-items: center; gap: 7px; font-size: var(--t-small); color: var(--fg-2); }
+.builtin-note-warn { color: var(--warn-text); }
+.builtin-actions { flex-wrap: nowrap; }
+/* Un nivel que no cabe se ve, pero atenuado: se entiende por qué no está disponible. */
+.builtin-blocked .builtin-tier, .builtin-blocked .row-label, .builtin-blocked .row-hint, .builtin-blocked .builtin-facts { opacity: 0.5; }
+.builtin .model-progress { margin-top: 2px; }
+.builtin .model-progress .progress { max-width: 260px; }
+@media (max-width: 760px) { .builtin-row { flex-wrap: wrap; } .builtin-row > .row-control { align-self: flex-start; margin-left: 54px; } }

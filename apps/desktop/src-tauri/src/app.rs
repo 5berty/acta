@@ -685,7 +685,7 @@ impl AppCore {
     }
 
     /// Lanza la descarga (llama.cpp + modelo); el progreso llega como
-    /// `local-llm:download`. Se niega si el modelo no cabe en este Mac.
+    /// `localmodel:download`. Se niega si el modelo no cabe en este Mac.
     pub async fn local_llm_download(&self, model_id: String) -> PortResult<()> {
         let status = self.local_llm_status().await?;
         let entry = status

@@ -11,7 +11,7 @@
 //! | `chat:delta` | `ChatDelta` | streaming de respuestas |
 //! | `live:partial` | `LivePartial` | solo con previsualización en vivo |
 //! | `model:download` | `ModelDownload` | descarga de modelos ASR/embeddings |
-//! | `local-llm:download` | `llm::local::LocalLlmDownload` | descarga del modelo local integrado |
+//! | `localmodel:download` | `llm::local::LocalLlmDownload` | descarga del modelo local integrado |
 //! | `main:navigate` | `MainNavigate` | `main_window_show{meetingId}`: la ventana principal abre esa reunión |
 
 use crate::ids::MeetingId;
@@ -28,7 +28,7 @@ pub mod event_names {
     pub const CHAT_DELTA: &str = "chat:delta";
     pub const LIVE_PARTIAL: &str = "live:partial";
     pub const MODEL_DOWNLOAD: &str = "model:download";
-    pub const LOCAL_LLM_DOWNLOAD: &str = "local-llm:download";
+    pub const LOCAL_LLM_DOWNLOAD: &str = "localmodel:download";
     pub const MAIN_NAVIGATE: &str = "main:navigate";
 }
 

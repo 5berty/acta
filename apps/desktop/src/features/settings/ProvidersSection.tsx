@@ -1,7 +1,8 @@
-import { Plus, ScanSearch, Server, Trash2, X } from "lucide-react";
+import { Cpu, Plus, ScanSearch, Server, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ProviderConfig, ProviderKind, ProviderTestResult, SecretRef, Settings } from "../../api";
 import { useApi } from "../../app/ApiContext";
+import { BuiltInModels, useBuiltInModels } from "../providers/BuiltInModels";
 import { ApiKeyField, ModelField } from "../providers/fields";
 import { LocalModels, useLocalDetection, type LocalKind } from "../providers/LocalModels";
 import { NanIntro } from "../providers/NanIntro";
@@ -71,7 +72,7 @@ interface Props {
 }
 
 /** Presets de los que solo tiene sentido tener uno. */
-const SINGLE: PresetId[] = ["claudeCode", "codex", "ollama", "lmStudio", "nan"];
+const SINGLE: PresetId[] = ["claudeCode", "codex", "builtIn", "ollama", "lmStudio", "nan"];
 
 function ProviderCard({ p, result, onChange, onRemove, onTest, onSecretSet, onSecretDelete }: { p: ProviderConfig; result: ProviderTestResult | "pending" | undefined; onChange(p: ProviderConfig): void; onRemove(): void; onTest(): void; onSecretSet: Props["onSecretSet"]; onSecretDelete: Props["onSecretDelete"] }) {
   const api = useApi();
@@ -96,7 +97,7 @@ function ProviderCard({ p, result, onChange, onRemove, onTest, onSecretSet, onSe
           <BrandLogo brand={brand} size="lg" />
         ) : (
           <span className="brand-tile brand-lg brand-generic" aria-hidden>
-            <Server strokeWidth={1.9} />
+            {k.type === "builtIn" ? <Cpu strokeWidth={1.9} /> : <Server strokeWidth={1.9} />}
           </span>
         )}
         <div className="provider-title">
@@ -180,6 +181,11 @@ function ProviderCard({ p, result, onChange, onRemove, onTest, onSecretSet, onSe
             <input aria-label={`Modelo de ${p.label}`} spellCheck={false} value={k.model} onChange={(e) => setKind({ ...k, model: e.target.value })} />
           </Field>
         ) : null}
+        {k.type === "builtIn" ? (
+          <Field label="Modelo" hint="Se cambia en «Modelo local integrado», más abajo.">
+            <code className="path selectable">{k.modelId || "Sin elegir"}</code>
+          </Field>
+        ) : null}
       </div>
       {k.type === "openAiCompatible" && isCustom ? (
         <ApiKeyField
@@ -237,6 +243,7 @@ function ProviderCard({ p, result, onChange, onRemove, onTest, onSecretSet, onSe
 export function ProvidersSection({ llm, tests, onChange, onTest, onDetect, onSecretSet, onSecretDelete }: Props) {
   const api = useApi();
   const { detection, refresh } = useLocalDetection();
+  const builtIn = useBuiltInModels();
   const enabled = llm.providers.filter((p) => p.enabled);
   const has = (id: PresetId) => llm.providers.some((p) => presetOf(p) === id);
   const openUrl = (url: string) => void api.openExternalUrl(url);
@@ -263,6 +270,12 @@ export function ProvidersSection({ llm, tests, onChange, onTest, onDetect, onSec
     const next = upsertPreset(llm, kind, { model, baseUrl });
     onChange(assignAll(next.llm, next.provider.id));
   };
+  const useBuiltIn = (modelId: string) => {
+    const next = upsertPreset(llm, "builtIn", { model: modelId });
+    onChange(assignAll(next.llm, next.provider.id));
+  };
+  const builtInProvider = llm.providers.find((x) => x.enabled && x.kind.type === "builtIn" && [llm.minutesProvider, llm.chatProvider].includes(x.id));
+  const builtInUse = builtInProvider?.kind.type === "builtIn" ? builtInProvider.kind.modelId : null;
   const inUse: Partial<Record<LocalKind, string>> = {};
   for (const kind of ["ollama", "lmStudio"] as const) {
     const p = llm.providers.find((x) => x.enabled && presetOf(x) === kind && [llm.minutesProvider, llm.chatProvider].includes(x.id));
@@ -307,7 +320,12 @@ export function ProvidersSection({ llm, tests, onChange, onTest, onDetect, onSec
       </div>
 
       <div className="settings-group">
-        <p className="group-title">Modelos en tu Mac</p>
+        <p className="group-title">Modelo local integrado (opcional)</p>
+        <BuiltInModels state={builtIn} inUse={builtInUse} onUse={useBuiltIn} />
+      </div>
+
+      <div className="settings-group">
+        <p className="group-title">Ollama y LM Studio</p>
         <LocalModels detection={detection} inUse={inUse} onUse={useLocal} onRefresh={refresh} onOpenUrl={openUrl} />
       </div>
 

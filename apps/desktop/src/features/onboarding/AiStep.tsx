@@ -1,9 +1,10 @@
-import { KeyRound, Laptop, RotateCw } from "lucide-react";
+import { Cpu, KeyRound, Laptop, RotateCw } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import type { CliDetection, LocalDetection, ProviderTestResult, SecretRef } from "../../api";
 import { BrandLogo } from "../../shared/brand/BrandLogo";
 import type { BrandId } from "../../shared/brand/brands";
 import { Badge, Button, Select, Spinner, StatusDot } from "../../shared/ui/ui";
+import { BuiltInModels, type BuiltInState } from "../providers/BuiltInModels";
 import { ApiKeyField, ModelField } from "../providers/fields";
 import { LocalModels } from "../providers/LocalModels";
 import { NanIntro } from "../providers/NanIntro";
@@ -19,6 +20,8 @@ interface Props {
   cli: CliDetection | null | undefined;
   onDetectCli(): void;
   local: LocalDetection | null;
+  /** Modelo local integrado: catálogo, descargas y pruebas. */
+  builtIn: BuiltInState;
   onRefreshLocal(): void;
   onOpenUrl(url: string): void;
   onCreateNanAccount(): void;
@@ -75,7 +78,7 @@ const iconTile = (icon: ReactNode) => (
 );
 
 /** Paso «Inteligencia artificial»: quién escribe las actas. */
-export function AiStep({ ai, onAi, cli, onDetectCli, local, onRefreshLocal, onOpenUrl, onCreateNanAccount, onSecret, listModels, problem, test, onTest }: Props) {
+export function AiStep({ ai, onAi, cli, onDetectCli, local, builtIn, onRefreshLocal, onOpenUrl, onCreateNanAccount, onSecret, listModels, problem, test, onTest }: Props) {
   const [reloadKey, setReloadKey] = useState(0);
   const pending = cli === undefined;
   const pick = (choice: AiChoice) => onAi({ ...ai, choice });
@@ -94,8 +97,11 @@ export function AiStep({ ai, onAi, cli, onDetectCli, local, onRefreshLocal, onOp
         <Option id="codex" current={ai.choice} onPick={pick} logo={<BrandLogo brand="openai" />} title="Codex">
           <CliStatus path={cli?.codex} pending={pending} />
         </Option>
-        <Option id="local" current={ai.choice} onPick={pick} logo={iconTile(<Laptop strokeWidth={1.9} />)} title="Modelo local" tag={<Badge>Todo en tu Mac</Badge>}>
-          Ollama o LM Studio. Nada sale del equipo.
+        <Option id="builtIn" current={ai.choice} onPick={pick} logo={iconTile(<Cpu strokeWidth={1.9} />)} title="Modelo integrado" tag={<Badge tone="accent">Sin instalar nada</Badge>}>
+          acta descarga un modelo y lo ejecuta en tu Mac.
+        </Option>
+        <Option id="local" current={ai.choice} onPick={pick} logo={iconTile(<Laptop strokeWidth={1.9} />)} title="Ollama o LM Studio" tag={<Badge>Todo en tu Mac</Badge>}>
+          Si ya usas uno de los dos. Nada sale del equipo.
         </Option>
         <Option id="nan" current={ai.choice} onPick={pick} logo={<BrandLogo brand="nan" />} title="NaN Builders" tag={<Badge tone="ok">{PRESETS.nan.tag}</Badge>}>
           Sin registros y en la UE.
@@ -115,6 +121,12 @@ export function AiStep({ ai, onAi, cli, onDetectCli, local, onRefreshLocal, onOp
               Volver a buscar
             </Button>
           </div>
+        </div>
+      ) : null}
+
+      {ai.choice === "builtIn" ? (
+        <div className="ai-detail">
+          <BuiltInModels state={builtIn} verb="Elegir" inUse={ai.builtIn?.modelId ?? null} onUse={(modelId) => onAi({ ...ai, builtIn: { modelId } })} />
         </div>
       ) : null}
 

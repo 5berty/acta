@@ -28,6 +28,72 @@ export interface MockState {
   remoteModels: Record<string, string[]>;
   /** Enlaces que se han pedido abrir en el navegador. */
   opened: string[];
+  /** Modelo local integrado: lo que «hay» en este Mac. */
+  localLlm: T.LocalLlmStatus;
+  /** Reuniones que la limpieza sugeriría borrar. */
+  cleanup: T.CleanupCandidate[];
+  /** Reuniones con «Mantener». */
+  kept: T.MeetingId[];
+}
+
+const GIB = 1024 ** 3;
+
+function localModel(
+  tier: T.ModelTier,
+  params: string,
+  sizeBytes: number,
+  ram: [number, number, number],
+  speed: [number, number],
+  description: string,
+): T.LocalModel {
+  const repo = `unsloth/Qwen3.5-${params}-GGUF`;
+  const file = `Qwen3.5-${params}-Q4_K_M.gguf`;
+  const revision = "0".repeat(40);
+  return {
+    id: `qwen3.5-${params.toLowerCase()}-q4_k_m`,
+    tier,
+    name: `Qwen3.5 ${params}`,
+    params,
+    quant: "Q4_K_M",
+    repo,
+    file,
+    revision,
+    url: `https://huggingface.co/${repo}/resolve/${revision}/${file}`,
+    sizeBytes,
+    sha256: "0".repeat(64),
+    license: "Apache-2.0",
+    licenseUrl: `https://huggingface.co/Qwen/Qwen3.5-${params}`,
+    minRamGb: ram[0],
+    comfortableRamGb: ram[1],
+    ramNeededBytes: ram[2] * GIB,
+    contextTokens: speed[0],
+    baseTokensPerS: speed[1],
+    description,
+  };
+}
+
+/** El catálogo de `acta_core::llm::local` visto desde un M2 Pro de 32 GB, sin nada descargado. */
+export function mockLocalLlmStatus(): T.LocalLlmStatus {
+  const models: [T.LocalModel, number][] = [
+    [localModel("tiny", "2B", 1_280_835_840, [4, 8, 2.5], [16_384, 45], "El más ligero y rápido. Resúmenes correctos de reuniones cortas."), 78],
+    [localModel("medium", "4B", 2_740_937_888, [8, 16, 4.5], [16_384, 24], "Equilibrado. Buen castellano y tareas bien atribuidas."), 41],
+    [localModel("large", "9B", 5_680_522_464, [16, 24, 8.5], [24_576, 11], "La mejor calidad sin salir de tu Mac."), 19],
+  ];
+  return {
+    hardware: { ramBytes: 32 * GIB, chip: "Apple M2 Pro", appleSilicon: true, freeDiskBytes: 120 * GIB },
+    runtime: { available: false, source: null, path: null, pinnedVersion: "b12444", downloadBytes: 17_011_663 },
+    models: models.map(([model, expectedTokensPerS]) => ({
+      model,
+      fit: "comfortable",
+      recommended: model.tier === "large",
+      downloaded: false,
+      partialBytes: 0,
+      downloading: false,
+      expectedTokensPerS,
+    })),
+    recommended: "qwen3.5-9b-q4_k_m",
+    running: null,
+  };
 }
 
 export function noLocalRuntimes(): T.LocalDetection {
@@ -94,6 +160,7 @@ export function defaultSettings(): T.Settings {
     embeddings: { model: "intfloat/multilingual-e5-small" },
     // En los tests la bienvenida ya está vista; los suyos la reabren.
     onboarding: { completed: true },
+    cleanup: { enabled: true, minAgeDays: 90, snoozedUntil: null },
   };
 }
 
@@ -117,6 +184,7 @@ export function sampleMeeting(): T.MeetingDetail {
       language: "es",
       createdAt: t0,
       updatedAt: t0,
+      favourite: false,
     },
     transcript: {
       meetingId: id,
@@ -200,6 +268,7 @@ function summaryOf(d: T.MeetingDetail): T.MeetingSummary {
     groupIds: d.groups.map((g) => g.id),
     captureCount: d.captures.length,
     snippet: null,
+    favourite: d.meeting.favourite,
   };
 }
 
@@ -231,6 +300,9 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     local: noLocalRuntimes(),
     remoteModels: {},
     opened: [],
+    localLlm: mockLocalLlmStatus(),
+    cleanup: [],
+    kept: [],
     ...seed,
   };
 
@@ -252,6 +324,15 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     const g = state.groups.find((x) => x.id === id);
     if (!g) throw notFound(`grupo ${id}`);
     return g;
+  };
+
+  /** Con estrella, o en un grupo con estrella (igual que `favourite_sql` en acta-store). */
+  const isFavourite = (m: T.MeetingDetail): boolean =>
+    m.meeting.favourite || m.groups.some((g) => state.groups.find((x) => x.id === g.id)?.favourite);
+  const localModelStatus = (id: string): T.LocalModelStatus => {
+    const m = state.localLlm.models.find((x) => x.model.id === id);
+    if (!m) throw notFound(`modelo local ${id}`);
+    return m;
   };
 
   const api: ActaApi = {
@@ -306,6 +387,7 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
       const items = state.meetings
         .filter((m) => !text || m.meeting.title.toLowerCase().includes(text))
         .filter((m) => !query.groupId || m.groups.some((g) => g.id === query.groupId))
+        .filter((m) => !query.favouritesOnly || isFavourite(m))
         .map(summaryOf);
       return { items: items.slice(0, query.limit ?? 50), nextCursor: null };
     },
@@ -319,6 +401,40 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     },
     async meetingDelete(id) {
       state.meetings = state.meetings.filter((m) => m.meeting.id !== id);
+    },
+    async meetingSetFavourite(id, favourite) {
+      const m = findMeeting(id);
+      m.meeting = { ...m.meeting, favourite };
+      emit("meeting:updated", { meetingId: id, status: m.meeting.status, title: m.meeting.title });
+      return m.meeting;
+    },
+
+    async cleanupSuggestions() {
+      const { enabled, minAgeDays } = state.settings.cleanup;
+      const candidates = enabled
+        ? state.cleanup.filter((c) => {
+            const m = state.meetings.find((x) => x.meeting.id === c.meetingId);
+            return m && !isFavourite(m) && !state.kept.includes(c.meetingId);
+          })
+        : [];
+      return { candidates, totalBytes: candidates.reduce((n, c) => n + c.bytes, 0), minAgeDays };
+    },
+    async cleanupDelete(ids) {
+      const result: T.CleanupResult = { deleted: [], skipped: [], freedBytes: 0 };
+      for (const id of ids) {
+        const m = state.meetings.find((x) => x.meeting.id === id);
+        if (!m || isFavourite(m)) {
+          result.skipped.push(id);
+          continue;
+        }
+        result.freedBytes += state.cleanup.find((c) => c.meetingId === id)?.bytes ?? 0;
+        state.meetings = state.meetings.filter((x) => x.meeting.id !== id);
+        result.deleted.push(id);
+      }
+      return result;
+    },
+    async cleanupKeep(ids) {
+      state.kept.push(...ids);
     },
     async meetingReprocess(request) {
       findMeeting(request.meetingId);
@@ -357,8 +473,14 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
         meetingCount: 0,
         createdAt: now(),
         updatedAt: now(),
+        favourite: false,
       };
       state.groups.push(g);
+      return g;
+    },
+    async groupSetFavourite(id, favourite) {
+      const g = findGroup(id);
+      g.favourite = favourite;
       return g;
     },
     async groupUpdate(id, name, description) {
@@ -405,6 +527,7 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
         meetingCount: s.meetingIds.length,
         createdAt: now(),
         updatedAt: now(),
+        favourite: false,
       };
       state.groups.push(g);
       return g;
@@ -415,7 +538,13 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
 
     async search(query) {
       const q = query.text.toLowerCase();
-      return state.meetings.flatMap((m) =>
+      const scope = query.scope;
+      const inScope = (m: T.MeetingDetail): boolean =>
+        scope.kind === "all" ||
+        (scope.kind === "favourites" && isFavourite(m)) ||
+        (scope.kind === "meeting" && m.meeting.id === scope.meetingId) ||
+        (scope.kind === "group" && m.groups.some((g) => g.id === scope.groupId));
+      return state.meetings.filter(inScope).flatMap((m) =>
         m.transcript.utterances
           .filter((u) => u.text.toLowerCase().includes(q))
           .map((u) => ({
@@ -502,6 +631,45 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     },
     async llmDetectLocal() {
       return structuredClone(state.local);
+    },
+    async localLlmStatus() {
+      return structuredClone(state.localLlm);
+    },
+    async localLlmDownload(modelId) {
+      const m = localModelStatus(modelId);
+      if (m.fit === "tooBig" || m.fit === "noDisk") {
+        throw { code: "invalidInput", message: `${m.model.name} no cabe en este Mac.` } satisfies T.ApiError;
+      }
+      const total = m.model.sizeBytes;
+      const event = (stage: T.LocalDownloadStage, fraction: number, done = false): T.LocalLlmDownload => ({
+        modelId,
+        stage,
+        receivedBytes: Math.round(total * fraction),
+        totalBytes: total,
+        fraction,
+        done,
+        error: null,
+      });
+      if (!state.localLlm.runtime.available) emit("localmodel:download", event("runtime", 0.5));
+      for (const fraction of [0.3, 0.7]) emit("localmodel:download", event("model", fraction));
+      emit("localmodel:download", event("verifying", 1));
+      m.downloaded = true;
+      m.partialBytes = 0;
+      state.localLlm.runtime = { ...state.localLlm.runtime, available: true, source: "downloaded" };
+      emit("localmodel:download", event("done", 1, true));
+    },
+    async localLlmCancel() {},
+    async localLlmDelete(modelId) {
+      const m = localModelStatus(modelId);
+      m.downloaded = false;
+      m.partialBytes = 0;
+      if (state.localLlm.running === modelId) state.localLlm.running = null;
+    },
+    async localLlmTest(modelId) {
+      const m = localModelStatus(modelId);
+      if (!m.downloaded) return { ok: false, message: `El modelo local ${m.model.name} no está descargado.`, latencyMs: null };
+      state.localLlm.running = modelId;
+      return { ok: true, message: `Conexión correcta (${modelId})`, latencyMs: 1_200 };
     },
     async secretSet(providerId) {
       return { service: "acta", account: `provider:${providerId}` };

@@ -4,7 +4,10 @@
 import type { ProviderConfig, ProviderKind, SecretRef, Settings } from "../../api";
 import type { BrandId } from "../../shared/brand/brands";
 
-export type PresetId = "claudeCode" | "codex" | "ollama" | "lmStudio" | "nan" | "openRouter" | "openAi" | "anthropic" | "custom";
+export type PresetId = "claudeCode" | "codex" | "builtIn" | "ollama" | "lmStudio" | "nan" | "openRouter" | "openAi" | "anthropic" | "custom";
+
+/** Id del proveedor del modelo local integrado (igual que `BUILTIN_PROVIDER_ID` en Rust). */
+export const BUILTIN_PROVIDER_ID = "builtin";
 
 export const NAN_BASE_URL = "https://api.nan.builders/v1";
 /** Enlace de invitación de Edu a NaN Builders. */
@@ -34,6 +37,7 @@ export interface Preset {
 export const PRESETS: Record<PresetId, Preset> = {
   claudeCode: { id: "claudeCode", label: "Claude Code", brand: "claude", slug: "claude-cli", needsKey: false, blurb: "El Claude Code que ya tienes instalado, con tu suscripción.", tag: "Sin clave" },
   codex: { id: "codex", label: "Codex", brand: "openai", slug: "codex-cli", needsKey: false, blurb: "El Codex de OpenAI que ya tienes instalado, con tu suscripción.", tag: "Sin clave" },
+  builtIn: { id: "builtIn", label: "Modelo local integrado", brand: null, slug: BUILTIN_PROVIDER_ID, needsKey: false, local: true, blurb: "Un modelo que acta descarga y ejecuta en tu Mac. Nada sale del equipo.", tag: "En tu Mac" },
   ollama: { id: "ollama", label: "Ollama", brand: "ollama", slug: "ollama", needsKey: false, local: true, baseUrl: "http://127.0.0.1:11434/v1", blurb: "Modelos que corren en tu Mac. Nada sale del equipo.", tag: "En tu Mac", url: "https://ollama.com/download" },
   lmStudio: { id: "lmStudio", label: "LM Studio", brand: "lmstudio", slug: "lmstudio", needsKey: false, local: true, baseUrl: "http://127.0.0.1:1234/v1", blurb: "Modelos locales con una app para descargarlos y probarlos.", tag: "En tu Mac", url: "https://lmstudio.ai" },
   nan: { id: "nan", label: "NaN Builders", brand: "nan", slug: "nan", needsKey: true, baseUrl: NAN_BASE_URL, defaultModel: "gemma4", blurb: "Sin registros de prompts ni respuestas, y procesa en la UE.", tag: "Recomendado por privacidad", url: NAN_REFERRAL_URL },
@@ -43,7 +47,7 @@ export const PRESETS: Record<PresetId, Preset> = {
   custom: { id: "custom", label: "Otro servidor compatible", brand: null, slug: "custom", needsKey: false, baseUrl: "", blurb: "Cualquier servidor que hable el protocolo de OpenAI: pon su URL, la clave y el modelo." },
 };
 
-/** Orden en el que se ofrecen. */
+/** Orden en el que se ofrecen en la galería (el integrado tiene su propia sección). */
 export const PRESET_ORDER: PresetId[] = ["claudeCode", "codex", "ollama", "lmStudio", "nan", "openRouter", "openAi", "anthropic", "custom"];
 
 const normUrl = (u: string): string => u.trim().replace(/\/+$/, "").toLowerCase().replace("//localhost", "//127.0.0.1");
@@ -54,6 +58,7 @@ export function presetOf(p: ProviderConfig): PresetId {
   if (k.type === "claudeCli") return "claudeCode";
   if (k.type === "codexCli") return "codex";
   if (k.type === "anthropic") return "anthropic";
+  if (k.type === "builtIn") return "builtIn";
   const url = normUrl(k.baseUrl);
   return PRESET_ORDER.find((id) => PRESETS[id].baseUrl && normUrl(PRESETS[id].baseUrl) === url) ?? "custom";
 }
@@ -75,6 +80,8 @@ function kindFor(preset: Preset, id: string): ProviderKind {
       return { type: "codexCli", binaryPath: "", model: null, extraEnv: {} };
     case "anthropic":
       return { type: "anthropic", model: "", apiKey: { service: "acta", account: `provider:${id}` } };
+    case "builtIn":
+      return { type: "builtIn", modelId: "" };
     default:
       return { type: "openAiCompatible", baseUrl: preset.baseUrl ?? "", model: preset.defaultModel ?? "", apiKey: null };
   }
@@ -101,6 +108,7 @@ function patched(p: ProviderConfig, patch: PresetPatch): ProviderConfig {
   const k = p.kind;
   if (k.type === "openAiCompatible") return { ...p, enabled: true, kind: { ...k, model: patch.model ?? k.model, baseUrl: patch.baseUrl ?? k.baseUrl, apiKey: patch.apiKey === undefined ? k.apiKey : patch.apiKey } };
   if (k.type === "anthropic") return { ...p, enabled: true, kind: { ...k, model: patch.model ?? k.model } };
+  if (k.type === "builtIn") return { ...p, enabled: true, kind: { ...k, modelId: patch.model ?? k.modelId } };
   const cli = { binaryPath: patch.binaryPath ?? k.binaryPath, extraEnv: { ...k.extraEnv, ...patch.extraEnv } };
   return { ...p, enabled: true, kind: { ...k, ...cli } };
 }

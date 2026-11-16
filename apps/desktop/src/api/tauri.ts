@@ -20,6 +20,7 @@ export function createTauriApi(): ActaApi {
     meetingGet: (id) => invoke(C.meetingGet, { id }),
     meetingUpdate: (id, title) => invoke(C.meetingUpdate, { id, title }),
     meetingDelete: (id) => invoke(C.meetingDelete, { id }),
+    meetingSetFavourite: (id, favourite) => invoke(C.meetingSetFavourite, { id, favourite }),
     meetingReprocess: (request) => invoke(C.meetingReprocess, { request }),
     speakerRename: (meetingId, speakerId, displayName, remember) =>
       invoke(C.speakerRename, { meetingId, speakerId, displayName, remember }),
@@ -31,12 +32,17 @@ export function createTauriApi(): ActaApi {
     groupUpdate: (id, name, description) =>
       invoke(C.groupUpdate, { id, name: name ?? null, description: description ?? null }),
     groupDelete: (id) => invoke(C.groupDelete, { id }),
+    groupSetFavourite: (id, favourite) => invoke(C.groupSetFavourite, { id, favourite }),
     groupAddMeeting: (groupId, meetingId) => invoke(C.groupAddMeeting, { groupId, meetingId }),
     groupRemoveMeeting: (groupId, meetingId) => invoke(C.groupRemoveMeeting, { groupId, meetingId }),
     groupSuggestionsList: () => invoke(C.groupSuggestionsList),
     groupSuggestionsRefresh: () => invoke(C.groupSuggestionsRefresh),
     groupSuggestionAccept: (id, name) => invoke(C.groupSuggestionAccept, { id, name: name ?? null }),
     groupSuggestionDismiss: (id) => invoke(C.groupSuggestionDismiss, { id }),
+
+    cleanupSuggestions: () => invoke(C.cleanupSuggestions),
+    cleanupDelete: (ids) => invoke(C.cleanupDelete, { ids }),
+    cleanupKeep: (ids) => invoke(C.cleanupKeep, { ids }),
 
     search: (query) => invoke(C.search, { query }),
     chatThreadsList: (scope) => invoke(C.chatThreadsList, { scope: scope ?? null }),
@@ -54,6 +60,11 @@ export function createTauriApi(): ActaApi {
     llmCliDetect: () => invoke(C.llmCliDetect),
     llmListModels: (baseUrl, providerId) => invoke(C.llmListModels, { baseUrl, providerId: providerId ?? null }),
     llmDetectLocal: () => invoke(C.llmDetectLocal),
+    localLlmStatus: () => invoke(C.localLlmStatus),
+    localLlmDownload: (modelId) => invoke(C.localLlmDownload, { modelId }),
+    localLlmCancel: (modelId) => invoke(C.localLlmCancel, { modelId }),
+    localLlmDelete: (modelId) => invoke(C.localLlmDelete, { modelId }),
+    localLlmTest: (modelId) => invoke(C.localLlmTest, { modelId }),
     secretSet: (providerId, value) => invoke(C.secretSet, { providerId, value }),
     secretDelete: (providerId) => invoke(C.secretDelete, { providerId }),
     modelsStatus: () => invoke(C.modelsStatus),

@@ -1,8 +1,10 @@
 import { ArrowDown, ArrowUp, Check, Copy, Quote, RotateCw, Sparkles, Square, TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { ChatMessage, Citation } from "../../api";
+import type { AvailableProvider, ChatMessage, Citation } from "../../api";
 import { Markdown, citationLabel } from "../../shared/Markdown";
 import { useStickToBottom } from "../../shared/useStickToBottom";
+import { ModelPicker } from "./ModelPicker";
+import type { ChatModel, ModelChoice } from "./useChatModel";
 
 /** Lo mínimo que el chat necesita de un mensaje (los del directo no se guardan). */
 export type ChatItem = Pick<ChatMessage, "id" | "role" | "content" | "citations"> & { provider?: string | null };
@@ -16,8 +18,11 @@ interface Props {
   placeholder?: string;
   /** Preguntas de ejemplo para el estado vacío. */
   suggestions?: string[];
-  /** Quién responde ahora: «Claude Code · sonnet». */
-  providerLabel?: string | null;
+  /** Quién responde al siguiente mensaje: «Claude Code · sonnet». Con `onPickModel` y `loadProviders`, es un selector. */
+  model?: ChatModel;
+  onPickModel?(choice: ModelChoice): void;
+  /** Proveedores activados y sus modelos; se piden al abrir el selector. */
+  loadProviders?(): Promise<AvailableProvider[]>;
   /** Nombre visible de cada proveedor, para el pie de las respuestas. */
   providerNames?: Record<string, string>;
   /** Respuestas que la persona detuvo: se enseña lo que había llegado. */
@@ -76,7 +81,9 @@ export function ChatView({
   error,
   placeholder,
   suggestions = [],
-  providerLabel,
+  model,
+  onPickModel,
+  loadProviders,
   providerNames = {},
   stopped = {},
   emptyTitle,
@@ -232,12 +239,7 @@ export function ChatView({
             }}
           />
           <div className="composer-bar">
-            {providerLabel ? (
-              <span className="composer-provider" title="Quién responde. Se cambia en Ajustes → Proveedores de IA.">
-                <Sparkles size={11} strokeWidth={2.2} aria-hidden />
-                <span>{providerLabel}</span>
-              </span>
-            ) : null}
+            {model && onPickModel && loadProviders ? <ModelPicker model={model} onPick={onPickModel} loadProviders={loadProviders} /> : null}
             <span className="spacer" />
             <span className="composer-hint" aria-hidden>
               <span className="kbd">↩</span> enviar

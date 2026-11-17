@@ -3,11 +3,11 @@ import type { Citation, LiveSegment } from "../../api";
 import { useApi, useApiEvent } from "../../app/ApiContext";
 import { errorMessage } from "../../shared/ui/ui";
 import { ChatView, type ChatItem } from "../chat/ChatView";
+import { useChatModel } from "../chat/useChatModel";
 
 interface Props {
   sessionId: string;
   segments: LiveSegment[];
-  providerLabel?: string | null;
   /** Ir a ese minuto del directo. */
   onJump(ms: number): void;
 }
@@ -15,14 +15,18 @@ interface Props {
 const SUGGESTIONS = ["¿Qué se ha decidido hasta ahora?", "¿Me han pedido algo a mí?", "Resume los últimos minutos"];
 
 /** Chat sobre lo dicho hasta ahora en la reunión que se está grabando. No se guarda: es para salir de dudas en el momento. */
-export function LiveAsk({ sessionId, segments, providerLabel, onJump }: Props) {
+export function LiveAsk({ sessionId, segments, onJump }: Props) {
   const api = useApi();
+  // El modelo se elige por grabación, como en cualquier otro chat.
+  const { model, llm, pick, loadProviders } = useChatModel(`live:${sessionId}`);
   const [messages, setMessages] = useState<ChatItem[]>([]);
   const [streams, setStreams] = useState<Record<string, string>>({});
   const [stopped, setStopped] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pending = useRef<string | null>(null);
+  /** «Detener» pulsado antes de saber el id de la respuesta: se cancela en cuanto llega. */
+  const stopEarly = useRef(false);
   const buffer = useRef("");
   const segs = useRef(segments);
   segs.current = segments;
@@ -55,21 +59,40 @@ export function LiveAsk({ sessionId, segments, providerLabel, onJump }: Props) {
     setBusy(true);
     n.current += 1;
     setMessages((prev) => [...prev, { id: `q${n.current}`, role: "user", content: question, citations: [] }]);
+    stopEarly.current = false;
     try {
       buffer.current = "";
-      pending.current = await api.liveAsk({ sessionId, question });
+      const id = await api.liveAsk({ sessionId, question, providerId: llm?.providerId ?? null, model: llm?.model ?? null });
+      if (stopEarly.current) {
+        stopEarly.current = false;
+        cancel(id);
+        return;
+      }
+      pending.current = id;
     } catch (e) {
       setError(errorMessage(e));
       setBusy(false);
     }
   };
 
+  // Corta la generación en el backend. Si falla, la pantalla ya está detenida:
+  // se deja constancia en la consola y nada más.
+  const cancel = (id: string) => {
+    api.liveCancel(id).catch((e: unknown) => console.warn("No se pudo detener la respuesta", e));
+  };
+
   const stop = () => {
     const id = pending.current;
     pending.current = null;
-    setBusy(false);
     setStreams({});
-    if (!id) return;
+    if (!id) {
+      // Aún no se sabe qué respuesta es: se cancela en cuanto `liveAsk` la devuelva.
+      stopEarly.current = busy;
+      setBusy(false);
+      return;
+    }
+    setBusy(false);
+    cancel(id);
     const partial = buffer.current;
     buffer.current = "";
     setStopped((prev) => ({ ...prev, [id]: partial }));
@@ -89,7 +112,9 @@ export function LiveAsk({ sessionId, segments, providerLabel, onJump }: Props) {
       stopped={stopped}
       busy={busy}
       error={error}
-      providerLabel={providerLabel}
+      model={model}
+      onPickModel={pick}
+      loadProviders={loadProviders}
       suggestions={SUGGESTIONS}
       emptyTitle="Pregunta sobre la reunión"
       emptyHint="Sal de dudas sin interrumpir: acta responde con lo dicho hasta ahora y te lleva al minuto."

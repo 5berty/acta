@@ -3,7 +3,7 @@ import type { ChatMessage, ChatScope, ChatThread, Citation } from "../../api";
 import { useApi, useApiEvent } from "../../app/ApiContext";
 import { errorMessage } from "../../shared/ui/ui";
 import { ChatView } from "./ChatView";
-import { providerById, providerDisplay, providerNames } from "./providerLabel";
+import { chatScopeKey, useChatModel } from "./useChatModel";
 
 interface Props {
   scope: ChatScope;
@@ -20,10 +20,12 @@ export function ChatContainer({ scope, placeholder, suggestions, variant, onCita
   const [stopped, setStopped] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [provider, setProvider] = useState<{ label: string | null; names: Record<string, string> }>({ label: null, names: {} });
+  const { model, llm, pick, loadProviders, providerNames } = useChatModel(chatScopeKey(scope));
   const thread = useRef<ChatThread | null>(null);
   /** Respuesta que se está esperando, y las que la persona ha detenido. */
   const pending = useRef<string | null>(null);
+  /** «Detener» pulsado antes de saber el id de la respuesta: se cancela en cuanto llega. */
+  const stopEarly = useRef(false);
   const ignored = useRef(new Set<string>());
   const streamsRef = useRef(streams);
   streamsRef.current = streams;
@@ -32,18 +34,6 @@ export function ChatContainer({ scope, placeholder, suggestions, variant, onCita
   const reload = useCallback(async () => {
     if (!thread.current) return;
     setMessages(await api.chatMessagesList(thread.current.id));
-  }, [api]);
-
-  useEffect(() => {
-    let live = true;
-    void api.settingsGet().then((s) => {
-      if (!live) return;
-      const p = providerById(s, s.llm.chatProvider);
-      setProvider({ label: p ? providerDisplay(p) : null, names: providerNames(s) });
-    });
-    return () => {
-      live = false;
-    };
   }, [api]);
 
   useEffect(() => {
@@ -81,25 +71,45 @@ export function ChatContainer({ scope, placeholder, suggestions, variant, onCita
   const send = async (text: string) => {
     setError(null);
     setBusy(true);
+    stopEarly.current = false;
     try {
       if (!thread.current) thread.current = await api.chatThreadCreate(scope);
-      const { userMessage, assistantMessageId } = await api.chatSend(thread.current.id, text);
-      pending.current = assistantMessageId;
+      // Sin elección propia no se manda nada: responde el proveedor de chat de Ajustes.
+      const { userMessage, assistantMessageId } = await api.chatSend(thread.current.id, text, llm);
       setMessages((prev) => (prev.some((m) => m.id === userMessage.id) ? prev : [...prev, userMessage]));
+      if (stopEarly.current) {
+        stopEarly.current = false;
+        ignored.current.add(assistantMessageId);
+        cancel(assistantMessageId);
+        return;
+      }
+      pending.current = assistantMessageId;
     } catch (e) {
       setError(errorMessage(e));
       setBusy(false);
     }
   };
 
-  // El backend aún no sabe cancelar: se deja de escuchar esa respuesta y se
+  // Corta la generación en el backend. Si falla, la pantalla ya está detenida:
+  // se deja constancia en la consola y nada más.
+  const cancel = (id: string) => {
+    api.chatCancel(id).catch((e: unknown) => console.warn("No se pudo detener la respuesta", e));
+  };
+
+  // «Detener»: se cancela la generación, se deja de escuchar esa respuesta y se
   // conserva lo que había llegado.
   const stop = () => {
     const id = pending.current;
     pending.current = null;
+    if (!id) {
+      // Aún no se sabe qué respuesta es: se cancela en cuanto `chatSend` la devuelva.
+      stopEarly.current = busy;
+      setBusy(false);
+      return;
+    }
     setBusy(false);
-    if (!id) return;
     ignored.current.add(id);
+    cancel(id);
     const partial = streamsRef.current[id] ?? "";
     const t = thread.current;
     setStopped((prev) => ({ ...prev, [id]: partial }));
@@ -122,8 +132,10 @@ export function ChatContainer({ scope, placeholder, suggestions, variant, onCita
       placeholder={placeholder}
       suggestions={suggestions}
       variant={variant}
-      providerLabel={provider.label}
-      providerNames={provider.names}
+      model={model}
+      onPickModel={pick}
+      loadProviders={loadProviders}
+      providerNames={providerNames}
       onSend={(t) => void send(t)}
       onStop={stop}
       onRetry={messages.some((m) => m.role === "user") ? retry : undefined}

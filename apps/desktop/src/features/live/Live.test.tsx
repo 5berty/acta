@@ -1,10 +1,12 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { createMockApi, type LiveSegment, type SessionSnapshot } from "../../api";
 import { ApiProvider } from "../../app/ApiContext";
 import { App } from "../../app/App";
 import { LiveContainer } from "./LiveContainer";
+
+beforeEach(() => localStorage.clear());
 
 const seg = (id: string, speaker: string, text: string, startMs: number, final = true): LiveSegment => ({ id, speaker, text, startMs, endMs: startMs + 2_000, final });
 const SEGS = [seg("s1", "otros", "Empezamos con el plan.", 1_000), seg("s2", "yo", "Yo envío el presupuesto.", 4_000), seg("s3", "Ana García", "Hablemos de las subcuentas nuevas.", 65_000)];
@@ -124,6 +126,53 @@ describe("preguntar durante la reunión", () => {
   it("propone preguntas para empezar", async () => {
     mount();
     expect(await screen.findByRole("button", { name: "¿Qué se ha decidido hasta ahora?" })).toBeInTheDocument();
+  });
+});
+
+describe("modelo del chat en directo", () => {
+  const NAN = "https://api.nan.builders/v1";
+  const withNan = (m: ReturnType<typeof createMockApi>) => {
+    m.controls.state.settings.llm.providers.push({ id: "nan", label: "NaN Builders", enabled: true, kind: { type: "openAiCompatible", baseUrl: NAN, model: "deepseek-v4-pro", apiKey: null }, timeoutS: 600 });
+    m.controls.state.remoteModels[NAN] = ["deepseek-v4-pro", "qwen-max"];
+  };
+  const ask = async (q: string) => {
+    await userEvent.type(screen.getByRole("textbox", { name: "Pregunta" }), `${q}{Enter}`);
+  };
+
+  it("sin elegir, pregunta con el proveedor de Ajustes", async () => {
+    const { controls } = mount(SEGS, withNan);
+    await screen.findByText("Empezamos con el plan.");
+    const trigger = await screen.findByRole("button", { name: /^Modelo de IA/ });
+    await waitFor(() => expect(trigger).toHaveTextContent("Claude Code (CLI)"));
+    await ask("¿Han mencionado Zaragoza?");
+    await screen.findByText("No, todavía no se ha hablado de eso.");
+    expect(controls.state.liveLlm).toEqual([null]);
+  });
+
+  it("el modelo elegido va en la siguiente pregunta y se recuerda para esa grabación", async () => {
+    const { controls } = mount(SEGS, withNan);
+    await screen.findByText("Empezamos con el plan.");
+    await userEvent.click(await screen.findByRole("button", { name: /^Modelo de IA/ }));
+    await userEvent.click(await screen.findByRole("option", { name: "NaN Builders · qwen-max" }));
+    expect(screen.getByRole("button", { name: /^Modelo de IA/ })).toHaveTextContent("NaN Builders · qwen-max");
+    await ask("¿Han mencionado Zaragoza?");
+    await screen.findByText("No, todavía no se ha hablado de eso.");
+    expect(controls.state.liveLlm).toEqual([{ providerId: "nan", model: "qwen-max" }]);
+    expect(JSON.parse(localStorage.getItem("acta.chat.llm.live:m1") ?? "null")).toEqual({ providerId: "nan", model: "qwen-max" });
+  });
+
+  it("Detener cancela la respuesta en el backend y conserva lo recibido", async () => {
+    const { api, controls } = mount();
+    await screen.findByText("Empezamos con el plan.");
+    api.liveAsk = async () => "r1";
+    await ask("¿Qué tal?");
+    await screen.findByRole("status", { name: "Pensando" });
+    act(() => controls.emit("live:answer", { requestId: "r1", delta: "A medias", done: false }));
+    await userEvent.click(await screen.findByRole("button", { name: "Detener" }));
+    expect(controls.state.cancelled).toEqual(["r1"]);
+    expect(screen.getByText("A medias")).toBeInTheDocument();
+    expect(screen.getByText("Respuesta detenida")).toBeInTheDocument();
+    expect(screen.getAllByText("A medias")).toHaveLength(1);
   });
 });
 

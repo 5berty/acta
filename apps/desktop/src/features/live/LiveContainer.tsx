@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { LiveSegment, MeetingApp } from "../../api";
 import { useApi, useApiEvent } from "../../app/ApiContext";
-import { providerById, providerDisplay } from "../chat/providerLabel";
 import { LiveAsk } from "./LiveAsk";
 import { LiveView } from "./LiveView";
 
@@ -25,7 +24,6 @@ export function LiveContainer({ sessionId, elapsedMs, paused, app }: Props) {
   const api = useApi();
   const [segments, setSegments] = useState<LiveSegment[]>([]);
   const [livePreview, setLivePreview] = useState(true);
-  const [providerLabel, setProviderLabel] = useState<string | null>(null);
   const [flashId, setFlashId] = useState<string | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -39,8 +37,6 @@ export function LiveContainer({ sessionId, elapsedMs, paused, app }: Props) {
     void api.settingsGet().then((s) => {
       if (!live) return;
       setLivePreview(s.transcription.livePreview);
-      const p = providerById(s, s.llm.chatProvider);
-      setProviderLabel(p ? providerDisplay(p) : null);
     });
     return () => {
       live = false;
@@ -69,7 +65,7 @@ export function LiveContainer({ sessionId, elapsedMs, paused, app }: Props) {
       app={app}
       livePreview={livePreview}
       flashId={flashId}
-      chat={<LiveAsk sessionId={sessionId} segments={segments} providerLabel={providerLabel} onJump={jump} />}
+      chat={<LiveAsk sessionId={sessionId} segments={segments} onJump={jump} />}
     />
   );
 }

@@ -42,3 +42,30 @@ import Testing
     let c = try ProtocolCoding.decoder().decode(Request.self, from: Data(#"{"id":4,"cmd":"calendar.events","args":{"from_unix_ms":1,"to_unix_ms":2,"request_access":true}}"#.utf8))
     #expect(c.command == .calendarEvents(CalendarEventsArgs(fromUnixMs: 1, toUnixMs: 2, requestAccess: true)))
 }
+
+@Test func `decodes the system profile and installed apps commands`() throws {
+    let p = try ProtocolCoding.decoder().decode(Request.self, from: Data(#"{"id":5,"cmd":"system.profile"}"#.utf8))
+    #expect(p.command == .systemProfile)
+    let a = try ProtocolCoding.decoder().decode(Request.self, from: Data(#"{"id":6,"cmd":"apps.installed","args":{"icons_dir":"/data/cache/app-icons","icon_px":128}}"#.utf8))
+    #expect(a.command == .appsInstalled(AppsInstalledArgs(iconsDir: "/data/cache/app-icons", iconPx: 128)))
+}
+
+@Test func `encodes the profile and the apps like the Rust side expects`() throws {
+    func json(_ v: some Encodable) throws -> [String: Any] {
+        try #require(try JSONSerialization.jsonObject(with: ProtocolCoding.encoder().encode(v)) as? [String: Any])
+    }
+    let profile = try json(SystemProfileResult(fullName: "Ana García", preferredLanguages: ["es-ES", "en-GB"]))
+    #expect(profile["full_name"] as? String == "Ana García")
+    #expect(profile["preferred_languages"] as? [String] == ["es-ES", "en-GB"])
+    #expect(try json(SystemProfileResult(fullName: nil, preferredLanguages: []))["full_name"] == nil)
+
+    let apps = try json(AppsInstalledResult(apps: [
+        InstalledAppWire(bundleId: "com.apple.Safari", name: "Safari", path: "/Applications/Safari.app", running: true, iconPath: "/i/com.apple.Safari.png"),
+        InstalledAppWire(bundleId: "com.rara", name: "Rara", path: "/Applications/Rara.app", running: false, iconPath: nil),
+    ]))
+    let list = try #require(apps["apps"] as? [[String: Any]])
+    #expect(list[0]["bundle_id"] as? String == "com.apple.Safari")
+    #expect(list[0]["icon_path"] as? String == "/i/com.apple.Safari.png")
+    #expect(list[0]["running"] as? Bool == true)
+    #expect(list[1]["icon_path"] == nil)
+}

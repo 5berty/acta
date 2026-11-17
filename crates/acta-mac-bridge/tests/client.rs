@@ -269,3 +269,24 @@ fn meeting_title_and_calendar_commands_use_the_wire_names() {
     let r: CalendarEventsResult = serde_json::from_value(serde_json::json!({"access": "granted", "events": [{"title": "Daily", "start_unix_ms": 1, "end_unix_ms": 2, "all_day": false}]})).unwrap();
     assert_eq!(r.events[0].title, "Daily");
 }
+
+#[test]
+fn system_profile_and_installed_apps_commands_use_the_wire_names() {
+    use acta_mac_bridge::protocol::*;
+    let v = serde_json::to_value(Request { id: 1, command: Command::SystemProfile }).unwrap();
+    assert_eq!(v, serde_json::json!({"id": 1, "cmd": "system.profile"}));
+    let r: SystemProfileResult = serde_json::from_value(serde_json::json!({"full_name": "Ana García", "preferred_languages": ["es-ES", "en-GB"]})).unwrap();
+    assert_eq!((r.full_name.as_deref(), r.preferred_languages.len()), (Some("Ana García"), 2));
+    // Sin nombre (no se pudo leer): la clave puede faltar.
+    let r: SystemProfileResult = serde_json::from_value(serde_json::json!({"preferred_languages": []})).unwrap();
+    assert_eq!(r.full_name, None);
+
+    let v = serde_json::to_value(Request { id: 2, command: Command::AppsInstalled(AppsInstalledArgs { icons_dir: "/data/cache/app-icons".into(), icon_px: 128 }) }).unwrap();
+    assert_eq!(v, serde_json::json!({"id": 2, "cmd": "apps.installed", "args": {"icons_dir": "/data/cache/app-icons", "icon_px": 128}}));
+    let r: AppsInstalledResult = serde_json::from_value(serde_json::json!({"apps": [
+        {"bundle_id": "com.apple.Safari", "name": "Safari", "path": "/Applications/Safari.app", "running": true, "icon_path": "/data/cache/app-icons/com.apple.Safari.png"},
+        {"bundle_id": "com.rara", "name": "Rara", "path": "/Applications/Rara.app", "running": false}
+    ]})).unwrap();
+    assert_eq!(r.apps.len(), 2);
+    assert_eq!((r.apps[0].running, r.apps[1].icon_path.as_deref()), (true, None));
+}

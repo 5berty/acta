@@ -316,6 +316,55 @@ public enum Command: Sendable, Equatable {
     case jobCancel(JobCancelArgs)
     case meetingTitles(MeetingTitlesArgs)
     case calendarEvents(CalendarEventsArgs)
+    /// Nombre de la cuenta e idiomas preferidos de macOS (para la bienvenida).
+    case systemProfile
+    /// Apps instaladas y en marcha, con su icono en PNG.
+    case appsInstalled(AppsInstalledArgs)
+}
+
+public struct SystemProfileResult: Codable, Sendable, Equatable {
+    /// `NSFullUserName()`. Falta si está vacío.
+    public var fullName: String?
+    /// `Locale.preferredLanguages`, en orden ("es-ES").
+    public var preferredLanguages: [String]
+    public init(fullName: String?, preferredLanguages: [String]) {
+        self.fullName = fullName
+        self.preferredLanguages = preferredLanguages
+    }
+}
+
+public struct AppsInstalledArgs: Codable, Sendable, Equatable {
+    /// Carpeta donde dejar `<bundle id>.png` (se crea; no se reescribe un
+    /// icono que ya está y es más nuevo que la app).
+    public var iconsDir: String
+    /// Lado del PNG en píxeles.
+    public var iconPx: UInt32
+    public init(iconsDir: String, iconPx: UInt32) {
+        self.iconsDir = iconsDir
+        self.iconPx = iconPx
+    }
+}
+
+public struct InstalledAppWire: Codable, Sendable, Equatable {
+    public var bundleId: String
+    public var name: String
+    /// Ruta del `.app`.
+    public var path: String
+    public var running: Bool
+    /// Ruta absoluta del PNG. Falta si no se pudo sacar el icono.
+    public var iconPath: String?
+    public init(bundleId: String, name: String, path: String, running: Bool, iconPath: String?) {
+        self.bundleId = bundleId
+        self.name = name
+        self.path = path
+        self.running = running
+        self.iconPath = iconPath
+    }
+}
+
+public struct AppsInstalledResult: Codable, Sendable, Equatable {
+    public var apps: [InstalledAppWire]
+    public init(apps: [InstalledAppWire]) { self.apps = apps }
 }
 
 public struct MeetingTitlesArgs: Codable, Sendable, Equatable {
@@ -417,6 +466,8 @@ public struct Request: Decodable, Sendable, Equatable {
         case "job.cancel": command = .jobCancel(try args(JobCancelArgs.self))
         case "meeting.titles": command = .meetingTitles(try args(MeetingTitlesArgs.self))
         case "calendar.events": command = .calendarEvents(try args(CalendarEventsArgs.self))
+        case "system.profile": command = .systemProfile
+        case "apps.installed": command = .appsInstalled(try args(AppsInstalledArgs.self))
         default: throw RequestDecodingError.unknownCommand(id: id, cmd: cmd)
         }
     }

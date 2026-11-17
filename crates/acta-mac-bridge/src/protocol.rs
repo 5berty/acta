@@ -94,6 +94,47 @@ pub enum Command {
     /// Eventos del Calendario de macOS (EventKit) en un intervalo.
     #[serde(rename = "calendar.events")]
     CalendarEvents(CalendarEventsArgs),
+    /// Nombre de la cuenta e idiomas preferidos de macOS (para la bienvenida).
+    #[serde(rename = "system.profile")]
+    SystemProfile,
+    /// Apps instaladas y en marcha, con su icono en PNG.
+    #[serde(rename = "apps.installed")]
+    AppsInstalled(AppsInstalledArgs),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SystemProfileResult {
+    /// `NSFullUserName()`. Falta si está vacío.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full_name: Option<String>,
+    /// `Locale.preferredLanguages`, en orden (`"es-ES"`).
+    pub preferred_languages: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppsInstalledArgs {
+    /// Carpeta donde dejar `<bundle id>.png` (se crea; no se reescribe un
+    /// icono que ya está y es más nuevo que la app).
+    pub icons_dir: String,
+    /// Lado del PNG en píxeles.
+    pub icon_px: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstalledAppWire {
+    pub bundle_id: String,
+    pub name: String,
+    /// Ruta del `.app`.
+    pub path: String,
+    pub running: bool,
+    /// Ruta absoluta del PNG. Falta si no se pudo sacar el icono.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppsInstalledResult {
+    pub apps: Vec<InstalledAppWire>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

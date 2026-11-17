@@ -167,6 +167,10 @@ public actor Dispatcher {
             await ok(id, await MeetingTitles.read(pid: a.pid))
         case .calendarEvents(let a):
             await ok(id, await CalendarReader.events(a))
+        case .systemProfile:
+            await ok(id, SystemProfile.read())
+        case .appsInstalled(let a):
+            await ok(id, await InstalledApps.list(a))
         }
     }
 

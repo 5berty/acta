@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 357" width="520" height="357" role="img" aria-labelledby="t">
+  <title id="t">acta — apilado sobre fondo oscuro</title>
+  <g id="symbol"><path fill="#FFFFFF" fill-rule="evenodd" d="M346 26 V194 H310 V179.97 A86 86 0 1 1 310 40.03 V26 Z M260 60 A50 50 0 1 0 260 160 A50 50 0 1 0 260 60 Z"/><circle cx="260" cy="110" r="22" fill="#FF5A1F"/></g>
+  <g id="wordmark" fill="#FFFFFF" fill-rule="evenodd">
+    <path d="M185.5 248 V332 H165.5 V326.33 A43 43 0 1 1 165.5 253.67 V248 Z M142.5 267 A23 23 0 1 0 142.5 313 A23 23 0 1 0 142.5 267 Z"/>
+    <path d="M259.5 251.93 A43 43 0 1 0 259.5 328.07 V301.36 A23 23 0 1 1 259.5 278.64 Z"/>
+    <path d="M279.5 230 H299.5 V248 H325.5 V264 H299.5 V332 H279.5 V264 H266.5 V248 H279.5 Z"/>
+    <path d="M420.5 248 V332 H400.5 V326.33 A43 43 0 1 1 400.5 253.67 V248 Z M377.5 267 A23 23 0 1 0 377.5 313 A23 23 0 1 0 377.5 267 Z"/>
+  </g>
+</svg>

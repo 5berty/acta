@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="t">
+  <title id="t">acta — símbolo (tamaño pequeño)</title>
+  <g id="symbol">
+    <path fill="#3B36C9" fill-rule="evenodd" d="M220 38 V218 H178 V205.23 A92 92 0 1 1 178 50.77 V38 Z M128 78 A50 50 0 1 0 128 178 A50 50 0 1 0 128 78 Z"/>
+    <circle cx="128" cy="128" r="24" fill="#FF5A1F"/>
+  </g>
+</svg>

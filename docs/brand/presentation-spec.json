@@ -1,0 +1,33 @@
+{
+  "brand": "acta",
+  "tagline": "Tú atiendes la reunión. acta escribe el acta.",
+  "brief": "Grabador de reuniones local para Mac: graba dos pistas (tú y los demás), transcribe y genera con un LLM el resumen, las decisiones y tus tareas. Todo se queda en tu disco. Debe sentirse fiable, sobrio y propio, lejos del cliché de onda de voz + documento.",
+  "adjectives": ["fiable", "local", "sobrio", "preciso"],
+  "criteria": "Éxito: ownable frente a las apps de transcripción, reconocible a 16 px, funciona en una tinta e invertido, y el punto de grabación se lee como 'grabando'.",
+  "industry": "software",
+  "nav": ["Reuniones", "Actas", "Privacidad"],
+  "brand_color": "#3B36C9",
+  "tile_color": "#3B36C9",
+  "greyscale": false,
+  "designer": "acta",
+  "round": 2,
+  "concepts": [
+    {
+      "name": "a con punto REC",
+      "symbol": "acta-symbol.svg",
+      "lockup": "acta-horizontal.svg",
+      "symbol_on_tile": "acta-symbol-reversed.svg",
+      "symbol_on_dark": "acta-symbol-reversed.svg",
+      "lockup_on_dark": "acta-horizontal-reversed.svg",
+      "stacked_on_dark": "acta-stacked-reversed.svg",
+      "idea": "Una «a» geométrica de caja única con el punto de grabación en el centro: la letra y la acción en una sola forma.",
+      "rationale": [
+        "Es una letra, no la onda, la hoja o el micrófono que se repiten en la categoría",
+        "El punto REC dice «grabando» sin explicarlo y da el único acento de color",
+        "Una sola construcción (anillo + montante) para símbolo, palabra e icono de app"
+      ]
+    }
+  ],
+  "recommendation": "a con punto REC: la más propia y la que mejor aguanta a 16 px. El índigo conserva el color de la app; el bermellón queda reservado al punto.",
+  "next_steps": ["Sustituir los iconos de la app (tauri icon, sin firmar)", "Aplicar la paleta a la interfaz", "Búsqueda de marcas antes del lanzamiento público"]
+}

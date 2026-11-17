@@ -18,7 +18,7 @@
 .brand-md { --s: 40px; }
 .brand-lg { --s: 48px; }
 .brand-xl { --s: 64px; }
-.acta-mark { flex: none; display: block; filter: drop-shadow(0 4px 10px color-mix(in srgb, var(--accent) 38%, transparent)); }
+.acta-mark { flex: none; display: block; }
 @media (prefers-color-scheme: dark) {
   /* Los mosaicos negros (OpenAI, Anthropic, NaN) necesitan un borde para no fundirse con el fondo. */
   .brand-tile { box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.3), 0 0 0 0.5px rgba(255, 255, 255, 0.2); }

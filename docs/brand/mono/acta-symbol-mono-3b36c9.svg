@@ -1,0 +1,7 @@
+<svg fill="#3b36c9" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="t"><title>acta — símbolo</title>
+  <title id="t">acta — símbolo</title>
+  <g id="symbol">
+    <path fill="#3b36c9" fill-rule="evenodd" d="M214 44 V212 H174 V200.66 A86 86 0 1 1 174 55.34 V44 Z M128 82 A46 46 0 1 0 128 174 A46 46 0 1 0 128 82 Z"/>
+    <circle cx="128" cy="128" r="22" fill="#3b36c9"/>
+  </g>
+</svg>

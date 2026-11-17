@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 706 256" width="706" height="256" role="img" aria-labelledby="t">
+  <title id="t">acta</title>
+  <g id="wordmark" fill="#3B36C9" fill-rule="evenodd">
+    <path d="M204 55 V223 H164 V211.66 A86 86 0 1 1 164 66.34 V55 Z M118 93 A46 46 0 1 0 118 185 A46 46 0 1 0 118 93 Z"/>
+    <path d="M352 62.87 A86 86 0 1 0 352 215.13 V161.72 A46 46 0 1 1 352 116.28 Z"/>
+    <path d="M392 19 H432 V55 H484 V87 H432 V223 H392 V87 H366 V55 H392 Z"/>
+    <path d="M674 55 V223 H634 V211.66 A86 86 0 1 1 634 66.34 V55 Z M588 93 A46 46 0 1 0 588 185 A46 46 0 1 0 588 93 Z"/>
+  </g>
+  <g id="rec"><circle cx="118" cy="139" r="22" fill="#FF5A1F"/></g>
+</svg>

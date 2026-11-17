@@ -22,6 +22,8 @@ use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+mod support;
+
 #[derive(Default)]
 struct Events(Mutex<Vec<(String, serde_json::Value)>>);
 impl Emit for Events {
@@ -85,6 +87,8 @@ async fn rig_with(native: NativePorts) -> Rig {
     })
     .await
     .unwrap();
+    // Una instalación ya configurada (los ajustes de fábrica van sin proveedores).
+    core.settings_update(support::configured_settings()).await.unwrap();
     Rig { _dir: dir, layout, core, events, secrets }
 }
 
@@ -123,7 +127,7 @@ async fn settings_update_persists_and_is_used() {
     s.detection.denylist = vec!["com.example.dictation".into()];
     if let ProviderKind::ClaudeCli { effort, extra_env, .. } = &mut s.llm.providers[0].kind {
         *effort = Some("high".into());
-        extra_env.insert("CLAUDE_CONFIG_DIR".into(), "/Users/e/.claude-personal".into());
+        extra_env.insert("CLAUDE_CONFIG_DIR".into(), "/Users/e/.claude-otro".into());
     }
     r.core.settings_update(s.clone()).await.unwrap();
     use acta_core::library::SettingsStore;
@@ -190,7 +194,7 @@ async fn chat_streams_deltas_and_saves_both_messages() {
     let id = meeting(&r.core, 4).await;
     let thread = r.core.chat_thread_create(ChatScope::Meeting { meeting_id: id }).await.unwrap();
     assert_eq!(thread.title, "Daily");
-    let res = r.core.chat_send(thread.id, "¿Qué se decidió?".into()).await.unwrap();
+    let res = r.core.chat_send(thread.id, "¿Qué se decidió?".into(), None, None).await.unwrap();
     for _ in 0..100 {
         if r.core.chat_messages_list(thread.id).await.unwrap().len() == 2 {
             break;
@@ -540,6 +544,8 @@ async fn rig_with_local_model() -> Rig {
     })
     .await
     .unwrap();
+    // Una instalación ya configurada (los ajustes de fábrica van sin proveedores).
+    core.settings_update(support::configured_settings()).await.unwrap();
     Rig { _dir: dir, layout, core, events, secrets }
 }
 

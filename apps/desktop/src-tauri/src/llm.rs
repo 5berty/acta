@@ -35,7 +35,12 @@ pub fn pick_provider<'a>(settings: &'a Settings, wanted: Option<&ProviderId>) ->
         .and_then(|w| enabled().find(|p| &p.id == w))
         .or_else(|| enabled().next())
         .ok_or_else(|| {
-            PortError::Unavailable("No hay ningún proveedor de LLM activo. Actívalo en Ajustes › Proveedores.".into())
+            PortError::Unavailable(if settings.llm.providers.is_empty() {
+                // Instalación nueva (o el usuario los quitó todos).
+                "No hay ningún proveedor de IA configurado. Añade uno en Ajustes › Proveedores.".into()
+            } else {
+                "No hay ningún proveedor de IA activo. Actívalo en Ajustes › Proveedores.".into()
+            })
         })
 }
 
@@ -54,16 +59,34 @@ mod tests {
     use super::*;
     use acta_store::secrets::{InMemorySecretStore, secret_ref_for_provider};
 
+    fn provider(id: &str, enabled: bool) -> ProviderConfig {
+        ProviderConfig {
+            id: id.into(),
+            label: id.into(),
+            enabled,
+            kind: ProviderKind::OpenAiCompatible { base_url: "http://127.0.0.1:9/v1".into(), model: "m".into(), api_key: None },
+            timeout_s: 5,
+        }
+    }
+
     #[test]
     fn picks_wanted_enabled_then_first_enabled() {
         let mut s = Settings::default();
-        assert_eq!(pick_provider(&s, Some(&"claude-cli".into())).map(|p| p.id.0.as_str()).ok(), Some("claude-cli"));
-        // codex existe pero está desactivado → cae al primero activo.
-        assert_eq!(pick_provider(&s, Some(&"codex-cli".into())).map(|p| p.id.0.as_str()).ok(), Some("claude-cli"));
+        s.llm.providers = vec![provider("uno", true), provider("dos", false)];
+        assert_eq!(pick_provider(&s, Some(&"uno".into())).map(|p| p.id.0.as_str()).ok(), Some("uno"));
+        // «dos» existe pero está desactivado → cae al primero activo.
+        assert_eq!(pick_provider(&s, Some(&"dos".into())).map(|p| p.id.0.as_str()).ok(), Some("uno"));
         for p in &mut s.llm.providers {
             p.enabled = false;
         }
         assert!(matches!(pick_provider(&s, None), Err(PortError::Unavailable(_))));
+    }
+
+    /// Instalación nueva: no hay proveedores y se explica qué hacer.
+    #[test]
+    fn a_fresh_install_has_no_provider_and_says_where_to_add_one() {
+        let e = pick_provider(&Settings::default(), None).map(|p| p.id.clone()).expect_err("sin proveedores");
+        assert!(matches!(&e, PortError::Unavailable(m) if m.contains("Ajustes › Proveedores")), "{e:?}");
     }
 
     #[test]

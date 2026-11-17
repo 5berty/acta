@@ -22,6 +22,8 @@ use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+mod support;
+
 #[derive(Default)]
 struct Events(Mutex<Vec<(String, serde_json::Value)>>);
 impl Emit for Events {
@@ -127,15 +129,9 @@ async fn rig() -> Rig {
     })
     .await
     .unwrap();
-    // NaN Builders activado, además de claude (el de las actas por defecto).
-    let mut s = core.settings_get().await.unwrap();
-    s.llm.providers.push(ProviderConfig {
-        id: "nan".into(),
-        label: "NaN Builders".into(),
-        enabled: true,
-        kind: ProviderKind::OpenAiCompatible { base_url: "http://127.0.0.1:9/v1".into(), model: "deepseek-v4-pro".into(), api_key: None },
-        timeout_s: 5,
-    });
+    // Configurada: claude para las actas y un segundo proveedor («nan») para el chat.
+    let mut s = support::configured_settings();
+    s.llm.providers.push(support::openai_compatible("nan", "NaN Builders", "deepseek-v4-pro", true));
     s.llm.chat_provider = Some("nan".into());
     core.settings_update(s).await.unwrap();
     Rig { _dir: dir, core, events, factory }
@@ -274,7 +270,7 @@ async fn stopping_a_chat_answer_kills_the_slow_provider_at_once() {
     let id = meeting_with_transcript(&r.core, 5).await;
     let thread = r.core.chat_thread_create(ChatScope::Meeting { meeting_id: id }).await.unwrap();
     let started = Instant::now();
-    let res = r.core.chat_send(thread.id, "¿Qué pasa con las subcuentas?".into()).await.unwrap();
+    let res = r.core.chat_send(thread.id, "¿Qué pasa con las subcuentas?".into(), None, None).await.unwrap();
     assert!(started.elapsed() < Duration::from_secs(2), "chat_send no espera a la respuesta");
     r.core.chat_cancel(res.assistant_message_id.to_string()).await.unwrap();
     loop {

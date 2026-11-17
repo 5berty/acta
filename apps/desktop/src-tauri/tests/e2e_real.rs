@@ -26,6 +26,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+mod support;
+
 #[derive(Default)]
 struct Events(Mutex<Vec<(String, serde_json::Value)>>);
 impl Emit for Events {
@@ -89,7 +91,7 @@ async fn rig_with(root: &Path, patch: impl FnOnce(acta_desktop_lib::native::Nati
     .unwrap();
     // El claude del usuario tal y como lo deja "Detectar" (alias con CLAUDE_CONFIG_DIR).
     let detected = core.llm_cli_detect().await.unwrap();
-    let mut s = core.settings_get().await.unwrap();
+    let mut s = support::configured_settings();
     for p in &mut s.llm.providers {
         if let ProviderKind::ClaudeCli { binary_path, extra_env, .. } = &mut p.kind
             && let Some(path) = &detected.claude
@@ -185,7 +187,8 @@ async fn e2e_settings_providers_models_permissions_and_keychain() {
     let d = r.core.llm_cli_detect().await.unwrap();
     eprintln!("llm_cli_detect: {d:?}");
     assert_eq!(d.claude.as_deref(), Some("/opt/homebrew/bin/claude"));
-    assert!(d.claude_env.get("CLAUDE_CONFIG_DIR").is_some_and(|v| v.ends_with("/.claude-personal")));
+    // Solo en un Mac cuyo `claude` es un alias con `CLAUDE_CONFIG_DIR`: tiene que llegar expandida.
+    assert!(d.claude_env.get("CLAUDE_CONFIG_DIR").is_none_or(|v| v.starts_with('/')));
 
     let t = r.core.llm_provider_test("claude-cli".into()).await.unwrap();
     eprintln!("llm_provider_test claude: {t:?}");
@@ -387,7 +390,7 @@ async fn e2e_full_pipeline_search_chat_and_groups() {
     eprintln!("búsqueda semántica: {} resultados", sem.len());
 
     let thread = r.core.chat_thread_create(ChatScope::Meeting { meeting_id: id }).await.unwrap();
-    let res = r.core.chat_send(thread.id, "¿Quién prepara la demo y para qué cliente?".into()).await.unwrap();
+    let res = r.core.chat_send(thread.id, "¿Quién prepara la demo y para qué cliente?".into(), None, None).await.unwrap();
     let start = Instant::now();
     let answer = loop {
         let msgs = r.core.chat_messages_list(thread.id).await.unwrap();

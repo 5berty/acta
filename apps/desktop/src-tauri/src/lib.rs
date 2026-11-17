@@ -303,6 +303,8 @@ pub fn run() {
             commands::local_llm_test,
             commands::models_status,
             commands::audio_inputs_list,
+            commands::system_profile,
+            commands::apps_list,
             commands::models_download,
             commands::permissions_status,
             commands::permissions_request,

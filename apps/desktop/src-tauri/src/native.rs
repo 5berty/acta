@@ -32,11 +32,23 @@ pub trait MeetingInfo: Send + Sync {
     ) -> PortResult<Vec<acta_core::library::titles::CalendarEntry>>;
 }
 
+/// Lo que macOS sabe de quien usa el Mac y de sus apps (bienvenida y selector de apps).
+#[async_trait]
+pub trait SystemInfo: Send + Sync {
+    /// Nombre completo de la cuenta e idiomas preferidos, en orden.
+    async fn profile(&self) -> PortResult<(Option<String>, Vec<String>)>;
+    /// Apps instaladas y en marcha. Deja el icono PNG de cada una en `icons_dir`.
+    async fn installed_apps(&self, icons_dir: &std::path::Path) -> PortResult<Vec<acta_core::api::InstalledApp>>;
+}
+
 /// Micrófonos del sistema (para elegir uno en Ajustes).
 #[async_trait]
 pub trait InputDevices: Send + Sync {
     async fn inputs(&self) -> PortResult<Vec<AudioInput>>;
 }
+
+/// Lado de los iconos de `apps_list`: 64 pt a @2x.
+pub const ICON_PX: u32 = 128;
 
 #[derive(Clone)]
 pub struct NativePorts {
@@ -51,6 +63,7 @@ pub struct NativePorts {
     pub models: Arc<dyn ModelManager>,
     pub devices: Arc<dyn InputDevices>,
     pub meeting_info: Arc<dyn MeetingInfo>,
+    pub system: Arc<dyn SystemInfo>,
     pub sidecar_version: Option<String>,
     pub macos_version: Option<String>,
     /// Por qué no hay sidecar (para el log y Ajustes).
@@ -74,6 +87,7 @@ impl NativePorts {
             permissions: u.clone(),
             models: u.clone(),
             meeting_info: u.clone(),
+            system: u.clone(),
             devices: u,
             sidecar_version: None,
             macos_version: None,
@@ -127,6 +141,27 @@ mod mac {
             Ok(r.events
                 .into_iter()
                 .map(|e| acta_core::library::titles::CalendarEntry { title: e.title, start_ms: e.start_unix_ms, end_ms: e.end_unix_ms, all_day: e.all_day })
+                .collect())
+        }
+    }
+
+    struct System(SidecarClient);
+
+    #[async_trait]
+    impl SystemInfo for System {
+        async fn profile(&self) -> PortResult<(Option<String>, Vec<String>)> {
+            use acta_mac_bridge::protocol::{Command, SystemProfileResult};
+            let r: SystemProfileResult = self.0.call_typed(Command::SystemProfile, Some(std::time::Duration::from_secs(5))).await?;
+            Ok((r.full_name, r.preferred_languages))
+        }
+        async fn installed_apps(&self, icons_dir: &std::path::Path) -> PortResult<Vec<acta_core::api::InstalledApp>> {
+            use acta_mac_bridge::protocol::{AppsInstalledArgs, AppsInstalledResult, Command};
+            let args = AppsInstalledArgs { icons_dir: icons_dir.to_string_lossy().into_owned(), icon_px: ICON_PX };
+            // La primera vez dibuja un icono por app (cientos); después salen de la caché.
+            let r: AppsInstalledResult = self.0.call_typed(Command::AppsInstalled(args), Some(std::time::Duration::from_secs(60))).await?;
+            Ok(r.apps
+                .into_iter()
+                .map(|a| acta_core::api::InstalledApp { bundle_id: a.bundle_id, name: a.name, path: a.path, running: a.running, icon_path: a.icon_path })
                 .collect())
         }
     }
@@ -187,6 +222,7 @@ mod mac {
             models: Arc::new(Models(MacModels::new(client.clone()))),
             devices: Arc::new(Devices(client.clone())),
             meeting_info: Arc::new(Info(client.clone())),
+            system: Arc::new(System(client.clone())),
             sidecar_version: hello.as_ref().map(|h| h.sidecar_version.clone()),
             macos_version: hello.map(|h| h.macos_version),
             error: None,

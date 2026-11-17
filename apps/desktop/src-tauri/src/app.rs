@@ -393,11 +393,32 @@ impl AppCore {
         self.supervisor.reprocess(request.meeting_id, request.steps)
     }
 
+    /// El proveedor elegido para UNA vez (reintento, pregunta en vivo o
+    /// mensaje del chat) tiene que existir y estar activado.
     fn check_provider(&self, id: &ProviderId) -> PortResult<()> {
-        if self.settings().llm.providers.iter().any(|p| &p.id == id) {
-            Ok(())
-        } else {
-            Err(PortError::NotFound(format!("No existe el proveedor «{id}».")))
+        match self.settings().llm.providers.iter().find(|p| &p.id == id) {
+            None => Err(PortError::NotFound(format!("No existe el proveedor «{id}»."))),
+            Some(p) if !p.enabled => Err(PortError::Unavailable(format!(
+                "El proveedor «{}» está desactivado. Actívalo en Ajustes › Proveedores.",
+                p.label
+            ))),
+            Some(_) => Ok(()),
+        }
+    }
+
+    /// Ajustes y proveedor para una respuesta: el elegido para esta vez (con
+    /// su modelo, si se indica) o el del chat. Los ajustes guardados no cambian.
+    fn one_off_provider(&self, provider_id: Option<ProviderId>, model: Option<String>) -> PortResult<(Settings, Option<ProviderId>)> {
+        let settings = self.settings();
+        match provider_id {
+            Some(p) => {
+                self.check_provider(&p)?;
+                Ok((crate::pipeline::with_override(settings, &LlmOverride { provider_id: p.clone(), model }), Some(p)))
+            }
+            None => {
+                let wanted = settings.llm.chat_provider.clone();
+                Ok((settings, wanted))
+            }
         }
     }
 
@@ -527,13 +548,49 @@ impl AppCore {
         self.store.dismiss_suggestion(id).await
     }
 
+    /// Reintenta indexar las reuniones que quedaron sin vectores (el modelo
+    /// de búsqueda no estaba disponible). Devuelve cuántas siguen sin ellos.
+    async fn reindex_stale(&self) -> usize {
+        let Ok(stale) = self.store.stale_meetings().await else { return 0 };
+        for id in &stale {
+            if let Err(e) = self.store.index_meeting(*id).await {
+                tracing::warn!(%id, "reindexado pendiente: {e}");
+            }
+            // Si el modelo sigue sin estar, no se insiste con las demás.
+            if self.store.stale_meetings().await.is_ok_and(|s| s.contains(id)) {
+                break;
+            }
+        }
+        self.store.stale_meetings().await.map_or(0, |s| s.len())
+    }
+
     /// Clustering + nombre con el LLM (si hay proveedor; si no, sin nombre).
+    ///
+    /// Regla (`acta_store::clustering::ClusterConfig`): hacen falta al menos 3
+    /// reuniones parecidas (similitud media ≥ 0,80), indexadas y que no estén
+    /// ya en ningún grupo. «No hay sugerencias» es una lista vacía; que no se
+    /// hayan podido comparar las reuniones es un ERROR, no una lista vacía.
     pub async fn group_suggestions_refresh(&self) -> PortResult<Vec<GroupSuggestion>> {
+        let unindexed = self.reindex_stale().await;
         let mut suggestions = self.store.suggest_groups().await?;
+        if suggestions.is_empty() && unindexed > 0 {
+            let meetings = if unindexed == 1 { "1 reunión no se ha podido".to_owned() } else { format!("{unindexed} reuniones no se han podido") };
+            return Err(PortError::Unavailable(format!(
+                "No se pueden sugerir grupos todavía: {meetings} preparar para compararlas porque el modelo de búsqueda no está disponible \
+                 (la primera vez se descarga de internet). Comprueba la conexión y vuelve a intentarlo."
+            )));
+        }
         let settings = self.settings();
-        let namer = build_provider(&settings, self.factory.as_ref(), settings.llm.naming_provider.as_ref())
-            .ok()
-            .map(|(_, p)| LlmGroupNamer::new(p, settings.user.display_name.clone()));
+        // Sin proveedor (o con uno que no arranca) las sugerencias van sin nombre.
+        let namer = match build_provider(&settings, self.factory.as_ref(), settings.llm.naming_provider.as_ref()) {
+            Ok((_, p)) => Some(LlmGroupNamer::new(p, settings.user.display_name.clone()).with_language(settings.transcription.language.clone())),
+            Err(e) => {
+                if !suggestions.is_empty() {
+                    tracing::warn!("grupos sugeridos sin nombre: {e}");
+                }
+                None
+            }
+        };
         if let Some(namer) = namer {
             for s in &mut suggestions {
                 let mut metas = Vec::new();
@@ -563,13 +620,6 @@ impl AppCore {
     /// Tras procesar una reunión: reindexa las que quedaron sin vectores y
     /// refresca las sugerencias de grupos. Mejor esfuerzo.
     pub async fn after_processing(&self) {
-        if let Ok(stale) = self.store.stale_meetings().await {
-            for id in stale {
-                if let Err(e) = self.store.index_meeting(id).await {
-                    tracing::warn!(%id, "reindexado pendiente: {e}");
-                }
-            }
-        }
         if let Err(e) = self.group_suggestions_refresh().await {
             tracing::warn!("sugerencias de grupos: {e}");
         }
@@ -617,8 +667,14 @@ impl AppCore {
     }
 
     /// Guarda la pregunta, lanza la respuesta en streaming (`chat:delta`) y la
-    /// guarda al terminar.
-    pub async fn chat_send(&self, thread_id: ChatThreadId, text: String) -> PortResult<ChatSendResult> {
+    /// guarda al terminar. `provider_id`/`model` valen solo para ESTA respuesta.
+    pub async fn chat_send(
+        &self,
+        thread_id: ChatThreadId,
+        text: String,
+        provider_id: Option<ProviderId>,
+        model: Option<String>,
+    ) -> PortResult<ChatSendResult> {
         let text = text.trim().to_owned();
         if text.is_empty() {
             return Err(PortError::InvalidInput("Escribe una pregunta.".into()));
@@ -631,8 +687,8 @@ impl AppCore {
             .find(|t| t.id == thread_id)
             .ok_or_else(|| PortError::NotFound("No existe esa conversación.".into()))?;
         let history = self.store.list_messages(thread_id).await?;
-        let settings = self.settings();
-        let (cfg, provider) = build_provider(&settings, self.factory.as_ref(), settings.llm.chat_provider.as_ref())?;
+        let (settings, wanted) = self.one_off_provider(provider_id, model)?;
+        let (cfg, provider) = build_provider(&settings, self.factory.as_ref(), wanted.as_ref())?;
         let user_message = ChatMessage {
             id: ChatMessageId::new(),
             thread_id,
@@ -646,7 +702,8 @@ impl AppCore {
         if let ChatScope::Meeting { meeting_id } = &thread.scope {
             self.touch(&[*meeting_id], MeetingTouch::Used).await;
         }
-        let engine = LlmChatEngine::new(provider, self.store.clone(), self.store.clone(), settings.user.clone());
+        let engine = LlmChatEngine::new(provider, self.store.clone(), self.store.clone(), settings.user.clone())
+            .with_language(settings.transcription.language.clone());
         let assistant_message_id = ChatMessageId::new();
         let store = self.store.clone();
         let emitter = self.emitter.clone();
@@ -760,17 +817,10 @@ impl AppCore {
             return Err(PortError::InvalidInput("Escribe una pregunta.".into()));
         }
         let segments = self.live_transcript_get(session_id).await?.segments;
-        let mut settings = self.settings();
-        let wanted = match provider_id {
-            Some(p) => {
-                self.check_provider(&p)?;
-                settings = crate::pipeline::with_override(settings, &LlmOverride { provider_id: p.clone(), model });
-                Some(p)
-            }
-            None => settings.llm.chat_provider.clone(),
-        };
+        let (settings, wanted) = self.one_off_provider(provider_id, model)?;
         let (_, provider) = build_provider(&settings, self.factory.as_ref(), wanted.as_ref())?;
-        let request = acta_llm::live::live_ask_request(&segments, &question, &settings.user.display_name);
+        let request =
+            acta_llm::live::live_ask_request(&segments, &question, &settings.user.display_name, &settings.transcription.language);
         let request_id = ChatMessageId::new().to_string();
         let (cancel_tx, mut cancel_rx) = oneshot::channel::<()>();
         self.cancels.lock().unwrap_or_else(|p| p.into_inner()).insert(request_id.clone(), cancel_tx);
@@ -1071,6 +1121,27 @@ impl AppCore {
         }
     }
 
+    /// Nombre de la cuenta e idiomas de macOS para proponerlos en la
+    /// bienvenida. Nunca falla: lo que no se sabe va vacío.
+    pub async fn system_profile(&self) -> PortResult<SystemProfile> {
+        let (full_name, languages) = match self.native.system.profile().await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::info!("perfil del sistema no disponible: {e}");
+                (None, Vec::new())
+            }
+        };
+        Ok(SystemProfile::from_system(full_name, languages))
+    }
+
+    /// Apps instaladas y en marcha, sin repetir y por nombre. Los iconos
+    /// quedan en `cache/app-icons` de la carpeta de datos.
+    pub async fn apps_list(&self) -> PortResult<Vec<InstalledApp>> {
+        let icons = self.layout.app_icons_dir();
+        tokio::fs::create_dir_all(&icons).await?;
+        Ok(tidy_apps(self.native.system.installed_apps(&icons).await?))
+    }
+
     pub async fn audio_inputs_list(&self) -> PortResult<Vec<AudioInput>> {
         self.native.devices.inputs().await
     }
@@ -1130,6 +1201,9 @@ async fn suggest_group_title(
         let summary = store.get_minutes(m.id).await?.map(|x| x.summary_md).unwrap_or_default();
         metas.push((m.title.clone(), summary));
     }
-    let n = LlmGroupNamer::new(provider, settings.user.display_name.clone()).name_group(&metas).await?;
+    let n = LlmGroupNamer::new(provider, settings.user.display_name.clone())
+        .with_language(settings.transcription.language.clone())
+        .name_group(&metas)
+        .await?;
     Ok(GroupTitleSuggestion { name: n.name, description: Some(n.description).filter(|d| !d.is_empty()) })
 }

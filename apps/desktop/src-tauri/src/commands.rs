@@ -80,7 +80,10 @@ cmd!(chat_threads_list(scope: Option<ChatScope>) -> Vec<ChatThread> => |c| c.cha
 cmd!(chat_thread_create(scope: ChatScope) -> ChatThread => |c| c.chat_thread_create(scope));
 cmd!(chat_thread_delete(thread_id: ChatThreadId) -> () => |c| c.chat_thread_delete(thread_id));
 cmd!(chat_messages_list(thread_id: ChatThreadId) -> Vec<ChatMessage> => |c| c.chat_messages_list(thread_id));
-cmd!(chat_send(thread_id: ChatThreadId, text: String) -> ChatSendResult => |c| c.chat_send(thread_id, text));
+cmd!(chat_send(thread_id: ChatThreadId, text: String, provider_id: Option<ProviderId>, model: Option<String>) -> ChatSendResult =>
+    |c| c.chat_send(thread_id, text, provider_id, model));
+cmd!(system_profile() -> SystemProfile => |c| c.system_profile());
+cmd!(apps_list() -> Vec<InstalledApp> => |c| c.apps_list());
 cmd!(voiceprints_list() -> Vec<VoiceprintSummary> => |c| c.voiceprints_list());
 cmd!(voiceprint_delete(id: VoiceprintId) -> () => |c| c.voiceprint_delete(id));
 cmd!(settings_get() -> Settings => |c| c.settings_get());

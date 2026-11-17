@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Comprobaciones que NUNCA deben fallar (lecciones de Meetily + reglas del Mac de empresa).
+# Comprobaciones que NUNCA deben fallar (lecciones de Meetily + la regla de no firmar nunca).
 # Uso: scripts/guards.sh   (sale con 1 si algo se cuela)
 set -euo pipefail
 cd "$(dirname "$0")/.."

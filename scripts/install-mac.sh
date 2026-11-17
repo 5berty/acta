@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compila e instala acta.app EN ESTE MAC, SIN FIRMAR (el EDR de empresa no lo permite).
+# Compila e instala acta.app en este Mac, SIN FIRMAR (acta no usa certificado de Apple Developer).
 #
 # Uso:
 #   scripts/install-mac.sh            # instala en ~/Applications

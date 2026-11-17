@@ -1,4 +1,4 @@
-# Instalación de acta en este Mac (sin firmar)
+# Instalación de acta (sin firmar)
 
 acta se compila e instala **localmente**, sin firmar. Todo lo hace `scripts/install-mac.sh`.
 
@@ -32,7 +32,7 @@ El script, en orden:
 
 ## 3. Por qué no se firma
 
-Este Mac tiene EDR: firmar (incluida la firma ad hoc) dispara alertas. La app queda sin firmar.
+acta no se firma ni se notariza: el proyecto no usa un certificado de Apple Developer. El script de instalación además se asegura de que ningún paso del build firme nada, ni siquiera con firma ad hoc.
 
 Evidencia (tauri-cli 2.12.4 depende de `tauri-bundler =2.10.4` y `tauri-macos-sign =2.4.3`):
 
@@ -76,9 +76,9 @@ TCC asocia los permisos a **acta.app** (el proceso responsable; el sidecar va de
 
 - [ ] **Modelos**: Ajustes › Modelos, descarga `asr`, `diarizer` y `vad` (FluidAudio). El modelo de búsqueda semántica (`multilingual-e5-small`, fastembed) se descarga solo la primera vez que se indexa una reunión, en `~/Library/Application Support/acta/models/fastembed`. Si la red de la empresa lo bloquea, la búsqueda funciona solo por texto y acta reindexa esas reuniones cuando el modelo esté disponible.
 - [ ] **Claude CLI**: Ajustes › Proveedores.
-  - Ruta absoluta: `/opt/homebrew/bin/claude`.
-  - Entorno: `CLAUDE_CONFIG_DIR=/Users/<usuario>/.claude-personal`.
-  - Tu `claude` es un alias de `~/.zshrc`, invisible para `zsh -lc`. "Detectar" ya prueba también una shell interactiva y expande `$HOME`.
+  - Ruta absoluta del binario, por ejemplo `/opt/homebrew/bin/claude`.
+  - Entorno, solo si usas un directorio de configuración distinto: `CLAUDE_CONFIG_DIR=<tu ruta>`.
+  - Si `claude` es un alias de tu `~/.zshrc`, es invisible para `zsh -lc`. "Detectar" ya prueba también una shell interactiva y expande `$HOME`.
   - Elige el esfuerzo y pulsa **Probar**.
 
 ## 7. Dónde guarda cosas

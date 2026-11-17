@@ -28,7 +28,7 @@ acta es un grabador de reuniones local para Mac. Está hecho en Rust con arquite
 | Embeddings | fastembed-rs con `intfloat/multilingual-e5-small` (384 dims), detrás del puerto `Embedder` y de la feature `local-embeddings`. | Es multilingüe y ligero. bge-m3 (1024) queda como opción futura con una migración. |
 | LLM | Puerto `LlmProvider` con cinco adaptadores: `claude -p`, `codex exec`, OpenAI-compatible, Anthropic y el **modelo local integrado** (§15, opcional). **De fábrica no hay ninguno activado**: la bienvenida detecta lo que hay en el Mac y el usuario elige. | Nada personal viaja como valor por defecto. Nunca se tocan las credenciales del CLI. |
 | Procesado | Va en una cola de fondo y **no bloquea** una grabación nueva. | Así se pueden encadenar reuniones seguidas. |
-| Firma | **Ninguna**: `bundle.macOS.signingIdentity: null`, `hardenedRuntime: false`. El sidecar se compila con `swift build --disable-get-task-allow-entitlement`. | Es el EDR del portátil de empresa (ver §11). |
+| Firma | **Ninguna**: `bundle.macOS.signingIdentity: null`, `hardenedRuntime: false`. El sidecar se compila con `swift build --disable-get-task-allow-entitlement`. | No hay certificado de Apple Developer; ver `docs/03-instalacion.md` §3. |
 
 ---
 

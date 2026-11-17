@@ -198,11 +198,16 @@ impl HealthMonitor {
     }
 
     pub fn on_permission_missing(&mut self, permission: PermissionKind, at: UnixMs) {
-        self.push_one_shot(
-            HealthIssue::PermissionMissing { permission },
-            at,
-            "Falta un permiso del sistema para grabar. Revisa Ajustes del Sistema > Privacidad.".into(),
-        );
+        let message = match permission {
+            PermissionKind::ScreenRecording => {
+                "Grabación de pantalla sin permiso: no habrá capturas (el audio se graba bien). Actívalo en Ajustes del Sistema › Privacidad › Grabación de pantalla."
+            }
+            PermissionKind::Microphone => "Falta el permiso del Micrófono: tu voz no se está grabando. Actívalo en Ajustes del Sistema › Privacidad › Micrófono.",
+            PermissionKind::SystemAudio => "Falta el permiso de Audio del sistema: no se graba a los demás. Actívalo en Ajustes del Sistema › Privacidad.",
+            PermissionKind::Accessibility => "Accesibilidad sin permiso: no se sabrá quién habla en Teams (el audio se graba bien).",
+            PermissionKind::Automation => "Automatización sin permiso: no se detectará Google Meet (el audio se graba bien).",
+        };
+        self.push_one_shot(HealthIssue::PermissionMissing { permission }, at, message.into());
     }
 
     pub fn on_paused(&mut self, _at: UnixMs) {

@@ -81,3 +81,38 @@ private func gradient(reversed: Bool = false, width: Int = 64, height: Int = 48)
     let again = try CaptureFiles.write(frame, reason: .keyword, dir: dir.path, keyword: nil)
     #expect(again.path != ev.path, "never overwrites an existing capture")
 }
+
+// MARK: - Seguir la ventana entre pantallas (hasta 5 monitores, escalas distintas)
+
+private func win(_ id: UInt32, _ title: String, _ w: Double, _ h: Double, scale: Double = 2) -> WindowCandidate {
+    WindowCandidate(id: id, title: title, width: w, height: h, scale: scale)
+}
+
+@Test func `the shared content window wins over the bigger main Teams window`() {
+    let wins = [
+        win(1, "Chat | Microsoft Teams", 1600, 1000),
+        win(2, "Daily del equipo | Microsoft Teams", 1200, 800),
+        win(3, "Contenido compartido de Ana | Microsoft Teams", 1000, 700),
+    ]
+    #expect(WindowTracking.pick(wins, titleHint: "Daily del equipo")?.id == 3)
+    #expect(WindowTracking.pick(Array(wins.prefix(2)), titleHint: "Daily del equipo")?.id == 2)
+    #expect(WindowTracking.pick(Array(wins.prefix(2)), titleHint: nil)?.id == 1, "sin pista, la más grande")
+    #expect(WindowTracking.pick([win(9, "x", 100, 80)], titleHint: nil) == nil, "demasiado pequeña")
+}
+
+@Test func `moving to a display with another scale or resizing reconfigures the stream`() {
+    let a = WindowGeometry(id: 2, width: 1200, height: 800, scale: 2)
+    #expect(WindowTracking.needsUpdate(current: nil, new: a))
+    #expect(!WindowTracking.needsUpdate(current: a, new: a))
+    #expect(!WindowTracking.needsUpdate(current: a, new: WindowGeometry(id: 2, width: 1210, height: 805, scale: 2)), "ruido de unos px")
+    #expect(WindowTracking.needsUpdate(current: a, new: WindowGeometry(id: 2, width: 1200, height: 800, scale: 1)), "pantalla no Retina")
+    #expect(WindowTracking.needsUpdate(current: a, new: WindowGeometry(id: 2, width: 1600, height: 1000, scale: 2)), "redimensionada")
+    #expect(WindowTracking.needsUpdate(current: a, new: WindowGeometry(id: 3, width: 1200, height: 800, scale: 2)), "otra ventana")
+}
+
+@Test func `stream size keeps the aspect ratio under max width`() {
+    let (w, h) = WindowTracking.outputSize(WindowGeometry(id: 1, width: 1440, height: 900, scale: 2), maxWidth: 1920)
+    #expect(w == 1920 && h == 1200)
+    let (w1, h1) = WindowTracking.outputSize(WindowGeometry(id: 1, width: 1000, height: 600, scale: 1), maxWidth: 1920)
+    #expect(w1 == 1000 && h1 == 600)
+}

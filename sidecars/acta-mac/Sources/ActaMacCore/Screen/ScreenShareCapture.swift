@@ -149,6 +149,62 @@ enum Jpeg {
     }
 }
 
+// MARK: - Seguir la ventana (lógica pura)
+
+/// Una ventana capturable de la app de la reunión.
+struct WindowCandidate: Equatable, Sendable {
+    var id: UInt32
+    var title: String
+    var width: Double
+    var height: Double
+    /// Píxeles por punto de la pantalla donde está ahora.
+    var scale: Double
+}
+
+struct WindowGeometry: Equatable, Sendable {
+    var id: UInt32
+    var width: Double
+    var height: Double
+    var scale: Double
+}
+
+/// Edu tiene hasta 5 monitores y mueve las ventanas: se vuelve a elegir la
+/// ventana cada pocos segundos y, si cambia (otra ventana, otra pantalla con
+/// otra escala o otro tamaño), se reconfigura el stream sin pararlo.
+enum WindowTracking {
+    /// Palabras de la ventana de contenido compartido de Teams (es/en).
+    static let sharedHints = ["contenido compartido", "shared content", "compartiendo", "sharing", "presentando", "presenting"]
+
+    static func pick(_ wins: [WindowCandidate], titleHint: String?) -> WindowCandidate? {
+        let usable = wins.filter { $0.width > 200 && $0.height > 150 }
+        let lower = { (w: WindowCandidate) in w.title.lowercased() }
+        if let shared = usable.filter({ w in sharedHints.contains { lower(w).contains($0) } }).max(by: { $0.width * $0.height < $1.width * $1.height }) {
+            return shared
+        }
+        if let hint = titleHint?.lowercased(), !hint.isEmpty,
+           let w = usable.first(where: { lower($0).contains(hint) || (!lower($0).isEmpty && hint.contains(lower($0))) }) {
+            return w
+        }
+        return usable.max { $0.width * $0.height < $1.width * $1.height }
+    }
+
+    static func needsUpdate(current: WindowGeometry?, new: WindowGeometry) -> Bool {
+        guard let c = current else { return true }
+        if c.id != new.id || c.scale != new.scale { return true }
+        let dw = abs(c.width - new.width) / max(1, c.width)
+        let dh = abs(c.height - new.height) / max(1, c.height)
+        return dw > 0.05 || dh > 0.05
+    }
+
+    /// Tamaño de salida en píxeles reales, con el ancho ≤ `maxWidth`.
+    static func outputSize(_ g: WindowGeometry, maxWidth: Int) -> (Int, Int) {
+        let w = max(1, g.width * g.scale)
+        let h = max(1, g.height * g.scale)
+        let k = min(1, Double(maxWidth) / w)
+        return (Int((w * k).rounded()), Int((h * k).rounded()))
+    }
+}
+
 // MARK: - ScreenCaptureKit
 
 final class ImageBox: @unchecked Sendable {
@@ -168,23 +224,46 @@ final class WindowStreamer: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         self.onStop = onStop
     }
 
-    func start(window: SCWindow, maxWidth: Int, fps: Double) async throws {
-        let filter = SCContentFilter(desktopIndependentWindow: window)
+    private(set) var geometry: WindowGeometry?
+
+    static func geometry(of window: SCWindow, filter: SCContentFilter) -> WindowGeometry {
+        WindowGeometry(id: window.windowID, width: window.frame.width, height: window.frame.height, scale: Double(filter.pointPixelScale))
+    }
+
+    private static func configuration(_ g: WindowGeometry, maxWidth: Int, fps: Double) -> SCStreamConfiguration {
         let cfg = SCStreamConfiguration()
-        let scale = Double(filter.pointPixelScale)
-        let w = max(1, window.frame.width * scale)
-        let h = max(1, window.frame.height * scale)
-        let k = min(1, Double(maxWidth) / w)
-        cfg.width = Int((w * k).rounded())
-        cfg.height = Int((h * k).rounded())
+        let (w, h) = WindowTracking.outputSize(g, maxWidth: maxWidth)
+        cfg.width = w
+        cfg.height = h
         cfg.minimumFrameInterval = CMTime(seconds: 1 / max(0.1, fps), preferredTimescale: 600)
         cfg.pixelFormat = kCVPixelFormatType_32BGRA
         cfg.showsCursor = false
         cfg.queueDepth = 3
-        let s = SCStream(filter: filter, configuration: cfg, delegate: self)
+        return cfg
+    }
+
+    func start(window: SCWindow, maxWidth: Int, fps: Double) async throws {
+        // `desktopIndependentWindow`: la ventana se captura esté en la pantalla que esté.
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        let g = Self.geometry(of: window, filter: filter)
+        let s = SCStream(filter: filter, configuration: Self.configuration(g, maxWidth: maxWidth, fps: fps), delegate: self)
         try s.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await s.startCapture()
         stream = s
+        geometry = g
+    }
+
+    /// Otra ventana, otra pantalla (escala) u otro tamaño: se cambia en caliente.
+    /// Devuelve `true` si hubo que reconfigurar.
+    func follow(window: SCWindow, maxWidth: Int, fps: Double) async throws -> Bool {
+        guard let s = stream else { return false }
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        let g = Self.geometry(of: window, filter: filter)
+        guard WindowTracking.needsUpdate(current: geometry, new: g) else { return false }
+        if geometry?.id != g.id { try await s.updateContentFilter(filter) }
+        try await s.updateConfiguration(Self.configuration(g, maxWidth: maxWidth, fps: fps))
+        geometry = g
+        return true
     }
 
     func stop() async {
@@ -208,15 +287,16 @@ final class WindowStreamer: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         onStop(error)
     }
 
-    /// Ventana de la app: la que encaja con el título, si no la más grande.
+    /// Ventana de la app: la de contenido compartido, si no la que encaja con
+    /// el título, si no la más grande (`WindowTracking.pick`).
     static func findWindow(pid: Int32, titleHint: String?) async throws -> SCWindow? {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        let wins = content.windows.filter { $0.owningApplication?.processID == pid && $0.frame.width > 200 && $0.frame.height > 150 }
-        if let hint = titleHint?.lowercased(), !hint.isEmpty,
-           let w = wins.first(where: { ($0.title ?? "").lowercased().contains(hint) || hint.contains(($0.title ?? "\u{0}").lowercased()) }) {
-            return w
+        let wins = content.windows.filter { $0.owningApplication?.processID == pid }
+        let candidates = wins.map {
+            WindowCandidate(id: $0.windowID, title: $0.title ?? "", width: $0.frame.width, height: $0.frame.height, scale: 1)
         }
-        return wins.max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
+        guard let best = WindowTracking.pick(candidates, titleHint: titleHint) else { return nil }
+        return wins.first { $0.windowID == best.id }
     }
 }
 
@@ -237,11 +317,14 @@ public actor ScreenService {
 
     public init(output: Output) { self.output = output }
 
+    private var followTask: Task<Void, Never>?
+
     public func start(_ a: ScreenStartArgs) async throws {
         await stop()
-        guard CGPreflightScreenCaptureAccess() else {
-            throw ProtocolError(code: .permissionDenied, message: "screen recording permission not granted")
-        }
+        // No se mira `CGPreflightScreenCaptureAccess()`: su respuesta es la del
+        // momento en que arrancó el proceso, y tras conceder el permiso en
+        // Ajustes seguía diciendo que no (17-nov-2026). ScreenCaptureKit
+        // pregunta a TCC en cada llamada.
         guard a.format == "jpeg" else { throw ProtocolError(code: .invalidArgs, message: "only jpeg is supported") }
         try FileManager.default.createDirectory(atPath: a.outDir, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(atPath: a.candidatesDir, withIntermediateDirectories: true)
@@ -257,7 +340,13 @@ public actor ScreenService {
 
     private func openStream() async throws {
         guard let a = args else { return }
-        guard let window = try await WindowStreamer.findWindow(pid: a.pid, titleHint: a.windowTitleHint) else {
+        let found: SCWindow?
+        do {
+            found = try await WindowStreamer.findWindow(pid: a.pid, titleHint: a.windowTitleHint)
+        } catch {
+            throw ProtocolError(code: .permissionDenied, message: "screen recording permission not granted: \(error.localizedDescription)")
+        }
+        guard let window = found else {
             throw ProtocolError(code: .notFound, message: "no capturable window for pid \(a.pid)")
         }
         let s = WindowStreamer(
@@ -271,6 +360,30 @@ public actor ScreenService {
         )
         try await s.start(window: window, maxWidth: Int(a.maxWidth), fps: Double(a.fps))
         streamer = s
+        startFollowing()
+    }
+
+    /// Cada 3 s: ¿sigue siendo la ventana buena, en la misma pantalla y tamaño?
+    private func startFollowing() {
+        followTask?.cancel()
+        followTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3))
+                await self?.followWindow()
+            }
+        }
+    }
+
+    private func followWindow() async {
+        guard let a = args, let s = streamer else { return }
+        do {
+            guard let w = try await WindowStreamer.findWindow(pid: a.pid, titleHint: a.windowTitleHint) else { return }
+            if try await s.follow(window: w, maxWidth: Int(a.maxWidth), fps: Double(a.fps)) {
+                await output.log("info", "screen: ventana \(w.windowID) \(Int(w.frame.width))x\(Int(w.frame.height)) (otra pantalla, tamaño o ventana)")
+            }
+        } catch {
+            await output.log("warn", "screen: no se pudo seguir la ventana: \(error)")
+        }
     }
 
     private func streamStopped(_ error: Error?) async {
@@ -364,6 +477,8 @@ public actor ScreenService {
         axTask = nil
         restartTask?.cancel()
         restartTask = nil
+        followTask?.cancel()
+        followTask = nil
         await streamer?.stop()
         streamer = nil
         ring = FrameRing(seconds: 20)

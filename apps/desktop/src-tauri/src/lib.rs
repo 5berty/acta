@@ -171,6 +171,28 @@ pub fn run() {
                     idle_core.local_llm.stop_if_idle().await;
                 }
             });
+            // Permisos que el usuario concede en Ajustes del Sistema mientras acta
+            // está abierta: se avisa a la UI (`permissions:changed`) sin esperar al foco.
+            let perm_handle = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                use acta_core::permissions::{PermissionKind, PermissionStatus};
+                let mut last = system::app_level_permissions();
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    let now = system::app_level_permissions();
+                    for (kind, before, after) in [
+                        (PermissionKind::Accessibility, last.accessibility, now.accessibility),
+                        (PermissionKind::ScreenRecording, last.screen_recording, now.screen_recording),
+                    ] {
+                        if before != after {
+                            let status = if after { PermissionStatus::Granted } else { PermissionStatus::NotDetermined };
+                            let payload = acta_core::api::PermissionChanged { kind, status };
+                            let _ = perm_handle.emit(acta_core::api::event_names::PERMISSIONS_CHANGED, serde_json::to_value(payload).unwrap_or_default());
+                        }
+                    }
+                    last = now;
+                }
+            });
             // Estado inicial (p. ej. recuperando una grabación tras un cierre).
             let h = handle.clone();
             tauri::async_runtime::spawn(async move {

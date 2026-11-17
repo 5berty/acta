@@ -21,6 +21,50 @@ pub fn disk_free(path: &Path) -> Option<u64> {
     Some((st.f_bavail as u64).saturating_mul(st.f_frsize as u64))
 }
 
+/// Accesibilidad y Grabación de pantalla vistas desde ESTE proceso (acta.app,
+/// el cliente TCC que aparece en Ajustes del Sistema). El sidecar las veía
+/// «sin decidir» aunque estuvieran concedidas: su caché TCC es del momento en
+/// que arrancó, y la Grabación de pantalla solo se reevalúa en un proceso nuevo.
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+pub fn app_level_permissions() -> AppLevel {
+    #[link(name = "ApplicationServices", kind = "framework")]
+    unsafe extern "C" {
+        fn AXIsProcessTrusted() -> u8;
+    }
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGPreflightScreenCaptureAccess() -> bool;
+    }
+    // SAFETY: funciones C sin argumentos que solo consultan TCC.
+    unsafe { AppLevel { accessibility: AXIsProcessTrusted() != 0, screen_recording: CGPreflightScreenCaptureAccess() } }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn app_level_permissions() -> AppLevel {
+    AppLevel::default()
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AppLevel {
+    pub accessibility: bool,
+    pub screen_recording: bool,
+}
+
+/// Lo que dice la app manda sobre lo que dice el sidecar para Accesibilidad
+/// y Pantalla (si la app los tiene, están concedidos).
+pub fn merge_app_level(mut states: Vec<acta_core::permissions::PermissionState>, app: AppLevel) -> Vec<acta_core::permissions::PermissionState> {
+    use acta_core::permissions::{PermissionState, PermissionStatus};
+    for (kind, granted) in [(PermissionKind::Accessibility, app.accessibility), (PermissionKind::ScreenRecording, app.screen_recording)] {
+        match states.iter_mut().find(|s| s.kind == kind) {
+            Some(s) if granted => s.status = PermissionStatus::Granted,
+            Some(_) => {}
+            None => states.push(PermissionState { kind, status: if granted { PermissionStatus::Granted } else { PermissionStatus::NotDetermined }, target: None }),
+        }
+    }
+    states
+}
+
 /// Bytes que ocupa una carpeta (recursivo, sin seguir enlaces). 0 si no existe.
 pub fn dir_size_sync(path: &Path) -> u64 {
     let Ok(entries) = std::fs::read_dir(path) else { return 0 };
@@ -116,5 +160,31 @@ mod tests {
         ] {
             assert!(settings_url(k).contains("Privacy_"));
         }
+    }
+}
+
+#[cfg(test)]
+mod permission_tests {
+    use super::*;
+    use acta_core::permissions::{PermissionState, PermissionStatus};
+
+    fn st(kind: PermissionKind, status: PermissionStatus) -> PermissionState {
+        PermissionState { kind, status, target: None }
+    }
+
+    #[test]
+    fn the_app_process_wins_for_accessibility_and_screen_recording() {
+        let sidecar = vec![
+            st(PermissionKind::Microphone, PermissionStatus::Granted),
+            st(PermissionKind::ScreenRecording, PermissionStatus::NotDetermined),
+            st(PermissionKind::Accessibility, PermissionStatus::NotDetermined),
+        ];
+        let out = merge_app_level(sidecar.clone(), AppLevel { accessibility: true, screen_recording: true });
+        assert!(out.iter().all(|s| s.status == PermissionStatus::Granted), "{out:?}");
+        let out = merge_app_level(sidecar.clone(), AppLevel::default());
+        assert_eq!(out, sidecar, "si la app tampoco los tiene, manda el sidecar");
+        // Sin sidecar (no arrancó), la app los sigue enseñando.
+        let out = merge_app_level(vec![], AppLevel { accessibility: true, screen_recording: false });
+        assert_eq!(out, vec![st(PermissionKind::Accessibility, PermissionStatus::Granted), st(PermissionKind::ScreenRecording, PermissionStatus::NotDetermined)]);
     }
 }

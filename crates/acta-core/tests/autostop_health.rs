@@ -384,3 +384,20 @@ fn mic_all_zeros_message_mentions_closed_lid_and_choosing_another_mic() {
     assert!(mic.message.contains("tapa cerrada"), "{}", mic.message);
     assert!(mic.message.contains("Ajustes"), "{}", mic.message);
 }
+
+/// Real (17-nov-2026): sin permiso de pantalla la pastilla decía «Falta un
+/// permiso del sistema para grabar», como si no se grabara nada. El audio iba
+/// bien: el aviso debe decir QUÉ falta y que solo afecta a las capturas.
+#[test]
+fn a_missing_permission_says_which_one_and_screen_recording_does_not_alarm_about_audio() {
+    let mut m = monitor();
+    m.on_permission_missing(PermissionKind::ScreenRecording, T0);
+    let w = m.tick(T0.plus_ms(10), None);
+    let msg = &w.iter().find(|w| matches!(w.issue, HealthIssue::PermissionMissing { .. })).expect("aviso").message;
+    assert!(msg.starts_with("Grabación de pantalla sin permiso: no habrá capturas"), "{msg}");
+    assert!(msg.contains("el audio se graba bien"), "{msg}");
+    let mut m = monitor();
+    m.on_permission_missing(PermissionKind::Microphone, T0);
+    let w = m.tick(T0.plus_ms(10), None);
+    assert!(w[0].message.contains("Micrófono"), "{}", w[0].message);
+}

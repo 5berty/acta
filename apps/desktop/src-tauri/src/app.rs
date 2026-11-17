@@ -1033,7 +1033,15 @@ impl AppCore {
     }
 
     pub async fn permissions_status(&self) -> PortResult<Vec<PermissionState>> {
-        self.native.permissions.status().await
+        let app = crate::system::app_level_permissions();
+        match self.native.permissions.status().await {
+            Ok(states) => Ok(crate::system::merge_app_level(states, app)),
+            Err(e) if self.native.error.is_some() => {
+                tracing::debug!("permisos sin sidecar: {e}");
+                Ok(crate::system::merge_app_level(vec![], app))
+            }
+            Err(e) => Err(e),
+        }
     }
     pub async fn permissions_request(&self, kind: PermissionKind) -> PortResult<PermissionStatus> {
         self.native.permissions.request(kind).await

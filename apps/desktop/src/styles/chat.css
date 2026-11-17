@@ -130,3 +130,5 @@
   @starting-style { .msg, .chat-jump, .model-picker .model-pop { transform: none; } }
   .composer-model-chevron { transition: none; }
 }
+/* Dentro del compositor (ya es cristal) un segundo backdrop-filter no desenfoca: fondo opaco para que se lea. */
+.model-picker .model-pop { background: var(--card-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }

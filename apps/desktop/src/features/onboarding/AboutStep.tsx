@@ -32,7 +32,7 @@ export function AboutStep({ about, onAbout, systemName, systemLanguage }: Props)
     <div className="ob-step">
       <StepHead
         title="Sobre ti"
-        sub="acta usa tu nombre para saber qué tareas y menciones son tuyas. Se guarda en este Mac y nunca sale de tu Mac, salvo dentro del texto de la reunión que se envía al proveedor de IA que tú elijas."
+        sub="acta usa tu nombre para saber qué tareas y menciones son tuyas. Se guarda en este Mac y no sale de él, salvo dentro del texto de la reunión que se envía al proveedor de IA que tú elijas."
       />
       <div className="group">
         <div className="row">

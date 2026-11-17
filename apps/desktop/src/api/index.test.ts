@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { apiKind } from "./index";
 
-// Edu nunca debe ver reuniones de mentira: dentro de Tauri siempre el backend
+// Quien usa la app nunca debe ver reuniones de mentira: dentro de Tauri siempre el backend
 // real, salvo en desarrollo con VITE_ACTA_DEMO=1 explícito.
 describe("apiKind", () => {
   it("uses the real backend inside Tauri without the explicit demo flag", () => {

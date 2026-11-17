@@ -277,7 +277,7 @@ describe("bienvenida de primer arranque", () => {
       await goToStep(2);
       expect(within(dialog).getByRole("heading", { name: "Sobre ti" })).toBeInTheDocument();
       expect(within(dialog).getByText(/para saber qué tareas y menciones son tuyas/)).toBeInTheDocument();
-      expect(within(dialog).getByText(/nunca sale de tu Mac, salvo dentro del texto de la reunión que se envía al proveedor de IA que tú elijas/)).toBeInTheDocument();
+      expect(within(dialog).getByText(/no sale de él, salvo dentro del texto de la reunión que se envía al proveedor de IA que tú elijas/)).toBeInTheDocument();
       const name = within(dialog).getByLabelText("Tu nombre");
       expect(name).toHaveValue("Álex Romero");
       expect(within(dialog).getByText("Lo hemos tomado de tu cuenta de macOS")).toBeInTheDocument();

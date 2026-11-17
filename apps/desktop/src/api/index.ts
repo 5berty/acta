@@ -2,7 +2,7 @@
 //   import { api } from "../api";
 // Dentro de Tauri usa SIEMPRE la implementación real; en tests, el mock. Los
 // datos de demostración solo con `VITE_ACTA_DEMO=1` explícito en desarrollo
-// (nunca en un build de producción): Edu no debe ver reuniones de mentira.
+// (nunca en un build de producción): quien usa la app no debe ver reuniones de mentira.
 
 import type { ActaApi } from "./contract";
 import { createDemoApi, type DemoOverlay } from "./demo";

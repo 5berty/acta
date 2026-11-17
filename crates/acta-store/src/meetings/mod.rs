@@ -20,7 +20,7 @@ use rusqlite::types::Value;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row};
 
 const MEETING_COLS: &str =
-    "id,title,platform,app_bundle_id,started_at,ended_at,duration_ms,status,recovered,error,language,created_at,updated_at,favourite";
+    "id,title,platform,app_bundle_id,started_at,ended_at,duration_ms,status,recovered,error,language,created_at,updated_at,favourite,error_provider,error_model";
 const DEFAULT_LIMIT: u32 = 50;
 const MAX_LIMIT: u32 = 200;
 
@@ -40,6 +40,8 @@ fn meeting_from_row(r: &Row<'_>) -> rusqlite::Result<Meeting> {
         created_at: UnixMs(r.get(11)?),
         updated_at: UnixMs(r.get(12)?),
         favourite: col_bool(r, 13)?,
+        error_provider: r.get(14)?,
+        error_model: r.get(15)?,
     })
 }
 
@@ -437,8 +439,14 @@ impl MeetingStore for SqliteStore {
             if let Some(r) = patch.recovered {
                 m.recovered = r;
             }
+            let clear_llm = matches!(patch.error, Some(None));
             if let Some(e) = patch.error {
                 m.error = e;
+            }
+            if clear_llm {
+                m.error_provider = None;
+                m.error_model = None;
+                conn.execute("UPDATE meetings SET error_provider=NULL, error_model=NULL WHERE id=?1", [id.to_string()]).map_err(sql_err)?;
             }
             conn.execute(
                 "UPDATE meetings SET title=?2, ended_at=?3, duration_ms=?4, status=?5, recovered=?6, error=?7, updated_at=?8, title_edited = title_edited OR ?9 WHERE id=?1",
@@ -842,4 +850,15 @@ fn drop_from_suggestions(tx: &rusqlite::Transaction<'_>, id: MeetingId) -> PortR
         }
     }
     Ok(())
+}
+
+impl crate::SqliteStore {
+    /// Proveedor y modelo del resumen que falló (se borran al limpiar el error).
+    pub async fn set_meeting_error_llm(&self, id: MeetingId, provider: Option<String>, model: Option<String>) -> PortResult<()> {
+        self.with_conn(move |conn| {
+            conn.execute("UPDATE meetings SET error_provider=?2, error_model=?3 WHERE id=?1", params![id.to_string(), provider, model]).map_err(sql_err)?;
+            Ok(())
+        })
+        .await
+    }
 }

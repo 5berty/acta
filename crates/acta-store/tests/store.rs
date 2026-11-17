@@ -387,6 +387,19 @@ async fn delete_meeting_cascades_to_every_table() {
     assert!(matches!(s.delete_meeting(mid(1)).await, Err(PortError::NotFound(_))));
 }
 
+#[tokio::test]
+async fn the_failed_provider_and_model_are_kept_until_the_error_is_cleared() {
+    let (s, _d, _c) = store();
+    s.create_meeting(new_meeting(1, "R", T0)).await.unwrap();
+    s.set_meeting_error_llm(mid(1), Some("nan".into()), Some("deepseek-v4-pro".into())).await.unwrap();
+    s.patch_meeting(mid(1), MeetingPatch { error: Some(Some("falló".into())), ..Default::default() }).await.unwrap();
+    let m = s.get_meeting(mid(1)).await.unwrap().unwrap();
+    assert_eq!((m.error_provider.as_deref(), m.error_model.as_deref()), (Some("nan"), Some("deepseek-v4-pro")));
+    let m = s.patch_meeting(mid(1), MeetingPatch { error: Some(None), ..Default::default() }).await.unwrap();
+    assert_eq!((m.error_provider, m.error_model), (None, None));
+    assert_eq!(s.get_meeting(mid(1)).await.unwrap().unwrap().error_provider, None);
+}
+
 // ---------- grupos ----------
 
 #[tokio::test]

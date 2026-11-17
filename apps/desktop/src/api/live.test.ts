@@ -82,6 +82,17 @@ describe("wave 4 contract (mock)", () => {
     expect(await api.meetingSearchTranscript(m.meeting.id, "  ")).toEqual([]);
   });
 
+  it("cancels a chat answer and a live answer by request id", async () => {
+    const { api, controls } = createMockApi();
+    expect([COMMANDS.chatCancel, COMMANDS.liveCancel]).toEqual(["chat_cancel", "live_cancel"]);
+    const answers: T.LiveAnswer[] = [];
+    await api.on("live:answer", (a) => answers.push(a));
+    await api.chatCancel("m1");
+    await api.liveCancel("r1");
+    expect(controls.state.cancelled).toEqual(["m1", "r1"]);
+    expect(answers).toEqual([{ requestId: "r1", done: true }]);
+  });
+
   it("suggests a group title from its meetings without renaming it", async () => {
     const { api } = createMockApi();
     const g = await api.groupCreate("test");

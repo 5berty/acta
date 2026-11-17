@@ -36,6 +36,11 @@ pub struct Meeting {
     /// Marcada con la estrella. Las favoritas nunca se sugieren para borrar.
     #[serde(default)]
     pub favourite: bool,
+    /// Si falló el resumen: qué proveedor y modelo fallaron (también van en `error`).
+    #[serde(default)]
+    pub error_provider: Option<String>,
+    #[serde(default)]
+    pub error_model: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

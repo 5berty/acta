@@ -76,6 +76,8 @@ export const COMMANDS = {
   liveAsk: "live_ask",
   meetingSearchTranscript: "meeting_search_transcript",
   groupsSuggestTitle: "groups_suggest_title",
+  chatCancel: "chat_cancel",
+  liveCancel: "live_cancel",
 } as const;
 
 export const EVENTS = {
@@ -168,6 +170,8 @@ export interface ActaApi {
   liveTranscriptGet(sessionId: T.MeetingId): Promise<T.LiveTranscript>;
   /** Pregunta sobre lo dicho hasta ahora. Devuelve el `requestId`; la respuesta llega por `live:answer`. */
   liveAsk(request: T.LiveAskRequest): Promise<string>;
+  /** «Detener» de una pregunta en vivo. Llega un `live:answer` con `done: true`. */
+  liveCancel(requestId: string): Promise<void>;
 
   // limpieza de reuniones antiguas (solo sugiere)
   /** Vacío si las sugerencias están apagadas en Ajustes. */
@@ -184,6 +188,8 @@ export interface ActaApi {
   chatThreadDelete(threadId: T.ChatThreadId): Promise<void>;
   chatMessagesList(threadId: T.ChatThreadId): Promise<T.ChatMessage[]>;
   chatSend(threadId: T.ChatThreadId, text: string): Promise<T.ChatSendResult>;
+  /** «Detener»: corta la generación de `chatSend` (`requestId` = `assistantMessageId`). Lo recibido se guarda. */
+  chatCancel(requestId: T.ChatMessageId): Promise<void>;
 
   // huellas de voz
   voiceprintsList(): Promise<T.VoiceprintSummary[]>;

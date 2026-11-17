@@ -400,6 +400,9 @@ export interface Meeting {
   updatedAt: UnixMs;
   /** Marcada con la estrella. */
   favourite: boolean;
+  /** Si falló el resumen: proveedor y modelo que fallaron (el texto de `error` también los nombra). */
+  errorProvider?: string | null;
+  errorModel?: string | null;
 }
 
 export interface MeetingSummary {

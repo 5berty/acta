@@ -49,6 +49,7 @@ export function createTauriApi(): ActaApi {
     groupSuggestionDismiss: (id) => invoke(C.groupSuggestionDismiss, { id }),
     groupsSuggestTitle: (groupId) => invoke(C.groupsSuggestTitle, { groupId }),
 
+    liveCancel: (requestId) => invoke(C.liveCancel, { requestId }),
     liveTranscriptGet: (sessionId) => invoke(C.liveTranscriptGet, { sessionId }),
     liveAsk: (r) =>
       invoke(C.liveAsk, { sessionId: r.sessionId, question: r.question, providerId: r.providerId ?? null, model: r.model ?? null }),
@@ -63,6 +64,7 @@ export function createTauriApi(): ActaApi {
     chatThreadDelete: (threadId) => invoke(C.chatThreadDelete, { threadId }),
     chatMessagesList: (threadId) => invoke(C.chatMessagesList, { threadId }),
     chatSend: (threadId, text) => invoke(C.chatSend, { threadId, text }),
+    chatCancel: (requestId) => invoke(C.chatCancel, { requestId }),
 
     voiceprintsList: () => invoke(C.voiceprintsList),
     voiceprintDelete: (id) => invoke(C.voiceprintDelete, { id }),

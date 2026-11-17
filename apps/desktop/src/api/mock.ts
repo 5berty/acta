@@ -40,6 +40,8 @@ export interface MockState {
   retries: T.ReprocessRequest[];
   /** Transcript en vivo por sesión. */
   live: Record<T.MeetingId, T.LiveSegment[]>;
+  /** `requestId` de `chatCancel` / `liveCancel`, en orden. */
+  cancelled: string[];
 }
 
 /** Minúsculas y sin diacríticos, con el índice UTF-16 original de cada unidad. */
@@ -346,6 +348,7 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     kept: [],
     retries: [],
     live: {},
+    cancelled: [],
     ...seed,
   };
 
@@ -592,6 +595,10 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
       return { name: titles[0] ? `Seguimiento: ${titles[0]}` : "Reuniones del equipo", description: null };
     },
 
+    async liveCancel(requestId) {
+      state.cancelled.push(requestId);
+      emit("live:answer", { requestId, done: true });
+    },
     async liveTranscriptGet(sessionId) {
       return { sessionId, segments: structuredClone(state.live[sessionId] ?? []) };
     },
@@ -672,6 +679,9 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
         emit("chat:delta", { threadId, messageId: assistantMessageId, delta: reply, done: true, citations: [], error: null }),
       );
       return { userMessage, assistantMessageId };
+    },
+    async chatCancel(requestId) {
+      state.cancelled.push(requestId);
     },
 
     async voiceprintsList() {

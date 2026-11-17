@@ -9,6 +9,8 @@
 //! | `live_ask` | `{ sessionId, question, providerId?, model? }` | `string` (`requestId`; la respuesta llega por `live:answer`) |
 //! | `meeting_search_transcript` | `{ meetingId, query }` | `TranscriptMatch[]` (sin distinguir acentos ni mayúsculas) |
 //! | `groups_suggest_title` | `{ groupId }` | `GroupTitleSuggestion` (no lo aplica: la UI decide con `group_update`) |
+//! | `chat_cancel` | `{ requestId }` (= `assistantMessageId` de `chat_send`) | `null` (corta la generación: mata el CLI o cierra el stream HTTP; guarda lo recibido) |
+//! | `live_cancel` | `{ requestId }` (de `live_ask`) | `null` (corta la respuesta; llega un `live:answer` con `done: true`) |
 //!
 //! | evento | payload | frecuencia |
 //! |---|---|---|
@@ -155,6 +157,7 @@ mod names {
             [c::MEETING_RETRY, c::LLM_PROVIDERS_AVAILABLE, c::LIVE_TRANSCRIPT_GET, c::LIVE_ASK, c::MEETING_SEARCH_TRANSCRIPT, c::GROUPS_SUGGEST_TITLE],
             ["meeting_retry", "llm_providers_available", "live_transcript_get", "live_ask", "meeting_search_transcript", "groups_suggest_title"]
         );
+        assert_eq!([c::CHAT_CANCEL, c::LIVE_CANCEL], ["chat_cancel", "live_cancel"]);
         assert_eq!([e::LIVE_TRANSCRIPT, e::LIVE_ANSWER, e::PERMISSIONS_CHANGED], ["live:transcript", "live:answer", "permissions:changed"]);
     }
 }

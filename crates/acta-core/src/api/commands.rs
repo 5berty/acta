@@ -141,6 +141,8 @@ pub mod command_names {
     pub const LIVE_ASK: &str = "live_ask";
     pub const MEETING_SEARCH_TRANSCRIPT: &str = "meeting_search_transcript";
     pub const GROUPS_SUGGEST_TITLE: &str = "groups_suggest_title";
+    pub const CHAT_CANCEL: &str = "chat_cancel";
+    pub const LIVE_CANCEL: &str = "live_cancel";
 }
 
 /// Estado de la sesión tal como lo ve la UI (comandos `session_*` y evento

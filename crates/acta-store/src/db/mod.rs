@@ -16,6 +16,7 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0002_screen_shares_titles_stale.sql"),
     include_str!("../../migrations/0003_favourites.sql"),
     include_str!("../../migrations/0004_usage_cleanup.sql"),
+    include_str!("../../migrations/0005_error_provider.sql"),
 ];
 
 /// Dimensión de los vectores en el esquema actual (multilingual-e5-small).

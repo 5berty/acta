@@ -42,6 +42,12 @@ export interface MockState {
   live: Record<T.MeetingId, T.LiveSegment[]>;
   /** `requestId` de `chatCancel` / `liveCancel`, en orden. */
   cancelled: string[];
+  /** Proveedor/modelo pedido en cada `chatSend` (`null` = el de por defecto). */
+  chatLlm: (T.LlmOverride | null)[];
+  /** Proveedor/modelo pedido en cada `liveAsk`. */
+  liveLlm: (T.LlmOverride | null)[];
+  systemProfile: T.SystemProfile;
+  apps: T.InstalledApp[];
 }
 
 /** Minúsculas y sin diacríticos, con el índice UTF-16 original de cada unidad. */
@@ -349,6 +355,17 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     retries: [],
     live: {},
     cancelled: [],
+    chatLlm: [],
+    liveLlm: [],
+    systemProfile: { fullName: "Ana García", preferredLanguages: ["es-ES", "en-GB"], meetingLanguage: "es" },
+    apps: [
+      { bundleId: "com.microsoft.teams2", name: "Microsoft Teams", path: "/Applications/Microsoft Teams.app", running: true, iconPath: null },
+      { bundleId: "com.apple.Safari", name: "Safari", path: "/Applications/Safari.app", running: false, iconPath: null },
+      { bundleId: "com.tinyspeck.slackmacgap", name: "Slack", path: "/Applications/Slack.app", running: false, iconPath: null },
+      { bundleId: "com.superduper.superwhisper", name: "superwhisper", path: "/Applications/superwhisper.app", running: true, iconPath: null },
+      { bundleId: "com.typeless.app", name: "Typeless", path: "/Applications/Typeless.app", running: true, iconPath: null },
+      { bundleId: "us.zoom.xos", name: "zoom.us", path: "/Applications/zoom.us.app", running: false, iconPath: null },
+    ],
     ...seed,
   };
 
@@ -602,7 +619,8 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     async liveTranscriptGet(sessionId) {
       return { sessionId, segments: structuredClone(state.live[sessionId] ?? []) };
     },
-    async liveAsk({ sessionId, question }) {
+    async liveAsk({ sessionId, question, providerId, model }) {
+      state.liveLlm.push(providerId ? { providerId, model: model ?? null } : null);
       const requestId = newId();
       const words = foldWithMap(question).folded.split(/\W+/u).filter((w) => w.length > 4);
       const hits = (state.live[sessionId] ?? []).filter((s) => words.some((w) => foldWithMap(s.text).folded.includes(w)));
@@ -653,7 +671,8 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     async chatMessagesList(threadId) {
       return state.messages.filter((m) => m.threadId === threadId);
     },
-    async chatSend(threadId, text) {
+    async chatSend(threadId, text, llm) {
+      state.chatLlm.push(llm ?? null);
       const userMessage: T.ChatMessage = {
         id: newId(),
         threadId,
@@ -672,7 +691,7 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
         role: "assistant",
         content: reply,
         citations: [],
-        provider: "mock",
+        provider: llm?.providerId ?? "mock",
         createdAt: now(),
       });
       queueMicrotask(() =>
@@ -700,6 +719,12 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     },
     async llmProviderTest() {
       return { ok: true, message: "OK (mock)", latencyMs: 1 };
+    },
+    async systemProfile() {
+      return structuredClone(state.systemProfile);
+    },
+    async appsList() {
+      return structuredClone(state.apps);
     },
     async llmCliDetect() {
       return { claude: "/opt/homebrew/bin/claude", codex: null, claudeEnv: {}, codexEnv: {} };

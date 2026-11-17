@@ -78,6 +78,9 @@ export const COMMANDS = {
   groupsSuggestTitle: "groups_suggest_title",
   chatCancel: "chat_cancel",
   liveCancel: "live_cancel",
+  // ola 5 (acta_core::api::system)
+  systemProfile: "system_profile",
+  appsList: "apps_list",
 } as const;
 
 export const EVENTS = {
@@ -187,7 +190,8 @@ export interface ActaApi {
   chatThreadCreate(scope: T.ChatScope): Promise<T.ChatThread>;
   chatThreadDelete(threadId: T.ChatThreadId): Promise<void>;
   chatMessagesList(threadId: T.ChatThreadId): Promise<T.ChatMessage[]>;
-  chatSend(threadId: T.ChatThreadId, text: string): Promise<T.ChatSendResult>;
+  /** `llm`: proveedor y modelo SOLO para esta respuesta (no cambia los ajustes). Sin él, el proveedor del chat. */
+  chatSend(threadId: T.ChatThreadId, text: string, llm?: T.LlmOverride | null): Promise<T.ChatSendResult>;
   /** «Detener»: corta la generación de `chatSend` (`requestId` = `assistantMessageId`). Lo recibido se guarda. */
   chatCancel(requestId: T.ChatMessageId): Promise<void>;
 
@@ -226,6 +230,10 @@ export interface ActaApi {
   openSystemSettings(kind: T.PermissionKind): Promise<void>;
   healthGet(): Promise<T.HealthWarning[]>;
   appInfo(): Promise<T.AppInfo>;
+  /** Nombre de la cuenta e idiomas de macOS, para proponerlos en la bienvenida. */
+  systemProfile(): Promise<T.SystemProfile>;
+  /** Apps instaladas (/Applications, ~/Applications) y en marcha, con icono. Ordenadas por nombre. */
+  appsList(): Promise<T.InstalledApp[]>;
   /** Abre un enlace web en el navegador por defecto (nunca dentro de acta). */
   openExternalUrl(url: string): Promise<void>;
 

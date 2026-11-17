@@ -616,6 +616,30 @@ export interface ProviderTestResult {
   latencyMs: number | null;
 }
 
+/** Lo que macOS sabe de quien usa el Mac: para proponer valores en la bienvenida, nunca se aplica solo. */
+export interface SystemProfile {
+  /** Nombre completo de la cuenta de macOS («Ana García»). `null` si no se pudo leer. */
+  fullName: string | null;
+  /** Idiomas preferidos del sistema, en orden (`["es-ES", "en-GB"]`). */
+  preferredLanguages: string[];
+  /** El primero que acta sabe transcribir, listo para `settings.transcription.language`; `"auto"` si ninguno. */
+  meetingLanguage: MeetingLanguage;
+}
+
+/** Idioma de las reuniones: `"auto"` deja que el transcriptor lo detecte. Dirige la transcripción y el idioma del acta. */
+export type MeetingLanguage = "auto" | "es" | "en" | "fr" | "de" | "it" | "pt" | "ca" | (string & {});
+
+/** Una app instalada o en marcha, para elegirla sin conocer su identificador. */
+export interface InstalledApp {
+  bundleId: string;
+  name: string;
+  /** Ruta del `.app`. */
+  path: string;
+  running: boolean;
+  /** PNG del icono (ruta absoluta, para `fileUrl`). `null` si no se pudo sacar. */
+  iconPath: string | null;
+}
+
 export interface CliDetection {
   claude: string | null;
   codex: string | null;

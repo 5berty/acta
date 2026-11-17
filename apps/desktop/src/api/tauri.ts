@@ -63,7 +63,7 @@ export function createTauriApi(): ActaApi {
     chatThreadCreate: (scope) => invoke(C.chatThreadCreate, { scope }),
     chatThreadDelete: (threadId) => invoke(C.chatThreadDelete, { threadId }),
     chatMessagesList: (threadId) => invoke(C.chatMessagesList, { threadId }),
-    chatSend: (threadId, text) => invoke(C.chatSend, { threadId, text }),
+    chatSend: (threadId, text, llm) => invoke(C.chatSend, { threadId, text, providerId: llm?.providerId ?? null, model: llm?.model ?? null }),
     chatCancel: (requestId) => invoke(C.chatCancel, { requestId }),
 
     voiceprintsList: () => invoke(C.voiceprintsList),
@@ -91,6 +91,8 @@ export function createTauriApi(): ActaApi {
     openSystemSettings: (kind) => invoke(C.openSystemSettings, { kind }),
     healthGet: () => invoke(C.healthGet),
     appInfo: () => invoke(C.appInfo),
+    systemProfile: () => invoke(C.systemProfile),
+    appsList: () => invoke(C.appsList),
     openExternalUrl: (url) => invoke(C.openExternalUrl, { url }),
 
     overlaySetExpanded: (expanded) => invoke(C.overlaySetExpanded, { expanded }),

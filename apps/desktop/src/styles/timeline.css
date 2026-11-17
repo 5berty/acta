@@ -1,0 +1,140 @@
+/* Línea de tiempo: un único trazado (.tl-plot) en el que pistas, regla, rejilla y cabeza lectora
+   comparten borde izquierdo y ancho. Nada dentro puede llevar margen o relleno horizontal:
+   cualquier desfase haría que la cabeza lectora cayera fuera del evento pulsado. */
+.timeline { display: flex; flex-direction: column; gap: 14px; }
+.tl-card { padding: 16px 20px 10px; }
+
+.tl-topic { --k: var(--accent); }
+.tl-screenShare { --k: var(--warn); }
+.tl-decision { --k: var(--ok); }
+.tl-actionItem { --k: #bf5af2; }
+.tl-capture { --k: #ff375f; }
+.tl-key { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--k); }
+.tl-key.tl-topic, .tl-key.tl-screenShare, .tl-key.tl-capture { border-radius: 3px; }
+
+.tl-plot { position: relative; }
+.tl-lane { position: relative; }
+.tl-lane + .tl-lane { margin-top: 12px; }
+.tl-lane-label { display: flex; align-items: center; gap: 6px; height: 18px; margin-bottom: 4px; font-size: var(--t-caption); font-weight: 600; letter-spacing: 0.01em; color: var(--fg-2); }
+.tl-lane-count { font-weight: 500; color: var(--fg-3); }
+.tl-track { position: relative; height: 20px; border-radius: 8px; background: var(--fill); }
+.tl-track-topics { background: none; }
+.tl-track-share { height: 10px; border-radius: 5px; }
+
+/* ---- bloques con duración: temas y pantalla compartida ---- */
+.tl-block { position: absolute; display: flex; align-items: center; gap: 5px; min-width: 3px; padding: 0; border: 0; border-right: 1.5px solid transparent; background-clip: padding-box; font: inherit; text-align: left; white-space: nowrap; overflow: hidden; color: color-mix(in srgb, var(--k) 72%, var(--fg)); background-color: color-mix(in srgb, var(--k) 18%, transparent); box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--k) 42%, transparent); transition: transform var(--d-press) var(--ease-out); }
+.tl-block.tl-topic { height: 28px; border-radius: 7px; font-size: var(--t-caption); font-weight: 600; }
+/* Subtemas: fila propia, más fina y con tinte más suave, bajo su tema. */
+.tl-block.tl-topic:not([data-depth="0"]) { height: 16px; border-radius: 5px; font-size: 10.5px; background-color: color-mix(in srgb, var(--k) 11%, transparent); }
+.tl-block.tl-screenShare { top: 0; height: 10px; border-radius: 5px; background-color: color-mix(in srgb, var(--k) 55%, transparent); }
+.tl-num { flex: none; margin-left: 6px; font-weight: 700; }
+.tl-block:not([data-depth="0"]) .tl-num { margin-left: 4px; }
+.tl-text { min-width: 0; padding-right: 6px; overflow: hidden; text-overflow: ellipsis; opacity: 0.86; }
+.tl-block[data-hot] { background-color: color-mix(in srgb, var(--k) 32%, transparent); }
+.tl-block[aria-current="true"] { color: var(--fg-on-accent); background-color: var(--accent-strong); box-shadow: none; }
+.tl-block[aria-current="true"] .tl-text { opacity: 1; }
+.tl-block:active { transform: scaleY(0.93); }
+.tl-block:focus-visible { z-index: 1; }
+
+/* ---- marcadores puntuales: decisiones, tareas, capturas ---- */
+.tl-slot { position: absolute; width: 20px; height: 20px; margin-left: -10px; }
+.tl-slot[data-open] { z-index: 30; }
+.tl-marker { position: relative; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: none; transition: transform var(--d-press) var(--ease-out); }
+.tl-marker::before { content: ""; width: 12px; height: 12px; border-radius: 50%; background: var(--k); box-shadow: 0 0 0 2px var(--card-solid), 0 1px 3px rgba(0, 0, 0, 0.25); transition: transform var(--d-fast) var(--ease-out); }
+.tl-marker.tl-capture::before { border-radius: 3.5px; }
+.tl-cluster::before { content: none; }
+.tl-cluster > span { display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--k); color: #fff; font-size: 11px; font-weight: 700; line-height: 1; box-shadow: 0 0 0 2px var(--card-solid), 0 1px 3px rgba(0, 0, 0, 0.25); transition: transform var(--d-fast) var(--ease-out); }
+.tl-marker[data-hot]::before, .tl-marker[aria-expanded="true"]::before { transform: scale(1.3); }
+.tl-cluster[data-hot] > span, .tl-cluster[aria-expanded="true"] > span { transform: scale(1.12); }
+.tl-marker:active { transform: scale(0.9); }
+.tl-marker:focus-visible { outline-offset: 0; }
+
+/* Globo anclado al marcador: crece desde él. El relleno superior hace de puente para el ratón. */
+.tl-pop { position: absolute; top: 100%; width: max-content; min-width: 228px; max-width: min(320px, 76vw); padding-top: 8px; outline: none; cursor: default; }
+.tl-pop-center { left: 50%; translate: -50% 0; }
+.tl-pop-start { left: -8px; }
+.tl-pop-end { right: -8px; }
+.tl-pop-card { border-radius: 14px; text-align: left; transform-origin: top center; transition: opacity var(--d-fast) ease-out, transform var(--d-fast) var(--ease-out); }
+.tl-pop-start .tl-pop-card { transform-origin: 18px top; }
+.tl-pop-end .tl-pop-card { transform-origin: calc(100% - 18px) top; }
+@starting-style { .tl-pop-card { opacity: 0; transform: scale(0.97); } }
+/* Abierto con teclado o al pasar de un marcador al de al lado: sin animación. */
+.tl-pop[data-instant] .tl-pop-card { transition: none; }
+.tl-pop-scroll { max-height: min(340px, 52vh); overflow-y: auto; padding: 2px 14px; border-radius: inherit; }
+.tl-pop-item { padding: 11px 0 12px; }
+.tl-pop-item + .tl-pop-item { border-top: 0.5px solid var(--hairline); }
+.tl-pop-head { display: flex; align-items: center; gap: 6px; font-size: var(--t-caption); font-weight: 600; color: var(--fg-2); }
+.tl-pop-time { margin-left: auto; font-weight: 500; color: var(--fg-3); }
+.tl-pop-text { margin: 6px 0 9px; font-size: var(--t-small); line-height: 1.4; color: var(--fg); overflow-wrap: anywhere; white-space: normal; }
+.tl-pop-meta { display: grid; gap: 3px; margin: 0 0 11px; font-size: var(--t-caption); }
+.tl-pop-meta > div { display: flex; gap: 8px; }
+.tl-pop-meta dt { flex: none; width: 84px; color: var(--fg-3); }
+.tl-pop-meta dd { margin: 0; min-width: 0; color: var(--fg); overflow-wrap: anywhere; }
+.tl-pop-meta .tl-done { color: var(--ok-text); font-weight: 600; }
+.tl-pop-go { width: 100%; background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
+
+/* ---- regla: se pulsa y se arrastra ---- */
+.tl-ruler { position: relative; height: 30px; margin-top: 10px; border-top: 0.5px solid var(--hairline-strong); border-radius: 3px; cursor: pointer; touch-action: none; -webkit-user-select: none; user-select: none; }
+.tl-tick { position: absolute; top: 8px; translate: -50% 0; font-size: var(--t-caption); color: var(--fg-3); white-space: nowrap; pointer-events: none; }
+.tl-tick::before { content: ""; position: absolute; top: -8px; left: 50%; width: 1px; height: 5px; background: var(--hairline-strong); }
+.tl-tick.tl-edge-start { translate: 0 0; }
+.tl-tick.tl-edge-start::before { left: 0; }
+.tl-tick.tl-edge-end { translate: -100% 0; }
+.tl-tick.tl-edge-end::before { left: auto; right: 0; }
+.tl-tip { position: absolute; bottom: calc(100% + 6px); translate: -50% 0; padding: 2px 7px; border-radius: 6px; background: var(--fg); color: var(--card-solid); font-size: var(--t-caption); font-weight: 600; white-space: nowrap; pointer-events: none; }
+.tl-tip.tl-edge-start { translate: 0 0; }
+.tl-tip.tl-edge-end { translate: -100% 0; }
+
+/* Capa de rejilla y cabeza lectora: ocupa EXACTAMENTE el trazado y nunca recibe clics. */
+.tl-overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.tl-gridline { position: absolute; top: 22px; bottom: 30px; width: 0; border-left: 0.5px solid var(--hairline); }
+.tl-playhead { position: absolute; top: 16px; bottom: 22px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--rec); box-shadow: 0 0 0 1px var(--card-solid); }
+.tl-playhead::before { content: ""; position: absolute; top: -4px; left: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--rec); box-shadow: 0 0 0 1px var(--card-solid); }
+
+/* ---- listas sincronizadas ---- */
+.tl-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 14px; align-items: start; }
+.tl-list-card { padding: 16px 10px 10px; }
+.tl-list-card .card-head { padding: 0 10px; margin-bottom: 6px; }
+.tl-list { margin: 0; padding: 0; list-style: none; }
+.tl-row { display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 7px 10px; border: 0; border-radius: var(--r-row); background: none; color: var(--fg); font: inherit; font-size: var(--t-small); line-height: 1.4; text-align: left; transition: transform var(--d-press) var(--ease-out); }
+.tl-row:active { transform: scale(0.985); }
+.tl-row[data-hot] { background: var(--fill); }
+.tl-row[aria-current="true"] { background: var(--accent-soft); }
+.tl-row:focus-visible { outline-offset: -2px; }
+.tl-row-topic[data-depth="1"] { padding-left: 34px; }
+.tl-row-topic[data-depth="2"] { padding-left: 58px; }
+.tl-row-num { flex: none; display: inline-grid; place-items: center; min-width: 24px; height: 20px; padding: 0 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-text); font-size: var(--t-caption); font-weight: 700; }
+.tl-row[aria-current="true"] .tl-row-num { background: var(--accent-strong); color: var(--fg-on-accent); }
+.tl-row-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.tl-row-topic[data-depth="0"] .tl-row-text { font-weight: 600; }
+.tl-row-when { flex: none; display: flex; align-items: baseline; gap: 8px; font-size: var(--t-caption); color: var(--fg-3); }
+.tl-row-time { flex: none; font-size: var(--t-caption); font-weight: 500; color: var(--fg-2); }
+.tl-row-dur { min-width: 46px; text-align: right; }
+.tl-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.tl-row-meta { font-size: var(--t-caption); color: var(--fg-3); }
+.tl-row-done { color: var(--fg-2); text-decoration: line-through; }
+
+@media (hover: hover) and (pointer: fine) {
+  .tl-block:hover { background-color: color-mix(in srgb, var(--k) 32%, transparent); }
+  .tl-block[aria-current="true"]:hover { background-color: var(--accent); }
+  .tl-marker:hover::before { transform: scale(1.3); }
+  .tl-cluster:hover > span { transform: scale(1.12); }
+  .tl-row:hover { background: var(--fill); }
+  .tl-row[aria-current="true"]:hover { background: var(--accent-soft); }
+}
+
+/* «Reducir movimiento»: nada se desplaza ni escala; los estados cambian al instante. */
+@media (prefers-reduced-motion: reduce) {
+  .tl-pop-card, .tl-block, .tl-marker, .tl-marker::before, .tl-cluster > span, .tl-row { transition: none; }
+  @starting-style { .tl-pop-card { opacity: 1; transform: none; } }
+  .tl-block:active, .tl-marker:active, .tl-row:active { transform: none; }
+  .tl-marker[data-hot]::before, .tl-marker[aria-expanded="true"]::before, .tl-marker:hover::before, .tl-cluster[data-hot] > span, .tl-cluster[aria-expanded="true"] > span, .tl-cluster:hover > span { transform: none; }
+}
+/* «Reducir transparencia»: el globo usa .glass-thick, que ya pasa a sólido con los tokens. */
+@media (prefers-reduced-transparency: reduce) {
+  .tl-tip { background: var(--card-solid); color: var(--fg); box-shadow: 0 0 0 1px var(--hairline-strong); }
+}
+@media (prefers-contrast: more) {
+  .tl-block { box-shadow: inset 0 0 0 1px var(--k); }
+  .tl-track { box-shadow: inset 0 0 0 0.5px var(--hairline-strong); }
+}

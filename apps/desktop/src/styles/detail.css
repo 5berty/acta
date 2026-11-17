@@ -107,33 +107,7 @@
 .mm-label, .mm-root { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (hover: hover) and (pointer: fine) { button.mm-node:hover { box-shadow: 0 0 0 1px var(--c), 0 4px 12px rgba(0, 0, 0, 0.14); } }
 
-/* ---- línea de tiempo ---- */
-.timeline { padding: 18px; }
-.timeline-grid { position: relative; display: flex; flex-direction: column; gap: 10px; }
-.lane { display: grid; grid-template-columns: 168px minmax(0, 1fr); align-items: center; gap: 12px; }
-.lane-label { display: flex; align-items: center; justify-content: flex-end; gap: 7px; color: var(--fg-2); font-size: var(--t-small); font-weight: 500; }
-.tl-topic { --k: var(--accent); }
-.tl-screenShare { --k: #ff9f0a; }
-.tl-decision { --k: var(--ok); }
-.tl-actionItem { --k: #bf5af2; }
-.tl-capture { --k: #ff375f; }
-.lane-key { width: 8px; height: 8px; border-radius: 3px; background: var(--k); }
-.lane-track { position: relative; height: 30px; border-radius: 9px; background: var(--fill); }
-.tl-item { position: absolute; border: 0; padding: 0; font: inherit; }
-.tl-range { top: 3px; height: 24px; padding: 0 8px; border-radius: 7px; overflow: hidden; text-align: left; font-size: var(--t-small); font-weight: 600; white-space: nowrap; text-overflow: ellipsis; color: color-mix(in srgb, var(--k) 70%, var(--fg)); background: color-mix(in srgb, var(--k) 20%, transparent); box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--k) 45%, transparent); transition: background-color var(--d-fast) ease; }
-.tl-point { top: 9px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--k); box-shadow: 0 0 0 2px var(--card-solid), 0 1px 3px rgba(0, 0, 0, 0.25); transition: transform var(--d-fast) var(--ease-out); }
-.tl-capture.tl-point { border-radius: 3.5px; }
-@media (hover: hover) and (pointer: fine) {
-  .tl-range:hover { background: color-mix(in srgb, var(--k) 32%, transparent); }
-  .tl-point:hover { transform: scale(1.35); }
-}
-.axis { background: none; height: 18px; }
-.tick { position: absolute; top: 2px; font-size: var(--t-caption); color: var(--fg-3); transform: translateX(-50%); }
-.tick:first-child { transform: none; }
-.tick:last-child { transform: translateX(-100%); }
-.playhead-rail { position: absolute; top: -6px; bottom: 24px; left: 160px; right: 0; pointer-events: none; }
-.playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--rec); box-shadow: 0 0 0 1px var(--card-solid); }
-.playhead::before { content: ""; position: absolute; top: -3px; left: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--rec); }
+/* La línea de tiempo vive en timeline.css. */
 
 /* ---- capturas ---- */
 .gallery { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }

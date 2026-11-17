@@ -287,7 +287,7 @@ function Body({ meetingId, initialSeekMs, onBack, onOpenMeeting, detail, voicepr
             />
           ) : null}
           {tab === "escaleta" ? <EscaletaTab escaleta={detail.escaleta} title={meeting.title} onSeek={player.seek} /> : null}
-          {tab === "timeline" ? <TimelineTab events={detail.timeline} duration={meeting.duration} currentMs={player.currentMs} onSeek={player.seek} /> : null}
+          {tab === "timeline" ? <TimelineTab events={detail.timeline} duration={meeting.duration} currentMs={player.hasAudio ? player.currentMs : undefined} decisions={detail.minutes?.decisions} actionItems={detail.minutes?.actionItems} onSeek={player.seek} /> : null}
           {tab === "capturas" ? <CapturesContainer detail={detail} onSeek={player.seek} onChanged={() => void reload()} /> : null}
           {tab === "chat" ? (
             <ChatContainer

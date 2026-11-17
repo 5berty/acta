@@ -37,6 +37,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::oneshot;
 
+/// Nombre de un grupo creado sin nombre; se cambia solo por uno sacado de sus reuniones.
+pub const PLACEHOLDER_GROUP: &str = "Nuevo grupo";
+
 /// Respuestas en curso que «Detener» puede cortar (`chat_cancel`, `live_cancel`).
 pub type Cancels = Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>;
 
@@ -474,7 +477,11 @@ impl AppCore {
     pub async fn groups_list(&self) -> PortResult<Vec<Group>> {
         self.store.list_groups().await
     }
+    /// Sin nombre: «Nuevo grupo», y se nombra solo con lo hablado en cuanto
+    /// tenga reuniones (ver `group_add_meeting`).
     pub async fn group_create(&self, name: String, description: Option<String>) -> PortResult<Group> {
+        let name = name.trim();
+        let name = if name.is_empty() { PLACEHOLDER_GROUP.to_owned() } else { name.to_owned() };
         self.store.create_group(name, description).await
     }
     pub async fn group_update(&self, id: GroupId, name: Option<String>, description: Option<String>) -> PortResult<Group> {
@@ -487,7 +494,25 @@ impl AppCore {
         self.store.set_group_favourite(id, favourite).await
     }
     pub async fn group_add_meeting(&self, group_id: GroupId, meeting_id: MeetingId) -> PortResult<()> {
-        GroupStore::add_meeting(self.store.as_ref(), group_id, meeting_id).await
+        GroupStore::add_meeting(self.store.as_ref(), group_id, meeting_id).await?;
+        let placeholder = self.store.list_groups().await?.into_iter().any(|g| g.id == group_id && g.name == PLACEHOLDER_GROUP);
+        if placeholder {
+            let (store, factory, settings) = (self.store.clone(), self.factory.clone(), self.settings());
+            tokio::spawn(async move {
+                match suggest_group_title(store.clone(), factory, settings, group_id).await {
+                    Ok(t) => {
+                        // Solo si sigue sin nombre (el usuario pudo ponerle uno mientras).
+                        if store.list_groups().await.is_ok_and(|gs| gs.iter().any(|g| g.id == group_id && g.name == PLACEHOLDER_GROUP))
+                            && let Err(e) = store.update_group(group_id, Some(t.name), t.description).await
+                        {
+                            tracing::warn!("no se pudo nombrar el grupo: {e}");
+                        }
+                    }
+                    Err(e) => tracing::warn!("no se pudo nombrar el grupo: {e}"),
+                }
+            });
+        }
+        Ok(())
     }
     pub async fn group_remove_meeting(&self, group_id: GroupId, meeting_id: MeetingId) -> PortResult<()> {
         GroupStore::remove_meeting(self.store.as_ref(), group_id, meeting_id).await
@@ -532,22 +557,7 @@ impl AppCore {
 
     /// Título para un grupo sacado de lo hablado en sus reuniones (no lo aplica).
     pub async fn groups_suggest_title(&self, group_id: GroupId) -> PortResult<GroupTitleSuggestion> {
-        if !self.store.list_groups().await?.iter().any(|g| g.id == group_id) {
-            return Err(PortError::NotFound("No existe ese grupo.".into()));
-        }
-        let page = self.store.list_meetings(MeetingQuery { group_id: Some(group_id), limit: Some(30), ..Default::default() }).await?;
-        if page.items.is_empty() {
-            return Err(PortError::InvalidInput("El grupo aún no tiene reuniones de las que sacar un título.".into()));
-        }
-        let settings = self.settings();
-        let (_, provider) = build_provider(&settings, self.factory.as_ref(), settings.llm.naming_provider.as_ref())?;
-        let mut metas = Vec::new();
-        for m in &page.items {
-            let summary = self.store.get_minutes(m.id).await?.map(|x| x.summary_md).unwrap_or_default();
-            metas.push((m.title.clone(), summary));
-        }
-        let n = LlmGroupNamer::new(provider, settings.user.display_name.clone()).name_group(&metas).await?;
-        Ok(GroupTitleSuggestion { name: n.name, description: Some(n.description).filter(|d| !d.is_empty()) })
+        suggest_group_title(self.store.clone(), self.factory.clone(), self.settings(), group_id).await
     }
 
     /// Tras procesar una reunión: reindexa las que quedaron sin vectores y
@@ -1098,4 +1108,28 @@ impl AppCore {
             let _ = c.shutdown().await;
         }
     }
+}
+
+/// Nombre de grupo con el LLM a partir de los títulos y resúmenes de sus reuniones.
+async fn suggest_group_title(
+    store: Arc<SqliteStore>,
+    factory: Arc<dyn LlmProviderFactory>,
+    settings: Settings,
+    group_id: GroupId,
+) -> PortResult<GroupTitleSuggestion> {
+    if !store.list_groups().await?.iter().any(|g| g.id == group_id) {
+        return Err(PortError::NotFound("No existe ese grupo.".into()));
+    }
+    let page = store.list_meetings(MeetingQuery { group_id: Some(group_id), limit: Some(30), ..Default::default() }).await?;
+    if page.items.is_empty() {
+        return Err(PortError::InvalidInput("El grupo aún no tiene reuniones de las que sacar un título.".into()));
+    }
+    let (_, provider) = build_provider(&settings, factory.as_ref(), settings.llm.naming_provider.as_ref())?;
+    let mut metas = Vec::new();
+    for m in &page.items {
+        let summary = store.get_minutes(m.id).await?.map(|x| x.summary_md).unwrap_or_default();
+        metas.push((m.title.clone(), summary));
+    }
+    let n = LlmGroupNamer::new(provider, settings.user.display_name.clone()).name_group(&metas).await?;
+    Ok(GroupTitleSuggestion { name: n.name, description: Some(n.description).filter(|d| !d.is_empty()) })
 }

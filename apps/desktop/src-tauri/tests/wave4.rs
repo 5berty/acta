@@ -447,3 +447,26 @@ async fn without_a_window_title_the_calendar_event_is_used_only_when_enabled() {
     assert_eq!(r.core.resolve_title(id, Some(&teams())).await.unwrap().as_deref(), Some("Daily Talento"));
     assert_eq!(*info.asked.lock().unwrap(), vec![true]);
 }
+
+#[tokio::test]
+async fn a_group_created_without_a_name_is_named_from_its_meetings_once_it_has_one() {
+    let r = rig().await;
+    let id = meeting_with_transcript(&r.core, 9).await;
+    let g = r.core.group_create("  ".into(), None).await.unwrap();
+    assert_eq!(g.name, "Nuevo grupo");
+    r.core.group_add_meeting(g.id, id).await.unwrap();
+    let start = Instant::now();
+    loop {
+        let name = r.core.groups_list().await.unwrap().into_iter().find(|x| x.id == g.id).unwrap().name;
+        if name == "Daily del equipo" {
+            break;
+        }
+        assert!(start.elapsed() < Duration::from_secs(3), "no se nombró: {name}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    // Un nombre puesto por el usuario no se toca.
+    let named = r.core.group_create("Proyecto LOPD".into(), None).await.unwrap();
+    r.core.group_add_meeting(named.id, id).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(r.core.groups_list().await.unwrap().into_iter().find(|x| x.id == named.id).unwrap().name, "Proyecto LOPD");
+}

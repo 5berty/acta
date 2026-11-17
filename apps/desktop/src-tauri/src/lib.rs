@@ -124,6 +124,10 @@ fn forward_events(handle: AppHandle, core: Core) {
                     set_overlay(&handle, overlay::overlay_visible(&s.state));
                     tray::update(&handle, s);
                 }
+                SupervisorEvent::MeetingUpdated(m) if m.status == MeetingStatus::Recording => {
+                    let core = core.clone();
+                    tauri::async_runtime::spawn(async move { core.warm_models().await });
+                }
                 SupervisorEvent::MeetingUpdated(m) if m.status == MeetingStatus::Ready => {
                     let core = core.clone();
                     tauri::async_runtime::spawn(async move { core.after_processing().await });

@@ -1016,6 +1016,18 @@ impl AppCore {
         Ok(())
     }
 
+    /// Carga en memoria el ASR y el diarizador ya descargados (la primera
+    /// carga en frío tarda ≈25 s). Se llama al empezar a grabar.
+    pub async fn warm_models(&self) {
+        let Ok(status) = self.native.models.status().await else { return };
+        for m in status.iter().filter(|m| m.downloaded && matches!(m.name.as_str(), "asr" | "diarizer")) {
+            match self.native.models.download(&m.name).await {
+                Ok(mut s) => while s.next().await.is_some() {},
+                Err(e) => tracing::warn!(model = %m.name, "no se pudo precargar: {e}"),
+            }
+        }
+    }
+
     pub async fn audio_inputs_list(&self) -> PortResult<Vec<AudioInput>> {
         self.native.devices.inputs().await
     }

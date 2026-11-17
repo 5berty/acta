@@ -510,6 +510,18 @@ async fn e2e_retry_failed_meetings_on_a_data_copy() {
     let page = r.core.meetings_list(MeetingQuery::default()).await.unwrap();
     let failed: Vec<_> = page.items.iter().filter(|m| m.status == MeetingStatus::Failed).map(|m| m.id).collect();
     eprintln!("reuniones fallidas: {failed:?}");
+    // Como en la app tras una grabación con transcripción en vivo: modelos ya cargados.
+    if std::env::var("ACTA_E2E_WARM").is_ok() {
+        let t = Instant::now();
+        for name in ["asr", "diarizer"] {
+            r.core.models_download(name.into()).await.unwrap();
+            while !r.events.0.lock().unwrap().iter().any(|(n, p)| n == "model:download" && p["name"] == name && p["done"] == true) {
+                assert!(t.elapsed() < Duration::from_secs(300), "no cargó {name}");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+        eprintln!("modelos cargados en {:.1} s", t.elapsed().as_secs_f32());
+    }
     assert!(!failed.is_empty());
     // Los mismos pasos que manda el botón «Reintentar» de la UI.
     let steps = vec![

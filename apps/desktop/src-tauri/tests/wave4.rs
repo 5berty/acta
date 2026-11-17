@@ -352,3 +352,33 @@ async fn a_live_question_streams_an_answer_with_citations_and_can_be_stopped() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
+
+/// Al empezar a grabar se cargan ASR y diarizador (solo los descargados):
+/// la primera carga en frío cuesta ≈25 s y no debe caer en el procesado.
+#[tokio::test]
+async fn warming_loads_only_the_downloaded_speech_models() {
+    use acta_core::api::{ModelDownload, ModelStatus};
+    use acta_desktop_lib::native::ModelManager;
+    #[derive(Default)]
+    struct Models(Mutex<Vec<String>>);
+    #[async_trait]
+    impl ModelManager for Models {
+        async fn status(&self) -> PortResult<Vec<ModelStatus>> {
+            Ok(vec![
+                ModelStatus { name: "asr".into(), downloaded: true, bytes: None },
+                ModelStatus { name: "diarizer".into(), downloaded: false, bytes: None },
+                ModelStatus { name: "vad".into(), downloaded: true, bytes: None },
+            ])
+        }
+        async fn download(&self, name: &str) -> PortResult<EventStream<ModelDownload>> {
+            self.0.lock().unwrap().push(name.to_owned());
+            Ok(Box::pin(futures::stream::iter(vec![ModelDownload { name: name.into(), fraction: 1.0, done: true, error: None }])))
+        }
+    }
+    let r = rig().await;
+    let models = Arc::new(Models::default());
+    let mut core = r.core;
+    core.native.models = models.clone();
+    core.warm_models().await;
+    assert_eq!(*models.0.lock().unwrap(), vec!["asr".to_string()]);
+}

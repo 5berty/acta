@@ -151,9 +151,11 @@ const KNOWN_APPS: Record<string, string> = {
 const GENERIC_SEGMENTS = new Set(["com", "org", "net", "io", "us", "co", "app", "mac", "macos", "desktop", "client"]);
 
 /** Nombre legible de una app a partir de su bundle id (sin enseñar el id). */
-export function appDisplayName(bundleId: string): string {
+export function appDisplayName(bundleId: string, installedName?: string | null): string {
   const known = KNOWN_APPS[bundleId];
   if (known) return known;
+  // El nombre con el que la app está instalada en este Mac, si se conoce.
+  if (installedName?.trim()) return installedName.trim();
   const segments = bundleId.split(".").filter((s) => s && !GENERIC_SEGMENTS.has(s.toLowerCase()));
   const raw = segments[segments.length - 1] ?? bundleId;
   return raw

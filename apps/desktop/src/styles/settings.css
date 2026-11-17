@@ -32,6 +32,49 @@
 .tokens input { flex: 1; min-width: 150px; background: none; box-shadow: none; padding: 0 4px; min-height: 28px; }
 .tokens input:focus-visible { box-shadow: none; }
 .token { height: 28px; font-size: var(--t-small); font-weight: 500; color: var(--fg); }
+/* Fichas: entran con un gesto corto; la lista no añade caja propia. */
+.tokens-list { display: contents; }
+.token { transition: opacity var(--d-fast) var(--ease-out), transform var(--d-fast) var(--ease-out); }
+@starting-style { .token { opacity: 0; transform: scale(0.95); } }
+.badge-x { transition: transform var(--d-press) var(--ease-out); }
+.badge-x:active { transform: scale(0.9); }
+.chip-suggest { box-shadow: inset 0 0 0 1px var(--hairline-strong); background: transparent; transition: opacity var(--d-fast) var(--ease-out), transform var(--d-fast) var(--ease-out), background-color var(--d-fast) ease; }
+@starting-style { .chip-suggest { opacity: 0; transform: scale(0.95); } }
+
+/* Listas de apps (Detección): icono, nombre, identificador y un selector de apps instaladas. */
+.app-icon { flex: none; display: block; }
+.app-icon-glyph { display: grid; place-items: center; border-radius: 22%; background: var(--fill); color: var(--fg-2); }
+.app-row .brand-tile { flex: none; }
+.app-row-meta { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 6px; }
+.app-row-meta > span + span::before { content: "·"; margin-right: 6px; color: var(--fg-3); }
+.app-row-id { font-family: var(--mono); font-size: 12px; color: var(--fg-3); overflow-wrap: anywhere; }
+.app-list-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 6px 0; }
+.app-chip { padding-left: 5px; color: var(--fg); transition: opacity var(--d-fast) var(--ease-out), transform var(--d-fast) var(--ease-out), background-color var(--d-fast) ease; }
+.app-chip > svg { margin-left: 5px; }
+@starting-style { .app-chip { opacity: 0; transform: scale(0.95); } }
+.app-list-advanced { padding: 6px 14px 0; }
+.app-list-step { padding: 16px 18px; background: var(--accent-softer); transition: opacity var(--d-base) ease, transform var(--d-base) var(--ease-out); }
+@starting-style { .app-list-step { opacity: 0; transform: translateY(-4px); } }
+.rule-step { display: flex; flex-direction: column; gap: 12px; }
+.rule-step-title { font-weight: 500; }
+.rule-step .segmented { align-self: flex-start; max-width: 100%; }
+.rule-step-actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* El selector nace de su botón (arriba a la izquierda), no del centro. */
+.app-picker { width: min(420px, calc(100vw - 48px)); max-height: min(440px, 60vh); }
+.app-picker-item { gap: 12px; }
+.app-picker-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.app-picker-text .picker-meta { font-family: var(--mono); font-size: 11.5px; color: var(--fg-3); }
+.app-picker-state { display: inline-flex; align-items: center; gap: 6px; flex: none; font-size: var(--t-caption); color: var(--fg-2); white-space: nowrap; }
+.app-picker-error { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+
+/* Fallos a la vista: lo que no se pudo leer o hacer, con su «Reintentar». */
+.inline-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px 18px; }
+.settings-load-error { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.no-provider { display: flex; align-items: flex-start; gap: 14px; background: color-mix(in srgb, var(--warn) 9%, var(--card)); }
+.no-provider > svg { flex: none; margin-top: 1px; color: var(--warn-text); }
+.no-provider-title { font-weight: 600; }
+.no-provider-text { margin-top: 2px; color: var(--fg-2); line-height: 1.5; max-width: 68ch; }
+.provider-detect { white-space: normal; }
 
 .model-status, .permission-status, .test-result { display: inline-flex; align-items: center; gap: 7px; font-size: var(--t-small); color: var(--fg-2); font-weight: 500; white-space: nowrap; }
 .model-progress { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: var(--t-caption); color: var(--fg-2); }
@@ -66,4 +109,7 @@
 .save-bar-toast { padding-right: 20px; }
 .save-text { font-weight: 500; margin-right: 6px; }
 @starting-style { .save-bar { opacity: 0; transform: translateY(14px) scale(0.96); } }
-@media (prefers-reduced-motion: reduce) { @starting-style { .save-bar { transform: none; } } }
+@media (prefers-reduced-motion: reduce) {
+  .badge-x:active { transform: none; }
+  @starting-style { .save-bar, .token, .chip-suggest, .app-chip, .app-list-step { transform: none; } }
+}

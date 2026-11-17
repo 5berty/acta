@@ -2,6 +2,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { createMockApi } from "../../api";
+import { freshSettings } from "../../api/mock";
 import { ApiProvider } from "../../app/ApiContext";
 import { SettingsContainer } from "./SettingsContainer";
 
@@ -61,18 +62,51 @@ describe("SettingsContainer", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("Cambios guardados");
   });
 
-  it("guarda tu nombre y tus alias", async () => {
+  it("guarda tu nombre y tus alias, que se editan como fichas", async () => {
     const { controls } = setup();
     const name = await screen.findByLabelText("Tu nombre");
-    expect(name).toHaveValue("Edu");
+    expect(name).toHaveValue("Álex Romero");
     await userEvent.clear(name);
-    await userEvent.type(name, "Eduardo");
+    await userEvent.type(name, "Alejandra Romero");
     const aliases = screen.getByLabelText("Otros nombres");
-    await userEvent.clear(aliases);
-    await userEvent.type(aliases, "Edu, Navajas");
-    await userEvent.tab();
+    await userEvent.type(aliases, "Ale{Enter}Jandra,");
+    await userEvent.click(screen.getByRole("button", { name: "Quitar «Álex»" }));
     await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
-    await waitFor(() => expect(controls.state.settings.user).toEqual({ displayName: "Eduardo", aliases: ["Edu", "Navajas"] }));
+    await waitFor(() => expect(controls.state.settings.user).toEqual({ displayName: "Alejandra Romero", aliases: ["Ale", "Jandra"] }));
+  });
+
+  it("en una instalación nueva no hay nombre ni alias de nadie, y avisa de para qué sirve", async () => {
+    setup({ settings: { ...freshSettings(), onboarding: { completed: true } } });
+    const name = await screen.findByLabelText("Tu nombre");
+    expect(name).toHaveValue("");
+    expect(screen.getByText("Sin tu nombre, acta no puede saber qué tareas son tuyas.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Otros nombres")).toHaveAttribute("placeholder", "Álex, Alejandra");
+    expect(screen.queryByRole("button", { name: /^Quitar «/ })).not.toBeInTheDocument();
+  });
+
+  it("idioma de las reuniones: automático por defecto y los mismos idiomas que la bienvenida", async () => {
+    const { controls } = setup();
+    const language = await screen.findByLabelText("Idioma de las reuniones");
+    expect(language).toHaveValue("auto");
+    expect(within(language).getAllByRole("option").map((o) => o.textContent)).toEqual(["Automático (detectar)", "Español", "English", "Català", "Français", "Deutsch", "Italiano", "Português"]);
+    expect(screen.getByText(/La interfaz de acta está, por ahora, en español/)).toBeInTheDocument();
+    await userEvent.selectOptions(language, "ca");
+    await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await waitFor(() => expect(controls.state.settings.transcription.language).toBe("ca"));
+  });
+
+  it("si los ajustes no se pueden leer, lo dice y deja reintentar", async () => {
+    const mock = createMockApi();
+    const get = vi.spyOn(mock.api, "settingsGet").mockRejectedValueOnce({ code: "io", message: "disco lleno" });
+    render(
+      <ApiProvider api={mock.api}>
+        <SettingsContainer />
+      </ApiProvider>,
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("No se han podido leer los ajustes: disco lleno");
+    await userEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+    expect(await screen.findByRole("region", { name: "General" })).toBeInTheDocument();
+    expect(get).toHaveBeenCalledTimes(2);
   });
 
   it("usar el calendario para titular reuniones es opcional y se guarda", async () => {
@@ -109,22 +143,169 @@ describe("SettingsContainer", () => {
     expect(await screen.findByText(/Sin localizar/)).toBeInTheDocument();
   });
 
-  it("enseña las apps por su nombre, no por su identificador", async () => {
-    setup();
-    await goTo("Detección");
-    const section = await screen.findByRole("region", { name: "Detección" });
-    expect(within(section).getByText("Microsoft Teams")).toBeInTheDocument();
-    expect(within(section).queryByText("com.microsoft.teams2")).not.toBeInTheDocument();
-    expect(within(section).queryByLabelText("Identificador de la app")).not.toBeInTheDocument();
-  });
+  describe("Detección: listas de apps", () => {
+    const list = async (name: string) => within(await screen.findByRole("region", { name: "Detección" })).getByRole("group", { name });
+    const pick = async (group: HTMLElement, app: string) => {
+      await userEvent.click(within(group).getByRole("button", { name: "Añadir app" }));
+      await userEvent.click(await screen.findByRole("option", { name: app }));
+    };
+    const saveChanges = () => userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
 
-  it("añade una app habitual con un toque", async () => {
-    const { controls } = setup();
-    await goTo("Detección");
-    await userEvent.click(await screen.findByRole("button", { name: "Añadir Zoom" }));
-    expect(screen.queryByRole("button", { name: "Añadir Zoom" })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
-    await waitFor(() => expect(controls.state.settings.detection.rules).toContainEqual({ bundleId: "us.zoom.xos", platform: "zoom", isBrowser: false }));
+    it("enseña cada app con su nombre, su icono y su identificador", async () => {
+      const mock = createMockApi();
+      mock.controls.state.apps = mock.controls.state.apps.map((a) => (a.bundleId === "com.microsoft.teams2" ? { ...a, iconPath: "/cache/teams.png" } : a));
+      render(
+        <ApiProvider api={mock.api}>
+          <SettingsContainer />
+        </ApiProvider>,
+      );
+      await goTo("Detección");
+      const row = within(await list("Apps de reunión")).getByRole("listitem", { name: "Microsoft Teams" });
+      expect(within(row).getByText("com.microsoft.teams2")).toBeInTheDocument();
+      expect(within(row).getByText("Teams")).toBeInTheDocument();
+      await waitFor(() => expect(row.querySelector("img")).toHaveAttribute("src", "file:///cache/teams.png"));
+    });
+
+    it("añade una app habitual instalada con un toque", async () => {
+      const { controls } = setup();
+      await goTo("Detección");
+      const rules = await list("Apps de reunión");
+      await userEvent.click(await within(rules).findByRole("button", { name: "Añadir Zoom" }));
+      expect(within(rules).queryByRole("button", { name: "Añadir Zoom" })).not.toBeInTheDocument();
+      // Chrome no está instalado en este Mac: no se ofrece.
+      expect(within(rules).queryByRole("button", { name: "Añadir Google Chrome" })).not.toBeInTheDocument();
+      await saveChanges();
+      await waitFor(() => expect(controls.state.settings.detection.rules).toContainEqual({ bundleId: "us.zoom.xos", platform: "zoom", isBrowser: false }));
+    });
+
+    it("apps ignoradas: se eligen de la lista de apps de este Mac y se guardan", async () => {
+      const { controls } = setup();
+      await goTo("Detección");
+      const ignored = await list("Apps ignoradas");
+      expect(within(ignored).getByText("Ninguna")).toBeInTheDocument();
+      await pick(ignored, "Slack");
+      expect(within(ignored).getByRole("listitem", { name: "Slack" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Guardar cambios" })).toBeInTheDocument();
+      expect(controls.state.settings.detection.denylist).toEqual([]);
+      await saveChanges();
+      await waitFor(() => expect(controls.state.settings.detection.denylist).toEqual(["com.tinyspeck.slackmacgap"]));
+      await userEvent.click(within(ignored).getByRole("button", { name: "Dejar de ignorar Slack" }));
+      await saveChanges();
+      await waitFor(() => expect(controls.state.settings.detection.denylist).toEqual([]));
+    });
+
+    it("sugiere ignorar las apps de dictado que están instaladas, y solo esas", async () => {
+      const { controls } = setup();
+      await goTo("Detección");
+      const ignored = await list("Apps ignoradas");
+      await userEvent.click(await within(ignored).findByRole("button", { name: "Ignorar Typeless" }));
+      expect(within(ignored).getByRole("button", { name: "Ignorar superwhisper" })).toBeInTheDocument();
+      expect(within(ignored).queryByRole("button", { name: "Ignorar Typeless" })).not.toBeInTheDocument();
+      expect(within(ignored).queryByRole("button", { name: /Ignorar (Wispr Flow|MacWhisper|Orca|Aqua Voice)/ })).not.toBeInTheDocument();
+      await saveChanges();
+      await waitFor(() => expect(controls.state.settings.detection.denylist).toEqual(["com.typeless.app"]));
+    });
+
+    it("sin apps de dictado instaladas no sugiere nada", async () => {
+      setup({ apps: [{ bundleId: "com.apple.Safari", name: "Safari", path: "/Applications/Safari.app", running: false, iconPath: null }] });
+      await goTo("Detección");
+      const ignored = await list("Apps ignoradas");
+      await within(await list("Apps de reunión")).findByRole("button", { name: "Añadir Safari" });
+      expect(within(ignored).queryByRole("button", { name: /^Ignorar / })).not.toBeInTheDocument();
+    });
+
+    it("a mano, por identificador: valida, avisa de los repetidos y añade", async () => {
+      const { controls } = setup();
+      await goTo("Detección");
+      const ignored = await list("Apps ignoradas");
+      await userEvent.click(within(ignored).getByRole("button", { name: "Avanzado de Apps ignoradas" }));
+      const input = within(ignored).getByLabelText("Identificador de la app");
+      await userEvent.type(input, "dictado{Enter}");
+      expect(within(ignored).getByRole("alert")).toHaveTextContent(/no parece un identificador/);
+      await userEvent.clear(input);
+      await userEvent.type(input, " com.example.dictado {Enter}");
+      expect(within(ignored).getByRole("listitem", { name: "Dictado" })).toBeInTheDocument();
+      await userEvent.type(input, "com.example.dictado{Enter}");
+      expect(within(ignored).getByRole("alert")).toHaveTextContent("Dictado ya está en la lista.");
+      await saveChanges();
+      await waitFor(() => expect(controls.state.settings.detection.denylist).toEqual(["com.example.dictado"]));
+    });
+
+    it("app de reunión: tras elegirla pregunta qué es, con lo más probable ya puesto", async () => {
+      const { controls } = setup();
+      await goTo("Detección");
+      const rules = await list("Apps de reunión");
+      await pick(rules, "Safari");
+      const step = within(rules).getByRole("group", { name: "Tipo de reunión de Safari" });
+      expect(within(step).getByRole("button", { name: "Google Meet" })).toHaveAttribute("aria-pressed", "true");
+      expect(within(step).getByRole("checkbox", { name: "Es un navegador" })).toBeChecked();
+      expect(controls.state.settings.detection.rules).toHaveLength(1);
+      await userEvent.click(within(step).getByRole("button", { name: "Añadir a la lista" }));
+      expect(within(rules).getByRole("listitem", { name: "Safari" })).toHaveTextContent("Google Meet · en el navegador");
+      await pick(rules, "Slack");
+      const slack = within(rules).getByRole("group", { name: "Tipo de reunión de Slack" });
+      expect(within(slack).getByRole("button", { name: "Slack" })).toHaveAttribute("aria-pressed", "true");
+      expect(within(slack).getByRole("checkbox", { name: "Es un navegador" })).not.toBeChecked();
+      await userEvent.click(within(slack).getByRole("button", { name: "Otra" }));
+      await userEvent.click(within(slack).getByRole("button", { name: "Añadir a la lista" }));
+      await saveChanges();
+      await waitFor(() =>
+        expect(controls.state.settings.detection.rules).toEqual([
+          { bundleId: "com.microsoft.teams2", platform: "teams", isBrowser: false },
+          { bundleId: "com.apple.Safari", platform: "meet", isBrowser: true },
+          { bundleId: "com.tinyspeck.slackmacgap", platform: "other", isBrowser: false },
+        ]),
+      );
+    });
+
+    it("app de reunión: se puede cancelar la elección, añadir por identificador y quitar", async () => {
+      const { controls } = setup();
+      await goTo("Detección");
+      const rules = await list("Apps de reunión");
+      await pick(rules, "Safari");
+      await userEvent.click(within(rules).getByRole("button", { name: "Cancelar" }));
+      expect(within(rules).queryByRole("listitem", { name: "Safari" })).not.toBeInTheDocument();
+      await userEvent.click(within(rules).getByRole("button", { name: "Avanzado de Apps de reunión" }));
+      await userEvent.type(within(rules).getByLabelText("Identificador de la app"), "com.hnc.Discord{Enter}");
+      const step = within(rules).getByRole("group", { name: "Tipo de reunión de Discord" });
+      expect(within(step).getByRole("button", { name: "Otra" })).toHaveAttribute("aria-pressed", "true");
+      await userEvent.click(within(step).getByRole("button", { name: "Añadir a la lista" }));
+      await userEvent.click(within(rules).getByRole("button", { name: "Quitar Microsoft Teams" }));
+      await saveChanges();
+      await waitFor(() => expect(controls.state.settings.detection.rules).toEqual([{ bundleId: "com.hnc.Discord", platform: "other", isBrowser: false }]));
+    });
+
+    it("si no se pueden leer las apps del Mac, las listas siguen ahí y el selector deja reintentar", async () => {
+      const mock = createMockApi();
+      const apps = vi.spyOn(mock.api, "appsList").mockRejectedValueOnce({ code: "io", message: "sin acceso" });
+      render(
+        <ApiProvider api={mock.api}>
+          <SettingsContainer />
+        </ApiProvider>,
+      );
+      await goTo("Detección");
+      const ignored = await list("Apps ignoradas");
+      expect(within(await list("Apps de reunión")).getByRole("listitem", { name: "Microsoft Teams" })).toBeInTheDocument();
+      await userEvent.click(within(ignored).getByRole("button", { name: "Añadir app" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("sin acceso");
+      await userEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+      expect(await screen.findByRole("option", { name: "Typeless" })).toBeInTheDocument();
+      expect(apps).toHaveBeenCalledTimes(2);
+    });
+
+    it("las apps del Mac solo se piden al entrar en Detección", async () => {
+      const mock = createMockApi();
+      const apps = vi.spyOn(mock.api, "appsList");
+      render(
+        <ApiProvider api={mock.api}>
+          <SettingsContainer />
+        </ApiProvider>,
+      );
+      await screen.findByRole("region", { name: "General" });
+      expect(apps).not.toHaveBeenCalled();
+      await goTo("Detección");
+      await waitFor(() => expect(apps).toHaveBeenCalledTimes(1));
+    });
   });
 
   it("edita las palabras clave como fichas", async () => {
@@ -187,14 +368,61 @@ describe("SettingsContainer", () => {
   it("detecta los CLI y añade Codex", async () => {
     const { api } = setup();
     await goTo("Proveedores de IA");
-    vi.spyOn(api, "llmCliDetect").mockResolvedValue({ claude: "/x/claude", codex: "/x/codex", claudeEnv: { CLAUDE_CONFIG_DIR: "/h/.claude-personal" }, codexEnv: {} });
+    vi.spyOn(api, "llmCliDetect").mockResolvedValue({ claude: "/x/claude", codex: "/x/codex", claudeEnv: { CLAUDE_CONFIG_DIR: "/h/.config/claude" }, codexEnv: {} });
     await userEvent.click(await screen.findByRole("button", { name: "Detectar CLI instalados" }));
     await userEvent.click(await screen.findByRole("button", { name: "Avanzado de Codex (CLI)" }));
     await advanced("Avanzado de Claude Code (CLI)");
     expect(await screen.findByDisplayValue("/x/codex")).toBeInTheDocument();
     expect(screen.getByDisplayValue("/x/claude")).toBeInTheDocument();
     expect(screen.getByDisplayValue("CLAUDE_CONFIG_DIR")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("/h/.claude-personal")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("/h/.config/claude")).toBeInTheDocument();
+  });
+
+  it("detectar los CLI dice lo que ha encontrado, o que no hay nada, o por qué ha fallado", async () => {
+    const { api } = setup();
+    await goTo("Proveedores de IA");
+    const detect = vi.spyOn(api, "llmCliDetect");
+    const button = await screen.findByRole("button", { name: "Detectar CLI instalados" });
+    await userEvent.click(button);
+    expect(await screen.findByText("Detectado en este Mac: Claude Code.")).toBeInTheDocument();
+    detect.mockResolvedValueOnce({ claude: null, codex: null, claudeEnv: {}, codexEnv: {} });
+    await userEvent.click(button);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/No se ha encontrado Claude Code ni Codex/);
+    detect.mockRejectedValueOnce({ code: "io", message: "no hay shell" });
+    await userEvent.click(button);
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("No se ha podido buscar en este Mac: no hay shell"));
+  });
+
+  it("nada en Proveedores apunta a carpetas o alias de quien escribió la app", async () => {
+    setup();
+    await goTo("Proveedores de IA");
+    await advanced("Avanzado de Claude Code (CLI)");
+    const section = await screen.findByRole("region", { name: "Proveedores de IA" });
+    expect(section.textContent).not.toMatch(/claude-personal|CLAUDE_CONFIG_DIR|alias/i);
+    expect(within(section).getByText(/Solo si tu instalación las necesita/)).toBeInTheDocument();
+  });
+
+  it("sin proveedor avisa de que habrá transcripción pero no resumen, y el primero que se añade se queda con todo", async () => {
+    const { controls } = setup({ settings: { ...freshSettings(), onboarding: { completed: true } } });
+    await goTo("Proveedores de IA");
+    const section = await screen.findByRole("region", { name: "Proveedores de IA" });
+    const note = within(section).getByRole("note", { name: "Sin proveedor de IA" });
+    expect(note).toHaveTextContent("Aún no has elegido un proveedor de IA");
+    expect(note).toHaveTextContent(/graba y transcribe tus reuniones igual, pero sin proveedor no hay resumen, tareas ni chat/);
+    expect(within(section).queryByRole("group", { name: /Claude Code/ })).not.toBeInTheDocument();
+    expect(within(section).getByLabelText("Proveedor para el acta")).toHaveValue("");
+    await userEvent.click(within(section).getByRole("button", { name: "Añadir OpenRouter" }));
+    expect(within(section).queryByRole("note", { name: "Sin proveedor de IA" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await waitFor(() => expect(controls.state.settings.llm).toMatchObject({ minutesProvider: "openrouter", chatProvider: "openrouter", namingProvider: "openrouter" }));
+    expect(controls.state.settings.llm.providers.map((p) => p.id)).toEqual(["openrouter"]);
+  });
+
+  it("con proveedores pero nadie asignado al acta, también lo avisa", async () => {
+    setup();
+    await goTo("Proveedores de IA");
+    await userEvent.selectOptions(await screen.findByLabelText("Proveedor para el acta"), "");
+    expect(screen.getByRole("note", { name: "Sin proveedor de IA" })).toHaveTextContent("Nadie se encarga de escribir las actas");
   });
 
   it("edita el esfuerzo y las variables de entorno de Claude", async () => {
@@ -262,20 +490,6 @@ describe("SettingsContainer", () => {
     await within(section).findByRole("listitem", { name: "Detección de voz" });
     act(() => controls.emit("model:download", { name: "vad", fraction: 0.2, done: false, error: "sin red" }));
     expect(await within(section).findByRole("alert")).toHaveTextContent("sin red");
-  });
-
-  it("edita la lista de apps que nunca disparan la detección", async () => {
-    const { controls } = setup();
-    await goTo("Detección");
-    await advanced();
-    await userEvent.type(await screen.findByLabelText("Identificador de la app a ignorar"), "com.typeless.app");
-    await userEvent.click(screen.getByRole("button", { name: "Ignorar app" }));
-    expect(screen.getByText("Typeless")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
-    await waitFor(() => expect(controls.state.settings.detection.denylist).toEqual(["com.typeless.app"]));
-    await userEvent.click(screen.getByRole("button", { name: "Dejar de ignorar Typeless" }));
-    await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
-    await waitFor(() => expect(controls.state.settings.detection.denylist).toEqual([]));
   });
 
   it("añade un proveedor compatible con OpenAI", async () => {
@@ -408,22 +622,43 @@ describe("SettingsContainer", () => {
     await waitFor(() => expect(controls.state.settings.screen.enabled).toBe(true));
   });
 
-  it("añade y quita reglas de detección", async () => {
-    const { controls } = setup();
-    await goTo("Detección");
-    await advanced();
-    await userEvent.type(await screen.findByLabelText("Identificador de la app"), "us.zoom.xos");
-    await userEvent.selectOptions(screen.getByLabelText("Tipo de reunión"), "zoom");
-    await userEvent.click(screen.getByRole("button", { name: "Añadir app" }));
-    await userEvent.click(screen.getByRole("button", { name: "Quitar Microsoft Teams" }));
-    await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
-    await waitFor(() => expect(controls.state.settings.detection.rules.map((r) => r.bundleId)).toEqual(["us.zoom.xos"]));
-  });
-
   it("borra una huella de voz", async () => {
     const { controls } = setup({ voiceprints: [{ id: "v1", displayName: "Ana", samples: 3, meetings: 2, updatedAt: 0 }] });
     await goTo("General");
     await userEvent.click(await screen.findByRole("button", { name: "Olvidar la voz de Ana" }));
     await waitFor(() => expect(controls.state.voiceprints).toHaveLength(0));
+  });
+
+  it("si no se puede olvidar una voz, lo dice en vez de no hacer nada", async () => {
+    const { api } = setup({ voiceprints: [{ id: "v1", displayName: "Ana", samples: 3, meetings: 2, updatedAt: 0 }] });
+    vi.spyOn(api, "voiceprintDelete").mockRejectedValue({ code: "io", message: "base de datos ocupada" });
+    await userEvent.click(await screen.findByRole("button", { name: "Olvidar la voz de Ana" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("No se ha podido olvidar esa voz: base de datos ocupada");
+    expect(screen.getByRole("button", { name: "Olvidar la voz de Ana" })).toBeInTheDocument();
+  });
+
+  it("si pedir un permiso o abrir Ajustes del Sistema falla, lo dice", async () => {
+    const { api } = setup();
+    await goTo("Permisos");
+    vi.spyOn(api, "permissionsRequest").mockRejectedValue({ code: "io", message: "el ayudante no responde" });
+    const section = await screen.findByRole("region", { name: "Permisos" });
+    await userEvent.click(within(within(section).getByRole("listitem", { name: "Grabación de pantalla" })).getByRole("button", { name: "Conceder" }));
+    expect(await within(section).findByRole("alert")).toHaveTextContent("No se ha podido pedir el permiso: el ayudante no responde");
+  });
+
+  it("si no se puede saber qué modelos hay, lo dice y deja reintentar", async () => {
+    const mock = createMockApi();
+    vi.spyOn(mock.api, "modelsStatus").mockRejectedValueOnce({ code: "io", message: "sin carpeta de modelos" });
+    render(
+      <ApiProvider api={mock.api}>
+        <SettingsContainer />
+      </ApiProvider>,
+    );
+    await goTo("Modelos");
+    const section = await screen.findByRole("region", { name: "Modelos" });
+    expect(await within(section).findByRole("alert")).toHaveTextContent("sin carpeta de modelos");
+    await userEvent.click(within(section).getByRole("button", { name: "Reintentar" }));
+    expect(await within(section).findByRole("listitem", { name: "Transcripción" })).toBeInTheDocument();
+    expect(within(section).queryByRole("alert")).not.toBeInTheDocument();
   });
 });

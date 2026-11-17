@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { PermissionState } from "../../api";
 import { useApi, useApiEvent } from "../../app/ApiContext";
+import { errorMessage } from "../../shared/ui/ui";
 
 const POLL_MS = 2_000;
 
@@ -14,10 +15,16 @@ export function usePermissions(watching: boolean) {
   const api = useApi();
   const [permissions, setPermissions] = useState<PermissionState[]>([]);
 
+  const [error, setError] = useState<string | null>(null);
+
   const refresh = useCallback(() => {
     api.permissionsStatus().then(
-      (p) => setPermissions([...p]),
-      () => {},
+      (p) => {
+        setPermissions([...p]);
+        setError(null);
+      },
+      // Se sigue enseñando lo último que se supo, pero se dice que no se ha podido comprobar.
+      (e: unknown) => setError(`No se ha podido comprobar el estado de los permisos: ${errorMessage(e)}`),
     );
   }, [api]);
 
@@ -53,5 +60,5 @@ export function usePermissions(watching: boolean) {
     if (c.kind === "automation") refresh();
   });
 
-  return { permissions, refresh };
+  return { permissions, refresh, error };
 }

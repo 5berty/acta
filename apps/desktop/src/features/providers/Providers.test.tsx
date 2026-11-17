@@ -114,7 +114,7 @@ describe("Proveedores de IA", () => {
     it("detecta Ollama, lista sus modelos y lo deja como proveedor con un toque", async () => {
       const { section, controls } = await setup({
         local: {
-          ollama: { running: true, baseUrl: "http://127.0.0.1:11434/v1", models: ["qwen2.5:14b", "llama3.2:latest"] },
+          ollama: { running: true, baseUrl: "http://127.0.0.1:11434/v1", models: ["gemma3:12b", "llama3.2:latest"] },
           lmStudio: { running: false, baseUrl: "http://127.0.0.1:1234/v1", models: [] },
         },
       });
@@ -162,5 +162,48 @@ describe("Proveedores de IA", () => {
     expect(await within(card).findByRole("combobox", { name: "Modelo de OpenAI compatible" })).toHaveValue("mi-modelo");
     await save();
     await waitFor(() => expect(controls.state.settings.llm.providers[1]).toMatchObject({ id: "custom", kind: { baseUrl: "https://llm.example.com/v1", model: "mi-modelo" } }));
+  });
+
+  describe("fallos a la vista", () => {
+    const failing = async (prepare: (api: ReturnType<typeof createMockApi>["api"]) => void) => {
+      const mock = createMockApi();
+      prepare(mock.api);
+      render(
+        <ApiProvider api={mock.api}>
+          <SettingsContainer />
+        </ApiProvider>,
+      );
+      const nav = await screen.findByRole("navigation", { name: "Secciones de ajustes" });
+      await userEvent.click(within(nav).getByRole("button", { name: "Proveedores de IA" }));
+      return { ...mock, section: await screen.findByRole("region", { name: "Proveedores de IA" }) };
+    };
+
+    it("si no se puede buscar Ollama ni LM Studio, lo dice en vez de darlos por apagados", async () => {
+      const { section, api } = await failing((api) => {
+        vi.spyOn(api, "llmDetectLocal").mockRejectedValueOnce({ code: "io", message: "sin red local" });
+      });
+      expect(await within(section).findByText(/No se ha podido buscar Ollama ni LM Studio en este Mac: sin red local/)).toBeInTheDocument();
+      const again = vi.spyOn(api, "llmDetectLocal");
+      await userEvent.click(within(section).getByRole("button", { name: "Volver a buscar" }));
+      await waitFor(() => expect(again).toHaveBeenCalled());
+      await waitFor(() => expect(within(section).queryByText(/No se ha podido buscar Ollama/)).not.toBeInTheDocument());
+    });
+
+    it("si no se puede mirar qué ejecuta este Mac, el modelo integrado enseña el error y deja reintentar", async () => {
+      const { section } = await failing((api) => {
+        vi.spyOn(api, "localLlmStatus").mockRejectedValueOnce({ code: "io", message: "sin motor" });
+      });
+      expect(await within(section).findByText(/No se ha podido mirar qué puede ejecutar tu Mac: sin motor/)).toBeInTheDocument();
+      await userEvent.click(within(section).getAllByRole("button", { name: "Reintentar" })[0]!);
+      expect(await within(section).findByRole("group", { name: "Modelo local integrado" })).toBeInTheDocument();
+    });
+
+    it("si el navegador no se abre al crear la cuenta, lo dice", async () => {
+      const { section } = await failing((api) => {
+        vi.spyOn(api, "openExternalUrl").mockRejectedValue({ code: "io", message: "sin navegador" });
+      });
+      await userEvent.click(within(section).getByRole("button", { name: "Crear cuenta" }));
+      expect(await within(section).findByText(/No se ha podido abrir .* en el navegador: sin navegador/)).toBeInTheDocument();
+    });
   });
 });

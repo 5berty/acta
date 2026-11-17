@@ -15,7 +15,7 @@ export function AboutSection({ info }: { info: AppInfo | null }) {
       </div>
       <Group>
         <Row label="Versión">
-          <span className="muted num selectable">{info?.version ?? "…"}</span>
+          <span className="muted num selectable">{info?.version ?? "No disponible"}</span>
         </Row>
         <Row label="macOS">
           <span className="muted num selectable">{info?.macosVersion ?? "Desconocido"}</span>
@@ -27,7 +27,7 @@ export function AboutSection({ info }: { info: AppInfo | null }) {
       <Disclosure label="Avanzado">
         <div className="card advanced">
           <Field label="Carpeta de datos" hint="Aquí están el audio, las capturas, los modelos y la base de datos.">
-            <code className="path selectable">{info?.dataDir ?? "…"}</code>
+            <code className="path selectable">{info?.dataDir ?? "No disponible"}</code>
           </Field>
         </div>
       </Disclosure>

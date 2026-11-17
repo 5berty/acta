@@ -13,6 +13,9 @@ const ramGb = (hw: HardwareInfo): number => Math.round(hw.ramBytes / GIB);
 export interface BuiltInState {
   /** `null` mientras se pregunta al Mac. */
   status: LocalLlmStatus | null;
+  /** No se pudo preguntar al Mac qué puede ejecutar. */
+  error?: string | null;
+  retry?(): void;
   /** Último evento de descarga de cada modelo. */
   progress: Record<string, LocalLlmDownload | undefined>;
   tests: Record<string, ProviderTestResult | "pending" | undefined>;
@@ -29,7 +32,18 @@ export function useBuiltInModels(): BuiltInState {
   const [progress, setProgress] = useState<BuiltInState["progress"]>({});
   const [tests, setTests] = useState<BuiltInState["tests"]>({});
 
-  const refresh = useCallback(() => void api.localLlmStatus().then(setStatus, () => setStatus(null)), [api]);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(() => {
+    api.localLlmStatus().then(
+      (s) => {
+        setStatus(s);
+        setError(null);
+      },
+      // Lo último que se supo se conserva; si no había nada, se enseña el error con «Reintentar».
+      (e: unknown) => setError(errorMessage(e)),
+    );
+  }, [api]);
   useEffect(refresh, [refresh]);
 
   useApiEvent("localmodel:download", (e) => {
@@ -42,13 +56,15 @@ export function useBuiltInModels(): BuiltInState {
 
   return {
     status,
+    error,
+    retry: refresh,
     progress,
     tests,
     download: (modelId) => {
       setProgress((prev) => ({ ...prev, [modelId]: { modelId, stage: "model", receivedBytes: 0, totalBytes: 0, fraction: 0, done: false, error: null } }));
       api.localLlmDownload(modelId).catch((e: unknown) => fail(modelId, e));
     },
-    pause: (modelId) => void api.localLlmCancel(modelId),
+    pause: (modelId) => void api.localLlmCancel(modelId).catch((e: unknown) => fail(modelId, e)),
     remove: (modelId) => {
       setProgress((prev) => ({ ...prev, [modelId]: undefined }));
       setTests((prev) => ({ ...prev, [modelId]: undefined }));
@@ -218,6 +234,20 @@ function ModelRow({ m, hw, state, inUse, verb, onUse }: { m: LocalModelStatus; h
  */
 export function BuiltInModels({ state, inUse = null, verb = "Usar", onUse, recommendedFirst = false }: Props) {
   const { status } = state;
+  if (!status && state.error) {
+    return (
+      <div className="card inline-error">
+        <span role="alert" className="error">
+          No se ha podido mirar qué puede ejecutar tu Mac: {state.error}
+        </span>
+        {state.retry ? (
+          <Button small capsule onClick={state.retry}>
+            Reintentar
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
   if (!status) {
     return (
       <p className="card card-empty builtin-loading">

@@ -159,9 +159,13 @@ const newId = (): string => {
 
 const now = (): number => Date.now();
 
+/**
+ * Ajustes de un Mac ya configurado (bienvenida vista, un proveedor elegido):
+ * es de lo que parten casi todos los tests. Para un primer arranque, `freshSettings`.
+ */
 export function defaultSettings(): T.Settings {
   return {
-    user: { displayName: "Edu", aliases: ["Eduardo", "Edu Navajas"] },
+    user: { displayName: "Álex Romero", aliases: ["Álex"] },
     recording: { segmentSeconds: 30, frameMs: 100, micDeviceUid: null, deleteSegmentsAfterConcat: false },
     autoStop: {
       silenceThresholdDbfs: -50,
@@ -190,7 +194,7 @@ export function defaultSettings(): T.Settings {
       keywords: ["importante", "apuntad", "esto es clave", "deadline", "fecha"],
       pruneCandidates: true,
     },
-    transcription: { language: "es", diarization: true, livePreview: true, voiceprintMinSimilarityPct: 75 },
+    transcription: { language: "auto", diarization: true, livePreview: true, voiceprintMinSimilarityPct: 75 },
     llm: {
       providers: [
         {
@@ -210,6 +214,18 @@ export function defaultSettings(): T.Settings {
     onboarding: { completed: true },
     cleanup: { enabled: true, minAgeDays: 90, snoozedUntil: null },
     titles: { calendar: false },
+  };
+}
+
+/** Lo que trae una instalación nueva, igual que el backend: sin nombre, idioma automático y ningún proveedor de IA. */
+export function freshSettings(): T.Settings {
+  const s = defaultSettings();
+  return {
+    ...s,
+    user: { displayName: "", aliases: [] },
+    transcription: { ...s.transcription, language: "auto" },
+    llm: { providers: [], minutesProvider: null, chatProvider: null, namingProvider: null },
+    onboarding: { completed: false },
   };
 }
 
@@ -357,7 +373,7 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     cancelled: [],
     chatLlm: [],
     liveLlm: [],
-    systemProfile: { fullName: "Ana García", preferredLanguages: ["es-ES", "en-GB"], meetingLanguage: "es" },
+    systemProfile: { fullName: "Álex Romero", preferredLanguages: ["es-ES", "en-GB"], meetingLanguage: "es" },
     apps: [
       { bundleId: "com.microsoft.teams2", name: "Microsoft Teams", path: "/Applications/Microsoft Teams.app", running: true, iconPath: null },
       { bundleId: "com.apple.Safari", name: "Safari", path: "/Applications/Safari.app", running: false, iconPath: null },

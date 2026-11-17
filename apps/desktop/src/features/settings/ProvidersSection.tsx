@@ -1,4 +1,4 @@
-import { Cpu, Plus, ScanSearch, Server, Trash2, X } from "lucide-react";
+import { CircleAlert, Cpu, Plus, ScanSearch, Server, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ProviderConfig, ProviderKind, ProviderTestResult, SecretRef, Settings } from "../../api";
 import { useApi } from "../../app/ApiContext";
@@ -9,7 +9,7 @@ import { NanIntro } from "../providers/NanIntro";
 import { PresetGallery } from "../providers/PresetGallery";
 import { NAN_REFERRAL_URL, NAN_UNMETERED, PRESETS, PRESET_ORDER, assignAll, brandOf, createFromPreset, presetOf, upsertPreset, type PresetId } from "../providers/presets";
 import { BrandLogo } from "../../shared/brand/BrandLogo";
-import { Button, Disclosure, IconButton, Select, Spinner, StatusDot, Stepper, Switch } from "../../shared/ui/ui";
+import { Button, Disclosure, IconButton, Select, Spinner, StatusDot, Stepper, Switch, errorMessage } from "../../shared/ui/ui";
 import { Field, Group, Row, Section } from "./fields";
 
 const EFFORTS: { v: string; l: string }[] = [
@@ -38,7 +38,7 @@ function EnvEditor({ label, env, onChange }: { label: string; env: Record<string
     onChange(rowsToEnv(next));
   };
   return (
-    <Field label="Variables de entorno" hint="Las que fija tu alias de terminal, p. ej. CLAUDE_CONFIG_DIR. Las credenciales del CLI no se tocan nunca.">
+    <Field label="Variables de entorno" hint="Solo si tu instalación las necesita (un proxy, otra carpeta de configuración…). «Detectar CLI instalados» copia las que use tu terminal. Las credenciales del CLI no se tocan nunca.">
       {rows.length > 0 ? (
         <ul className="plain env-rows">
           {rows.map(([k, v], i) => (
@@ -61,12 +61,18 @@ function EnvEditor({ label, env, onChange }: { label: string; env: Record<string
   );
 }
 
+export type DetectState = "pending" | { ok: boolean; text: string } | null;
+
 interface Props {
   llm: Settings["llm"];
   tests: Record<string, ProviderTestResult | "pending" | undefined>;
   onChange(llm: Settings["llm"]): void;
   onTest(id: string): void;
   onDetect(): void;
+  /** Resultado de la última búsqueda de CLI: se enseña junto al botón. */
+  detecting?: DetectState;
+  /** Abre un enlace en el navegador; si falla, se dice aquí. */
+  onOpenUrl?(url: string): Promise<void>;
   onSecretSet(providerId: string, value: string): Promise<SecretRef>;
   onSecretDelete(providerId: string): Promise<void>;
 }
@@ -74,7 +80,7 @@ interface Props {
 /** Presets de los que solo tiene sentido tener uno. */
 const SINGLE: PresetId[] = ["claudeCode", "codex", "builtIn", "ollama", "lmStudio", "nan"];
 
-function ProviderCard({ p, result, onChange, onRemove, onTest, onSecretSet, onSecretDelete }: { p: ProviderConfig; result: ProviderTestResult | "pending" | undefined; onChange(p: ProviderConfig): void; onRemove(): void; onTest(): void; onSecretSet: Props["onSecretSet"]; onSecretDelete: Props["onSecretDelete"] }) {
+function ProviderCard({ p, result, onChange, onRemove, onTest, onSecretSet, onSecretDelete, onOpenUrl }: { p: ProviderConfig; result: ProviderTestResult | "pending" | undefined; onChange(p: ProviderConfig): void; onRemove(): void; onTest(): void; onSecretSet: Props["onSecretSet"]; onSecretDelete: Props["onSecretDelete"]; onOpenUrl(url: string): void }) {
   const api = useApi();
   const [reloadKey, setReloadKey] = useState(0);
   const k = p.kind;
@@ -116,7 +122,7 @@ function ProviderCard({ p, result, onChange, onRemove, onTest, onSecretSet, onSe
         <Switch label={`Activar ${p.label}`} checked={p.enabled} onChange={(enabled) => onChange({ ...p, enabled })} />
       </div>
 
-      {preset.id === "nan" ? <NanIntro heading={false} onCreateAccount={() => void api.openExternalUrl(NAN_REFERRAL_URL)} /> : null}
+      {preset.id === "nan" ? <NanIntro heading={false} onCreateAccount={() => onOpenUrl(NAN_REFERRAL_URL)} /> : null}
 
       {k.type === "openAiCompatible" && preset.needsKey ? (
         <ApiKeyField
@@ -240,13 +246,19 @@ function ProviderCard({ p, result, onChange, onRemove, onTest, onSecretSet, onSe
   );
 }
 
-export function ProvidersSection({ llm, tests, onChange, onTest, onDetect, onSecretSet, onSecretDelete }: Props) {
+export function ProvidersSection({ llm, tests, onChange, onTest, onDetect, detecting = null, onOpenUrl, onSecretSet, onSecretDelete }: Props) {
   const api = useApi();
-  const { detection, refresh } = useLocalDetection();
+  const { detection, refresh, error: localError } = useLocalDetection();
   const builtIn = useBuiltInModels();
+  const [linkError, setLinkError] = useState<string | null>(null);
   const enabled = llm.providers.filter((p) => p.enabled);
   const has = (id: PresetId) => llm.providers.some((p) => presetOf(p) === id);
-  const openUrl = (url: string) => void api.openExternalUrl(url);
+  const openUrl = (url: string) => {
+    setLinkError(null);
+    (onOpenUrl ?? ((u: string) => api.openExternalUrl(u)))(url).catch((e: unknown) => setLinkError(`No se ha podido abrir ${url} en el navegador: ${errorMessage(e)}`));
+  };
+  // Quien escribe las actas: sin él hay transcripción, pero no resumen.
+  const writer = enabled.find((p) => p.id === llm.minutesProvider);
 
   const task = (label: string, hint: string, aria: string, key: "minutesProvider" | "chatProvider" | "namingProvider") => (
     <Row label={label} hint={hint}>
@@ -262,7 +274,10 @@ export function ProvidersSection({ llm, tests, onChange, onTest, onDetect, onSec
   );
 
   const add = (id: PresetId) => {
-    onChange({ ...llm, providers: [...llm.providers, createFromPreset(id, llm.providers)] });
+    const created = createFromPreset(id, llm.providers);
+    // Lo que aún no hace nadie pasa a hacerlo el que se acaba de elegir; lo ya asignado no se toca.
+    const active = (task: string | null) => (enabled.some((p) => p.id === task) ? task : created.id);
+    onChange({ ...llm, providers: [...llm.providers, created], minutesProvider: active(llm.minutesProvider), chatProvider: active(llm.chatProvider), namingProvider: active(llm.namingProvider) });
     // Los CLI necesitan su ruta: se busca sola.
     if (id === "claudeCode" || id === "codex") onDetect();
   };
@@ -286,6 +301,24 @@ export function ProvidersSection({ llm, tests, onChange, onTest, onDetect, onSec
 
   return (
     <Section title="Proveedores de IA" hint="Quién escribe las actas y responde en el chat. La transcripción siempre se hace en tu Mac; esto solo afecta al texto.">
+      {writer ? null : (
+        <div className="card no-provider" role="note" aria-label="Sin proveedor de IA">
+          <CircleAlert size={18} strokeWidth={2} aria-hidden />
+          <div>
+            <p className="no-provider-title">{llm.providers.length === 0 ? "Aún no has elegido un proveedor de IA" : "Nadie se encarga de escribir las actas"}</p>
+            <p className="no-provider-text">
+              acta graba y transcribe tus reuniones igual, pero sin proveedor no hay resumen, tareas ni chat.{" "}
+              {llm.providers.length === 0 ? "Elige uno más abajo: se añade con un toque y puedes cambiarlo cuando quieras." : "Activa uno y asígnalo en «Quién hace cada cosa»."}
+            </p>
+          </div>
+        </div>
+      )}
+      {linkError ? (
+        <p role="alert" className="card inline-error error">
+          {linkError}
+        </p>
+      ) : null}
+
       <Group title="Quién hace cada cosa" foot="Solo aparecen los proveedores activados.">
         {task("Acta", "Resumen, decisiones, tareas y escaleta.", "el acta", "minutesProvider")}
         {task("Chat", "Las respuestas de «Preguntar».", "el chat", "chatProvider")}
@@ -313,9 +346,10 @@ export function ProvidersSection({ llm, tests, onChange, onTest, onDetect, onSec
               onTest={() => onTest(p.id)}
               onSecretSet={onSecretSet}
               onSecretDelete={onSecretDelete}
+              onOpenUrl={openUrl}
             />
           ))}
-          {llm.providers.length === 0 ? <p className="card card-empty">Sin un proveedor no hay actas ni chat. Elige uno de los de abajo: se añade con un toque.</p> : null}
+          {llm.providers.length === 0 ? <p className="card card-empty">Ninguno todavía. Elige uno de los de abajo: se añade con un toque.</p> : null}
         </div>
       </div>
 
@@ -326,7 +360,7 @@ export function ProvidersSection({ llm, tests, onChange, onTest, onDetect, onSec
 
       <div className="settings-group">
         <p className="group-title">Ollama y LM Studio</p>
-        <LocalModels detection={detection} inUse={inUse} onUse={useLocal} onRefresh={refresh} onOpenUrl={openUrl} />
+        <LocalModels detection={detection} error={localError} inUse={inUse} onUse={useLocal} onRefresh={refresh} onOpenUrl={openUrl} />
       </div>
 
       <div className="settings-group">
@@ -344,8 +378,14 @@ export function ProvidersSection({ llm, tests, onChange, onTest, onDetect, onSec
           <PresetGallery presets={gallery} onAdd={add} />
         </div>
         <div className="provider-add">
+          {detecting && detecting !== "pending" ? (
+            <span role={detecting.ok ? "status" : "alert"} className={`test-result provider-detect ${detecting.ok ? "ok" : "error"}`}>
+              <StatusDot tone={detecting.ok ? "ok" : "warn"} />
+              {detecting.text}
+            </span>
+          ) : null}
           <span className="spacer" />
-          <Button small variant="ghost" title="Busca Claude Code y Codex en tu Mac y rellena su ruta" icon={<ScanSearch size={13} strokeWidth={2} aria-hidden />} onClick={onDetect}>
+          <Button small variant="ghost" disabled={detecting === "pending"} title="Busca Claude Code y Codex en tu Mac y rellena su ruta" icon={detecting === "pending" ? <Spinner /> : <ScanSearch size={13} strokeWidth={2} aria-hidden />} onClick={onDetect}>
             Detectar CLI instalados
           </Button>
         </div>

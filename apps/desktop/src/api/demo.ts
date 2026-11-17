@@ -3,7 +3,7 @@
 // Envuelve el mock en memoria con reuniones, grupos y un chat creíbles.
 
 import type { ActaApi } from "./contract";
-import { createMockApi, defaultSettings, mockLocalLlmStatus, noLocalRuntimes, sampleMeeting, type MockControls } from "./mock";
+import { createMockApi, defaultSettings, freshSettings, mockLocalLlmStatus, noLocalRuntimes, sampleMeeting, type MockControls } from "./mock";
 import type * as T from "./types";
 
 const MIN = 60_000;
@@ -207,19 +207,19 @@ export interface DemoOptions {
 export function createDemoApi(overlay: DemoOverlay = "idle", opts: DemoOptions = {}): { api: ActaApi; controls: MockControls } {
   const now = Date.now();
   const drafts: Draft[] = [
-    { title: "Planificación del lanzamiento", platform: "teams", ago: 2 * HOUR, minutes: 47, people: ["Edu", "Ana García", "Luis Ortega", "Marta Ruiz"], rich: true },
-    { title: "Uno a uno con Ana", platform: "meet", ago: 5 * HOUR, minutes: 28, people: ["Edu", "Ana García"] },
-    { title: "Revisión de diseño", platform: "teams", ago: 40 * MIN, minutes: 31, people: ["Edu", "Marta Ruiz", "Pablo Sanz"], status: "processing" },
-    { title: "Daily del equipo", platform: "teams", ago: DAY + 3 * HOUR, minutes: 15, people: ["Edu", "Ana García", "Luis Ortega", "Marta Ruiz", "Pablo Sanz", "Sara Gil"] },
-    { title: "Demo para el cliente", platform: "zoom", ago: DAY + 6 * HOUR, minutes: 52, people: ["Edu", "Carla Vidal", "Íñigo Paz"], status: "failed", error: "claude: timeout tras 600 s (exit 124)" },
-    { title: "Retrospectiva del sprint 14", platform: "teams", ago: 9 * DAY, minutes: 58, people: ["Edu", "Ana García", "Luis Ortega", "Marta Ruiz"] },
-    { title: "Entrevista de producto", platform: "meet", ago: 12 * DAY, minutes: 36, people: ["Edu", "Jorge Leal"] },
-    { title: "Kickoff del proyecto Atlas", platform: "slack", ago: 38 * DAY, minutes: 64, people: ["Edu", "Ana García", "Carla Vidal", "Luis Ortega"] },
+    { title: "Planificación del lanzamiento", platform: "teams", ago: 2 * HOUR, minutes: 47, people: ["Álex", "Ana García", "Luis Ortega", "Marta Ruiz"], rich: true },
+    { title: "Uno a uno con Ana", platform: "meet", ago: 5 * HOUR, minutes: 28, people: ["Álex", "Ana García"] },
+    { title: "Revisión de diseño", platform: "teams", ago: 40 * MIN, minutes: 31, people: ["Álex", "Marta Ruiz", "Pablo Sanz"], status: "processing" },
+    { title: "Daily del equipo", platform: "teams", ago: DAY + 3 * HOUR, minutes: 15, people: ["Álex", "Ana García", "Luis Ortega", "Marta Ruiz", "Pablo Sanz", "Sara Gil"] },
+    { title: "Demo para el cliente", platform: "zoom", ago: DAY + 6 * HOUR, minutes: 52, people: ["Álex", "Carla Vidal", "Íñigo Paz"], status: "failed", error: "claude: timeout tras 600 s (exit 124)" },
+    { title: "Retrospectiva del sprint 14", platform: "teams", ago: 9 * DAY, minutes: 58, people: ["Álex", "Ana García", "Luis Ortega", "Marta Ruiz"] },
+    { title: "Entrevista de producto", platform: "meet", ago: 12 * DAY, minutes: 36, people: ["Álex", "Jorge Leal"] },
+    { title: "Kickoff del proyecto Atlas", platform: "slack", ago: 38 * DAY, minutes: 64, people: ["Álex", "Ana García", "Carla Vidal", "Luis Ortega"] },
     // Antiguas y sin abrir: las que sugiere la limpieza.
-    { title: "Prueba de micro", platform: "other", ago: 131 * DAY, minutes: 1, people: ["Edu"] },
-    { title: "Sync con proveedores", platform: "meet", ago: 164 * DAY, minutes: 22, people: ["Edu", "Íñigo Paz"] },
-    { title: "Formación de la herramienta de gastos", platform: "teams", ago: 212 * DAY, minutes: 48, people: ["Edu", "Sara Gil", "Pablo Sanz"] },
-    { title: "Reunión de Teams", platform: "teams", ago: 248 * DAY, minutes: 3, people: ["Edu", "Jorge Leal"], status: "failed", error: "No se pudo transcribir el audio." },
+    { title: "Prueba de micro", platform: "other", ago: 131 * DAY, minutes: 1, people: ["Álex"] },
+    { title: "Sync con proveedores", platform: "meet", ago: 164 * DAY, minutes: 22, people: ["Álex", "Íñigo Paz"] },
+    { title: "Formación de la herramienta de gastos", platform: "teams", ago: 212 * DAY, minutes: 48, people: ["Álex", "Sara Gil", "Pablo Sanz"] },
+    { title: "Reunión de Teams", platform: "teams", ago: 248 * DAY, minutes: 3, people: ["Álex", "Jorge Leal"], status: "failed", error: "No se pudo transcribir el audio." },
   ];
   const meetings = drafts.map((d) => build(d, now)).sort((a, b) => b.meeting.startedAt - a.meeting.startedAt);
   const byTitle = (t: string) => meetings.find((m) => m.meeting.title === t)!;
@@ -310,14 +310,15 @@ export function createDemoApi(overlay: DemoOverlay = "idle", opts: DemoOptions =
       { kind: "accessibility", status: "denied", target: null },
       { kind: "automation", status: "notDetermined", target: "com.google.Chrome" },
     ],
-    settings: { ...defaultSettings(), onboarding: { completed: !opts.onboarding } },
+    // La bienvenida se enseña como en una instalación nueva: sin nombre ni proveedor.
+    settings: opts.onboarding ? freshSettings() : defaultSettings(),
     local: opts.noLocal
       ? noLocalRuntimes()
       : {
-          ollama: { running: true, baseUrl: "http://127.0.0.1:11434/v1", models: ["qwen2.5:14b", "gemma3:12b", "llama3.2:latest"] },
+          ollama: { running: true, baseUrl: "http://127.0.0.1:11434/v1", models: ["gemma3:12b", "llama3.2:latest", "mistral:7b"] },
           lmStudio: { running: false, baseUrl: "http://127.0.0.1:1234/v1", models: [] },
         },
-    remoteModels: { "https://api.nan.builders/v1": ["deepseek-v4-flash", "glm5.3", "qwen3.8-flash", "kimi-k3.1-pro", "qwen3.6", "gemma4"] },
+    remoteModels: { "https://api.nan.builders/v1": ["glm5.3", "qwen3.8-flash", "kimi-k3.1-pro", "qwen3.6", "gemma4"] },
     cleanup,
     localLlm: opts.onboarding ? mockLocalLlmStatus() : localLlm,
   });

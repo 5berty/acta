@@ -10,7 +10,7 @@ export type PresetId = "claudeCode" | "codex" | "builtIn" | "ollama" | "lmStudio
 export const BUILTIN_PROVIDER_ID = "builtin";
 
 export const NAN_BASE_URL = "https://api.nan.builders/v1";
-/** Enlace de invitación de Edu a NaN Builders. */
+/** Enlace de invitación a NaN Builders. Es intencionado: no se quita. */
 export const NAN_REFERRAL_URL = "https://cloud.nan.builders/r/YZ524NPK";
 /** Modelos de NaN que no consumen cuota (según nan.builders, 16-nov-2026). */
 export const NAN_UNMETERED = ["gemma4", "qwen3.6"];

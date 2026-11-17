@@ -1,6 +1,6 @@
 import { Bot, Camera, Download, Info, Radar, ShieldCheck, SlidersHorizontal, Timer } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
-import type { AppInfo, ModelDownload, ModelStatus, ProviderTestResult, Settings, VoiceprintSummary } from "../../api";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import type { AppInfo, CliDetection, ModelDownload, ModelStatus, ProviderTestResult, Settings, VoiceprintSummary } from "../../api";
 import { useApi, useApiEvent } from "../../app/ApiContext";
 import { Button, errorMessage } from "../../shared/ui/ui";
 import { AboutSection } from "./AboutSection";
@@ -9,7 +9,8 @@ import { ModelsSection } from "./ModelsSection";
 import { PermissionsSection } from "./PermissionsSection";
 import { usePermissions } from "./usePermissions";
 import { createFromPreset } from "../providers/presets";
-import { ProvidersSection } from "./ProvidersSection";
+import { ProvidersSection, type DetectState } from "./ProvidersSection";
+import { useInstalledApps } from "./useInstalledApps";
 
 type SectionKey = "general" | "recording" | "detection" | "screen" | "providers" | "models" | "permissions" | "about";
 
@@ -32,22 +33,55 @@ export function SettingsContainer({ onReplayOnboarding }: { onReplayOnboarding?:
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [saved, setSaved] = useState<Settings | null>(null);
   const [draft, setDraft] = useState<Settings | null>(null);
-  const { permissions, refresh: refreshPermissions } = usePermissions(section === "permissions");
+  const { permissions, refresh: refreshPermissions, error: permissionsLoadError } = usePermissions(section === "permissions");
   const [voiceprints, setVoiceprints] = useState<VoiceprintSummary[]>([]);
   const [models, setModels] = useState<ModelStatus[]>([]);
   const [downloads, setDownloads] = useState<Record<string, ModelDownload>>({});
   const [tests, setTests] = useState<Record<string, ProviderTestResult | "pending" | undefined>>({});
   const [message, setMessage] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [voiceprintsError, setVoiceprintsError] = useState<string | null>(null);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [permissionsError, setPermissionsError] = useState<string | null>(null);
+  const [detecting, setDetecting] = useState<DetectState>(null);
+  const apps = useInstalledApps(section === "detection");
+
+  const loadSettings = useCallback(() => {
+    setLoadError(null);
+    api.settingsGet().then(
+      (s) => {
+        setSaved(s);
+        setDraft(structuredClone(s));
+      },
+      (e: unknown) => setLoadError(errorMessage(e)),
+    );
+  }, [api]);
+  const loadVoiceprints = useCallback(() => {
+    api.voiceprintsList().then(
+      (v) => {
+        setVoiceprints([...v]);
+        setVoiceprintsError(null);
+      },
+      (e: unknown) => setVoiceprintsError(`No se han podido leer las voces recordadas: ${errorMessage(e)}`),
+    );
+  }, [api]);
+  const loadModels = useCallback(() => {
+    api.modelsStatus().then(
+      (m) => {
+        setModels([...m]);
+        setModelsError(null);
+      },
+      (e: unknown) => setModelsError(errorMessage(e)),
+    );
+  }, [api]);
 
   useEffect(() => {
-    void api.settingsGet().then((s) => {
-      setSaved(s);
-      setDraft(structuredClone(s));
-    });
-    void api.voiceprintsList().then(setVoiceprints);
-    void api.modelsStatus().then(setModels);
-    void api.appInfo().then(setInfo);
-  }, [api]);
+    loadSettings();
+    loadVoiceprints();
+    loadModels();
+    // Si falla, «Acerca de» dice que no está disponible en vez de quedarse esperando.
+    api.appInfo().then(setInfo, () => setInfo(null));
+  }, [api, loadSettings, loadVoiceprints, loadModels]);
 
   // «Cambios guardados» se retira solo.
   useEffect(() => {
@@ -58,7 +92,7 @@ export function SettingsContainer({ onReplayOnboarding }: { onReplayOnboarding?:
 
   useApiEvent("model:download", (d) => {
     setDownloads((prev) => ({ ...prev, [d.name]: d }));
-    if (d.done) void api.modelsStatus().then((m) => setModels([...m]));
+    if (d.done) loadModels();
   });
 
   const download = (name: string) => {
@@ -66,6 +100,18 @@ export function SettingsContainer({ onReplayOnboarding }: { onReplayOnboarding?:
     api.modelsDownload(name).catch((e: unknown) => setDownloads((prev) => ({ ...prev, [name]: { name, fraction: 0, done: false, error: errorMessage(e) } })));
   };
 
+  if (loadError) {
+    return (
+      <div className="loading settings-load-error">
+        <p role="alert" className="error">
+          No se han podido leer los ajustes: {loadError}
+        </p>
+        <Button capsule onClick={loadSettings}>
+          Reintentar
+        </Button>
+      </div>
+    );
+  }
   if (!draft || !saved) return <p className="loading">Cargando…</p>;
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
 
@@ -96,13 +142,22 @@ export function SettingsContainer({ onReplayOnboarding }: { onReplayOnboarding?:
   };
 
   const detect = async () => {
-    const found = await api.llmCliDetect();
+    setDetecting("pending");
+    let found: CliDetection;
+    try {
+      found = await api.llmCliDetect();
+    } catch (e) {
+      return setDetecting({ ok: false, text: `No se ha podido buscar en este Mac: ${errorMessage(e)}` });
+    }
+    const names = [found.claude ? "Claude Code" : null, found.codex ? "Codex" : null].filter((n): n is string => n !== null);
+    setDetecting(names.length > 0 ? { ok: true, text: `Detectado en este Mac: ${names.join(" y ")}.` } : { ok: false, text: "No se ha encontrado Claude Code ni Codex en este Mac. Si los tienes en una carpeta poco habitual, pon su ruta en «Avanzado»." });
     setDraft((d) => {
       if (!d) return d;
       let providers = d.llm.providers.map((p) => ({ ...p, kind: { ...p.kind } })) as Settings["llm"]["providers"];
       for (const [type, path] of [["claudeCli", found.claude], ["codexCli", found.codex]] as const) {
         if (!path) continue;
         const existing = providers.find((p) => p.kind.type === type);
+        // Las variables que usa el CLI en la terminal de esta persona: se detectan en su Mac, no vienen puestas.
         const env = type === "claudeCli" ? found.claudeEnv : found.codexEnv;
         const target = existing ?? createFromPreset(type === "claudeCli" ? "claudeCode" : "codex", providers);
         if (target.kind.type === "claudeCli" || target.kind.type === "codexCli") {
@@ -113,6 +168,15 @@ export function SettingsContainer({ onReplayOnboarding }: { onReplayOnboarding?:
       }
       return { ...d, llm: { ...d.llm, providers } };
     });
+  };
+
+  const forget = (id: string) => {
+    api.voiceprintDelete(id).then(loadVoiceprints, (e: unknown) => setVoiceprintsError(`No se ha podido olvidar esa voz: ${errorMessage(e)}`));
+  };
+  /** Pedir un permiso o abrir Ajustes del Sistema puede fallar: se dice en la propia sección. */
+  const permission = (run: Promise<unknown>, what: string) => {
+    setPermissionsError(null);
+    run.then(refreshPermissions, (e: unknown) => setPermissionsError(`${what}: ${errorMessage(e)}`));
   };
 
   const needsAttention = permissions.some((p) => REQUIRED_PERMISSIONS.has(p.kind) && p.status === "denied");
@@ -147,13 +211,15 @@ export function SettingsContainer({ onReplayOnboarding }: { onReplayOnboarding?:
               onTranscription={(transcription) => setDraft({ ...draft, transcription })}
               voiceprints={voiceprints}
               onReplayOnboarding={onReplayOnboarding}
-              onForget={(id) => void api.voiceprintDelete(id).then(() => api.voiceprintsList().then((v) => setVoiceprints([...v])))}
+              voiceprintsError={voiceprintsError}
+              onRetryVoiceprints={loadVoiceprints}
+              onForget={forget}
             />
           ) : null}
           {section === "recording" ? (
             <RecordingSection autoStop={draft.autoStop} recording={draft.recording} onAutoStop={(autoStop) => setDraft({ ...draft, autoStop })} onRecording={(recording) => setDraft({ ...draft, recording })} />
           ) : null}
-          {section === "detection" ? <DetectionSection value={draft.detection} onChange={(detection) => setDraft({ ...draft, detection })} /> : null}
+          {section === "detection" ? <DetectionSection value={draft.detection} apps={apps} onChange={(detection) => setDraft({ ...draft, detection })} /> : null}
           {section === "screen" ? <ScreenSection value={draft.screen} onChange={(screen) => setDraft({ ...draft, screen })} /> : null}
           {section === "providers" ? (
             <ProvidersSection
@@ -162,13 +228,21 @@ export function SettingsContainer({ onReplayOnboarding }: { onReplayOnboarding?:
               onChange={(llm) => setDraft({ ...draft, llm })}
               onTest={(id) => void testProvider(id)}
               onDetect={() => void detect()}
+              detecting={detecting}
+              onOpenUrl={(url) => api.openExternalUrl(url)}
               onSecretSet={(id, value) => api.secretSet(id, value)}
               onSecretDelete={(id) => api.secretDelete(id)}
             />
           ) : null}
-          {section === "models" ? <ModelsSection models={models} downloads={downloads} onDownload={download} /> : null}
+          {section === "models" ? <ModelsSection models={models} downloads={downloads} onDownload={download} error={modelsError} onRetry={loadModels} /> : null}
           {section === "permissions" ? (
-            <PermissionsSection permissions={permissions} onRequest={(k) => void api.permissionsRequest(k).then(refreshPermissions)} onOpen={(k) => void api.openSystemSettings(k)} onRefresh={refreshPermissions} />
+            <PermissionsSection
+              permissions={permissions}
+              error={permissionsError ?? permissionsLoadError}
+              onRequest={(k) => permission(api.permissionsRequest(k), "No se ha podido pedir el permiso")}
+              onOpen={(k) => permission(api.openSystemSettings(k), "No se ha podido abrir Ajustes del Sistema")}
+              onRefresh={refreshPermissions}
+            />
           ) : null}
           {section === "about" ? <AboutSection info={info} /> : null}
         </div>

@@ -1,9 +1,13 @@
-import { Plus, X } from "lucide-react";
-import { useState } from "react";
-import type { AppRule, Platform, Settings, VoiceprintSummary } from "../../api";
+import { useEffect, useState } from "react";
+import type { AppRule, InstalledApp, Platform, Settings, VoiceprintSummary } from "../../api";
 import { appDisplayName, platformLabel } from "../../shared/format";
-import { Avatar, Button, Disclosure, IconButton, PlatformIcon, Select } from "../../shared/ui/ui";
+import { AppListEditor, type AppsSource, type PickedApp } from "../../shared/ui/AppListEditor";
+import { ChipsInput } from "../../shared/ui/ChipsInput";
+import { Avatar, Button, Disclosure, PlatformIcon, Segmented, Select } from "../../shared/ui/ui";
+import { MEETING_PRESETS, PLATFORM_OPTIONS, guessRule } from "./appRules";
+import { dictationApps } from "./dictationApps";
 import { Field, Group, Row, Section, StepperRow, ToggleRow } from "./fields";
+import { languageOptions } from "./languages";
 
 interface SectionProps<K extends keyof Settings> {
   value: Settings[K];
@@ -31,35 +35,38 @@ interface GeneralProps {
   onUser(v: Settings["user"]): void;
   onTranscription(v: Settings["transcription"]): void;
   voiceprints: VoiceprintSummary[];
+  /** No se pudieron leer u olvidar las voces: se enseña en su grupo. */
+  voiceprintsError?: string | null;
+  onRetryVoiceprints?: () => void;
   onForget(id: string): void;
   onReplayOnboarding?: () => void;
 }
 
-export function GeneralSection({ user, cleanup, onCleanup, transcription, titles, onTitles, onUser, onTranscription, voiceprints, onForget, onReplayOnboarding }: GeneralProps) {
+export function GeneralSection({ user, cleanup, onCleanup, transcription, titles, onTitles, onUser, onTranscription, voiceprints, voiceprintsError, onRetryVoiceprints, onForget, onReplayOnboarding }: GeneralProps) {
   const ages = CLEANUP_AGES.some((a) => a.days === cleanup.minAgeDays) ? CLEANUP_AGES : [...CLEANUP_AGES, { days: cleanup.minAgeDays, label: `${cleanup.minAgeDays} días` }].sort((a, b) => a.days - b.days);
   return (
     <Section title="General" hint="Todo se procesa en tu Mac. Lo único que sale es el texto que le mandas a tu proveedor de IA para escribir el acta.">
-      <Group title="Tú" foot="acta usa tu nombre para saber qué tareas son tuyas.">
-        <Row label="Tu nombre">
-          <input aria-label="Tu nombre" value={user.displayName} onChange={(e) => onUser({ ...user, displayName: e.target.value })} />
+      <Group title="Tú" foot="acta usa estos nombres para saber qué tareas y menciones son tuyas. No salen de tu Mac, salvo dentro del texto de la reunión que se envía al proveedor de IA que hayas elegido.">
+        <Row label="Tu nombre" hint={user.displayName.trim() ? undefined : "Sin tu nombre, acta no puede saber qué tareas son tuyas."}>
+          <input aria-label="Tu nombre" placeholder="Nombre y apellido" autoComplete="off" value={user.displayName} onChange={(e) => onUser({ ...user, displayName: e.target.value })} />
         </Row>
-        <Row label="También te llaman" hint="Separados por comas.">
-          <input
-            aria-label="Otros nombres"
-            key={user.aliases.join(",")}
-            defaultValue={user.aliases.join(", ")}
-            placeholder="Edu, Eduardo"
-            onBlur={(e) => onUser({ ...user, aliases: e.target.value.split(",").map((a) => a.trim()).filter(Boolean) })}
-          />
-        </Row>
+        <div className="row row-stack">
+          <span className="row-text">
+            <span className="row-label">También te llaman</span>
+            <span className="row-hint">Apodos o formas cortas con las que te nombran en las reuniones. Intro o coma para añadir.</span>
+          </span>
+          <ChipsInput label="Otros nombres" placeholder="Álex, Alejandra" values={user.aliases} onChange={(aliases) => onUser({ ...user, aliases })} />
+        </div>
       </Group>
 
       <Group title="Transcripción">
-        <Row label="Idioma de las reuniones">
-          <Select label="Idioma" value={transcription.language} onChange={(e) => onTranscription({ ...transcription, language: e.target.value })}>
-            <option value="es">Español</option>
-            <option value="en">Inglés</option>
-            <option value="auto">Detectar</option>
+        <Row label="Idioma de las reuniones" hint="Dirige la transcripción y el idioma del acta. La interfaz de acta está, por ahora, en español.">
+          <Select label="Idioma de las reuniones" value={transcription.language} onChange={(e) => onTranscription({ ...transcription, language: e.target.value })}>
+            {languageOptions(transcription.language).map((l) => (
+              <option key={l.value} value={l.value}>
+                {l.label}
+              </option>
+            ))}
           </Select>
         </Row>
         <ToggleRow label="Separar hablantes" hint="Distingue quién habla entre los demás participantes." checked={transcription.diarization} onChange={(diarization) => onTranscription({ ...transcription, diarization })} />
@@ -78,7 +85,22 @@ export function GeneralSection({ user, cleanup, onCleanup, transcription, titles
       ) : null}
 
       <Group title="Voces recordadas" foot="Cuando confirmas un nombre en un transcript, acta recuerda esa voz para la próxima reunión.">
-        {voiceprints.length === 0 ? <Row label={<span className="muted">Todavía no recuerdo ninguna voz</span>} /> : null}
+        {voiceprintsError ? (
+          <Row
+            label={
+              <span role="alert" className="error">
+                {voiceprintsError}
+              </span>
+            }
+          >
+            {onRetryVoiceprints ? (
+              <Button small capsule onClick={onRetryVoiceprints}>
+                Reintentar
+              </Button>
+            ) : null}
+          </Row>
+        ) : null}
+        {voiceprints.length === 0 && !voiceprintsError ? <Row label={<span className="muted">Todavía no recuerdo ninguna voz</span>} /> : null}
         {voiceprints.map((v) => (
           <Row key={v.id} icon={<Avatar name={v.displayName} />} label={v.displayName} hint={v.meetings === 1 ? "1 reunión" : `${v.meetings} reuniones`}>
             <Button small aria-label={`Olvidar la voz de ${v.displayName}`} onClick={() => onForget(v.id)}>
@@ -189,46 +211,56 @@ export function RecordingSection({ autoStop, recording, onAutoStop, onRecording 
   );
 }
 
-const PLATFORMS: { v: Platform; l: string }[] = [
-  { v: "teams", l: "Teams" },
-  { v: "meet", l: "Google Meet" },
-  { v: "zoom", l: "Zoom" },
-  { v: "slack", l: "Slack" },
-  { v: "other", l: "Otra" },
-];
+/** Tras elegir una app de reunión: qué tipo de llamada es y si es un navegador. Parte de lo más probable. */
+function RuleStep({ app, onAdd, onCancel }: { app: PickedApp; onAdd(rule: AppRule): void; onCancel(): void }) {
+  const [rule, setRule] = useState<AppRule>(() => guessRule(app.bundleId, app.name));
+  useEffect(() => setRule(guessRule(app.bundleId, app.name)), [app.bundleId, app.name]);
+  return (
+    <div className="rule-step" role="group" aria-label={`Tipo de reunión de ${app.name}`}>
+      <p className="rule-step-title">
+        ¿Qué reuniones haces con <strong>{app.name}</strong>?
+      </p>
+      <Segmented small label="Tipo de reunión" options={PLATFORM_OPTIONS} value={rule.platform} onChange={(platform: Platform) => setRule({ ...rule, platform })} />
+      <label className="check rule-step-browser">
+        <input
+          type="checkbox"
+          className="check-box"
+          aria-label="Es un navegador"
+          checked={rule.isBrowser}
+          // En un navegador solo cuenta una pestaña de Google Meet.
+          onChange={(e) => setRule({ ...rule, isBrowser: e.target.checked, platform: e.target.checked ? "meet" : rule.platform })}
+        />
+        Es un navegador: solo cuenta cuando la pestaña es de Google Meet
+      </label>
+      <div className="rule-step-actions">
+        <Button small capsule variant="ghost" onClick={onCancel}>
+          Cancelar
+        </Button>
+        <Button small capsule variant="primary" autoFocus onClick={() => onAdd(rule)}>
+          Añadir a la lista
+        </Button>
+      </div>
+    </div>
+  );
+}
 
-/** Apps habituales, para añadirlas sin conocer su identificador. */
-const PRESETS: AppRule[] = [
-  { bundleId: "com.microsoft.teams2", platform: "teams", isBrowser: false },
-  { bundleId: "us.zoom.xos", platform: "zoom", isBrowser: false },
-  { bundleId: "com.tinyspeck.slackmacgap", platform: "slack", isBrowser: false },
-  { bundleId: "com.google.Chrome", platform: "meet", isBrowser: true },
-  { bundleId: "com.apple.Safari", platform: "meet", isBrowser: true },
-  { bundleId: "company.thebrowser.Browser", platform: "meet", isBrowser: true },
-];
+interface DetectionProps extends SectionProps<"detection"> {
+  /** Las apps de este Mac, para elegirlas por su nombre e icono. */
+  apps: AppsSource;
+}
 
-export function DetectionSection({ value, onChange }: SectionProps<"detection">) {
-  const [bundleId, setBundleId] = useState("");
-  const [platform, setPlatform] = useState<Platform>("teams");
-  const [browser, setBrowser] = useState(false);
-  const [ignored, setIgnored] = useState("");
+export function DetectionSection({ value, onChange, apps }: DetectionProps) {
+  const [pending, setPending] = useState<PickedApp | null>(null);
+  const has = (id: string) => value.rules.some((r) => r.bundleId.toLowerCase() === id.toLowerCase());
   const addRule = (rule: AppRule) => {
-    if (value.rules.some((r) => r.bundleId === rule.bundleId)) return;
-    onChange({ ...value, rules: [...value.rules, rule] });
+    setPending(null);
+    if (!has(rule.bundleId)) onChange({ ...value, rules: [...value.rules, rule] });
   };
-  const addIgnored = () => {
-    const id = ignored.trim();
-    if (!id || value.denylist.includes(id)) return;
-    onChange({ ...value, denylist: [...value.denylist, id] });
-    setIgnored("");
-  };
-  const add = () => {
-    const id = bundleId.trim();
-    if (!id) return;
-    addRule({ bundleId: id, platform, isBrowser: browser });
-    setBundleId("");
-  };
-  const presets = PRESETS.filter((p) => !value.rules.some((r) => r.bundleId === p.bundleId));
+  const installed = (id: string): InstalledApp | undefined => apps.apps?.find((a) => a.bundleId.toLowerCase() === id.toLowerCase());
+  // Las habituales, con un toque: solo las instaladas (si no se sabe qué hay instalado, todas).
+  const presets = MEETING_PRESETS.filter((p) => !has(p.bundleId) && p.bundleId !== pending?.bundleId && (!apps.apps || installed(p.bundleId)));
+  const presetApps: InstalledApp[] = presets.map((p) => installed(p.bundleId) ?? { bundleId: p.bundleId, name: appDisplayName(p.bundleId), path: "", running: false, iconPath: null });
+  const dictation = dictationApps(apps.apps ?? [], value.denylist);
 
   return (
     <Section title="Detección" hint="Cuando una de estas apps entra en una llamada, acta te pregunta si quieres grabarla. Nunca graba sin preguntar.">
@@ -236,95 +268,48 @@ export function DetectionSection({ value, onChange }: SectionProps<"detection">)
         <ToggleRow label="Detectar reuniones automáticamente" hint="Si lo apagas, solo se graba cuando pulses «Grabar ahora»." checked={value.enabled} onChange={(enabled) => onChange({ ...value, enabled })} />
       </Group>
 
-      <Group title="Apps de reunión" foot="Solo estas apps pueden disparar la pregunta. En un navegador, solo cuenta si la pestaña es de Google Meet.">
-        {value.rules.length === 0 ? <Row label={<span className="muted">Ninguna app: la detección no saltará nunca</span>} /> : null}
-        {value.rules.map((r) => {
-          const name = appDisplayName(r.bundleId);
-          return (
-            <div key={r.bundleId} className="row" title={r.bundleId}>
-              <PlatformIcon platform={r.platform} size="sm" />
-              <span className="row-text">
-                <span className="row-label">{name}</span>
-                <span className="row-hint">
-                  {platformLabel(r.platform)}
-                  {r.isBrowser ? " · en el navegador" : ""}
-                </span>
-              </span>
-              <IconButton small label={`Quitar ${name}`} onClick={() => onChange({ ...value, rules: value.rules.filter((x) => x.bundleId !== r.bundleId) })}>
-                <X size={13} strokeWidth={2.2} aria-hidden />
-              </IconButton>
-            </div>
-          );
-        })}
-        {presets.length > 0 ? (
-          <div className="row row-presets">
-            <span className="row-hint">Añadir</span>
-            <span className="cluster">
-              {presets.map((p) => {
-                const name = appDisplayName(p.bundleId);
-                return (
-                  <button key={p.bundleId} type="button" className="chip" aria-label={`Añadir ${name}`} onClick={() => addRule(p)}>
-                    <Plus size={11} strokeWidth={2.6} aria-hidden />
-                    <span>{name}</span>
-                  </button>
-                );
-              })}
-            </span>
-          </div>
-        ) : null}
-      </Group>
+      <AppListEditor
+        title="Apps de reunión"
+        foot="Solo estas apps pueden disparar la pregunta. En un navegador, solo cuenta si la pestaña es de Google Meet."
+        emptyText="Ninguna app: la detección no saltará nunca"
+        entries={value.rules.map((r) => ({ bundleId: r.bundleId, detail: `${platformLabel(r.platform)}${r.isBrowser ? " · en el navegador" : ""}`, fallbackIcon: <PlatformIcon platform={r.platform} size="sm" /> }))}
+        source={apps}
+        removeLabel={(name) => `Quitar ${name}`}
+        suggestions={presetApps}
+        suggestLabel={(name) => `Añadir ${name}`}
+        // Elegida a mano se pregunta qué es; las habituales ya se sabe.
+        onPick={setPending}
+        onSuggestion={(app) => addRule(MEETING_PRESETS.find((p) => p.bundleId === app.bundleId) ?? guessRule(app.bundleId, app.name))}
+        onRemove={(id) => onChange({ ...value, rules: value.rules.filter((x) => x.bundleId !== id) })}
+      >
+        {pending ? <RuleStep app={pending} onAdd={addRule} onCancel={() => setPending(null)} /> : null}
+      </AppListEditor>
 
-      <Group title="Apps ignoradas" foot="Apps de dictado (Typeless, Orca…) que usan el micrófono pero no son reuniones.">
-        {value.denylist.length === 0 ? <Row label={<span className="muted">Ninguna</span>} /> : null}
-        {value.denylist.map((id) => {
-          const name = appDisplayName(id);
-          return (
-            <div key={id} className="row" title={id}>
-              <span className="row-text">
-                <span className="row-label">{name}</span>
-              </span>
-              <IconButton small label={`Dejar de ignorar ${name}`} onClick={() => onChange({ ...value, denylist: value.denylist.filter((x) => x !== id) })}>
-                <X size={13} strokeWidth={2.2} aria-hidden />
-              </IconButton>
-            </div>
-          );
-        })}
-      </Group>
+      <AppListEditor
+        title="Apps ignoradas"
+        foot="Apps que usan el micrófono pero no son reuniones, como las de dictado. acta nunca preguntará por ellas."
+        emptyText="Ninguna"
+        entries={value.denylist.map((bundleId) => ({ bundleId }))}
+        source={apps}
+        addLabel="Añadir app"
+        removeLabel={(name) => `Dejar de ignorar ${name}`}
+        suggestions={dictation}
+        suggestLabel={(name) => `Ignorar ${name}`}
+        onPick={(app) => {
+          if (!value.denylist.some((id) => id.toLowerCase() === app.bundleId.toLowerCase())) onChange({ ...value, denylist: [...value.denylist, app.bundleId] });
+        }}
+        onRemove={(id) => onChange({ ...value, denylist: value.denylist.filter((x) => x !== id) })}
+      />
 
       <Disclosure label="Avanzado">
         <div className="card advanced">
-          <Field label="Añadir otra app" hint="Su identificador (bundle id) sale con: osascript -e 'id of app &quot;Nombre&quot;'">
-            <div className="field-line">
-              <input className="input-mono" aria-label="Identificador de la app" placeholder="com.ejemplo.app" spellCheck={false} value={bundleId} onChange={(e) => setBundleId(e.target.value)} />
-              <Select label="Tipo de reunión" value={platform} onChange={(e) => setPlatform(e.target.value as Platform)}>
-                {PLATFORMS.map((p) => (
-                  <option key={p.v} value={p.v}>
-                    {p.l}
-                  </option>
-                ))}
-              </Select>
-              <label className="check">
-                <input type="checkbox" className="check-box" aria-label="Es un navegador" checked={browser} onChange={(e) => setBrowser(e.target.checked)} />
-                Navegador
-              </label>
-              <Button small onClick={add}>
-                Añadir app
-              </Button>
-            </div>
-          </Field>
-          <Field label="Ignorar una app">
-            <div className="field-line">
-              <input className="input-mono" aria-label="Identificador de la app a ignorar" placeholder="com.ejemplo.dictado" spellCheck={false} value={ignored} onChange={(e) => setIgnored(e.target.value)} />
-              <Button small onClick={addIgnored}>
-                Ignorar app
-              </Button>
-            </div>
-          </Field>
           <Field label="Direcciones de Google Meet" hint="Una por línea. Si la pestaña activa contiene alguna, cuenta como reunión.">
             <textarea
               className="input-mono"
               aria-label="URLs de Meet"
               rows={2}
+              // Sin controlar (se guarda al salir): la clave lo repone al descartar los cambios.
+              key={value.meetUrlPatterns.join("\n")}
               defaultValue={value.meetUrlPatterns.join("\n")}
               onBlur={(e) => onChange({ ...value, meetUrlPatterns: e.target.value.split("\n").map((l) => l.trim()).filter(Boolean) })}
             />
@@ -332,40 +317,6 @@ export function DetectionSection({ value, onChange }: SectionProps<"detection">)
         </div>
       </Disclosure>
     </Section>
-  );
-}
-
-function KeywordsInput({ keywords, onChange }: { keywords: string[]; onChange(k: string[]): void }) {
-  const [text, setText] = useState("");
-  const add = () => {
-    const next = text.split(",").map((k) => k.trim()).filter((k) => k && !keywords.includes(k));
-    if (next.length > 0) onChange([...keywords, ...next]);
-    setText("");
-  };
-  return (
-    <div className="tokens">
-      {keywords.map((k) => (
-        <span key={k} className="badge token">
-          {k}
-          <button type="button" className="badge-x" aria-label={`Quitar «${k}»`} onClick={() => onChange(keywords.filter((x) => x !== k))}>
-            <X size={10} strokeWidth={2.6} aria-hidden />
-          </button>
-        </span>
-      ))}
-      <input
-        aria-label="Palabras clave"
-        placeholder="Añadir palabra…"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onBlur={add}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === ",") {
-            e.preventDefault();
-            add();
-          }
-        }}
-      />
-    </div>
   );
 }
 
@@ -378,7 +329,7 @@ export function ScreenSection({ value, onChange }: SectionProps<"screen">) {
       </Group>
       <Group title="Palabras que fuerzan una captura" foot="Si alguien las dice mientras se comparte pantalla, se guarda ese momento.">
         <div className="row row-stack">
-          <KeywordsInput keywords={value.keywords} onChange={(keywords) => onChange({ ...value, keywords })} />
+          <ChipsInput label="Palabras clave" placeholder="Añadir palabra…" values={value.keywords} onChange={(keywords) => onChange({ ...value, keywords })} />
         </div>
       </Group>
     </Section>

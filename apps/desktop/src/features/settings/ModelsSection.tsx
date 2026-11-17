@@ -26,11 +26,26 @@ interface Props {
   models: ModelStatus[];
   downloads: Record<string, ModelDownload>;
   onDownload(name: string): void;
+  /** No se pudo preguntar qué modelos hay. */
+  error?: string | null;
+  onRetry?: () => void;
 }
 
-export function ModelsSection({ models, downloads, onDownload }: Props) {
+export function ModelsSection({ models, downloads, onDownload, error, onRetry }: Props) {
   return (
     <Section title="Modelos" hint="Los modelos de voz viven en tu Mac. Se descargan una sola vez y después todo funciona sin conexión.">
+      {error ? (
+        <div className="card inline-error">
+          <span role="alert" className="error">
+            No se ha podido comprobar qué modelos hay descargados: {error}
+          </span>
+          {onRetry ? (
+            <Button small capsule onClick={onRetry}>
+              Reintentar
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="settings-group">
         <ul className="plain group">
           {models.map((m) => {

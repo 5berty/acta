@@ -3,21 +3,27 @@ import { useCallback, useEffect, useState } from "react";
 import type { LocalDetection, LocalRuntime } from "../../api";
 import { useApi } from "../../app/ApiContext";
 import { BrandLogo } from "../../shared/brand/BrandLogo";
-import { Badge, Button, Disclosure, Select, Spinner, StatusDot } from "../../shared/ui/ui";
+import { Badge, Button, Disclosure, Select, Spinner, StatusDot, errorMessage } from "../../shared/ui/ui";
 import { PRESETS } from "./presets";
 
 export type LocalKind = "ollama" | "lmStudio";
 
 /** Busca Ollama y LM Studio en este Mac. `null` mientras se pregunta. */
-export function useLocalDetection(): { detection: LocalDetection | null; refresh(): void } {
+export function useLocalDetection(): { detection: LocalDetection | null; refresh(): void; error: string | null } {
   const api = useApi();
   const [detection, setDetection] = useState<LocalDetection | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const refresh = useCallback(() => {
     setDetection(null);
-    api.llmDetectLocal().then(setDetection, () => setDetection({ ollama: off(PRESETS.ollama.baseUrl), lmStudio: off(PRESETS.lmStudio.baseUrl) }));
+    setError(null);
+    api.llmDetectLocal().then(setDetection, (e: unknown) => {
+      // No se pudo mirar: no es lo mismo que «no está en marcha», así que se dice.
+      setDetection({ ollama: off(PRESETS.ollama.baseUrl), lmStudio: off(PRESETS.lmStudio.baseUrl) });
+      setError(errorMessage(e));
+    });
   }, [api]);
   useEffect(refresh, [refresh]);
-  return { detection, refresh };
+  return { detection, refresh, error };
 }
 const off = (baseUrl = ""): LocalRuntime => ({ running: false, baseUrl, models: [] });
 
@@ -28,7 +34,7 @@ const HOW: Record<LocalKind, { site: string; url: string; steps: React.ReactNode
     steps: [
       "Descarga Ollama e instálalo como cualquier app.",
       <>
-        Abre Terminal y descarga un modelo, por ejemplo: <code className="selectable">ollama pull qwen2.5:14b</code>
+        Abre Terminal y descarga un modelo, por ejemplo: <code className="selectable">ollama pull gemma3</code>
       </>,
       "Deja Ollama abierto y pulsa «Volver a buscar».",
     ],
@@ -42,6 +48,8 @@ const HOW: Record<LocalKind, { site: string; url: string; steps: React.ReactNode
 
 interface Props {
   detection: LocalDetection | null;
+  /** No se pudo buscar en este Mac. */
+  error?: string | null;
   /** Modelo que ya se está usando de cada servidor, si lo hay. */
   inUse?: Partial<Record<LocalKind, string>>;
   /** Texto del botón: «Usar» en Ajustes, «Elegir» en la bienvenida. */
@@ -117,7 +125,7 @@ function RuntimeRow({ kind, rt, inUse, verb, onUse, onOpenUrl }: { kind: LocalKi
 }
 
 /** Servidores de modelos en este Mac: qué hay en marcha, con qué modelos, y cómo instalarlos si faltan. */
-export function LocalModels({ detection, inUse = {}, verb = "Usar", onUse, onRefresh, onOpenUrl }: Props) {
+export function LocalModels({ detection, error, inUse = {}, verb = "Usar", onUse, onRefresh, onOpenUrl }: Props) {
   return (
     <div className="local-models">
       <ul className="plain group">
@@ -125,7 +133,13 @@ export function LocalModels({ detection, inUse = {}, verb = "Usar", onUse, onRef
         <RuntimeRow kind="lmStudio" rt={detection?.lmStudio ?? null} inUse={inUse.lmStudio} verb={verb} onUse={onUse} onOpenUrl={onOpenUrl} />
       </ul>
       <div className="group-foot local-foot">
-        <span>Con un modelo local, ni el audio ni el texto de la reunión salen de tu Mac.</span>
+        {error ? (
+          <span role="alert" className="error">
+            No se ha podido buscar Ollama ni LM Studio en este Mac: {error}
+          </span>
+        ) : (
+          <span>Con un modelo local, ni el audio ni el texto de la reunión salen de tu Mac.</span>
+        )}
         <Button small capsule variant="ghost" disabled={!detection} icon={<RotateCw size={12} strokeWidth={2.2} aria-hidden />} onClick={onRefresh}>
           Volver a buscar
         </Button>

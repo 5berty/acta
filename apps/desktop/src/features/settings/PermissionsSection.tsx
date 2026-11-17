@@ -56,9 +56,11 @@ interface Props {
   onRequest(kind: PermissionKind): void;
   onOpen(kind: PermissionKind): void;
   onRefresh(): void;
+  /** Pedir un permiso, abrir Ajustes del Sistema o comprobar el estado ha fallado. */
+  error?: string | null;
 }
 
-export function PermissionsSection({ permissions, onRequest, onOpen, onRefresh }: Props) {
+export function PermissionsSection({ permissions, onRequest, onOpen, onRefresh, error }: Props) {
   return (
     <Section title="Permisos" hint="macOS pide cada permiso por separado. Si deniegas alguno, solo se puede cambiar a mano en Ajustes del Sistema.">
       <div className="settings-group">
@@ -99,10 +101,15 @@ export function PermissionsSection({ permissions, onRequest, onOpen, onRefresh }
         </ul>
         <p className="group-foot">El estado se actualiza solo al volver de Ajustes del Sistema. Algunos permisos (grabación de pantalla) piden reiniciar acta para aplicarse.</p>
       </div>
-      <div>
+      <div className="cluster">
         <Button small capsule icon={<RotateCw size={12} strokeWidth={2.2} aria-hidden />} onClick={onRefresh}>
           Volver a comprobar
         </Button>
+        {error ? (
+          <span role="alert" className="error">
+            {error}
+          </span>
+        ) : null}
       </div>
     </Section>
   );

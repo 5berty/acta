@@ -489,6 +489,7 @@ impl MeetingStore for SqliteStore {
             let tx = conn.transaction().map_err(sql_err)?;
             purge_index(&tx, id)?;
             tx.execute("DELETE FROM meetings WHERE id = ?1", [id.to_string()]).map_err(sql_err)?;
+            drop_from_suggestions(&tx, id)?;
             tx.commit().map_err(sql_err)
         })
         .await
@@ -816,6 +817,29 @@ fn link_items(conn: &Connection, c: &Capture) -> PortResult<()> {
             params![c.id.to_string(), a.to_string(), c.meeting_id.to_string()],
         )
         .map_err(sql_err)?;
+    }
+    Ok(())
+}
+
+/// Una reunión borrada sale de las sugerencias de grupo; una sugerencia que
+/// se queda con menos de dos reuniones ya no es un grupo y se quita.
+fn drop_from_suggestions(tx: &rusqlite::Transaction<'_>, id: MeetingId) -> PortResult<()> {
+    let rows: Vec<(String, String)> = tx
+        .prepare("SELECT id, meeting_ids FROM group_suggestions")
+        .and_then(|mut st| st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<Vec<_>, _>>())
+        .map_err(sql_err)?;
+    for (sid, json) in rows {
+        let mut ids: Vec<MeetingId> = serde_json::from_str(&json).unwrap_or_default();
+        let before = ids.len();
+        ids.retain(|m| *m != id);
+        if ids.len() == before {
+            continue;
+        }
+        if ids.len() < 2 {
+            tx.execute("DELETE FROM group_suggestions WHERE id = ?1", [&sid]).map_err(sql_err)?;
+        } else {
+            tx.execute("UPDATE group_suggestions SET meeting_ids = ?2 WHERE id = ?1", params![sid, serde_json::to_string(&ids)?]).map_err(sql_err)?;
+        }
     }
     Ok(())
 }

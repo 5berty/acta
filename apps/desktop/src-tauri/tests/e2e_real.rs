@@ -767,3 +767,60 @@ async fn e2e_v3_favourites_cleanup_and_built_in_model_on_a_data_copy() {
     assert!(!status.models[0].downloaded && status.running.is_none());
     r.core.shutdown().await;
 }
+
+// ---------------------------------------------------------------------------
+// Borrar las pruebas del 16-nov de los datos REALES de Edu (lo pidió él), por
+// el mismo camino que el botón «Borrar» (filas, índice y carpeta). Con la app
+// CERRADA y una copia hecha antes (`acta-backup-<fecha>`).
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+#[ignore = "BORRA datos reales: ACTA_E2E=1 ACTA_DELETE_TEST_DATA=<carpeta de datos>"]
+async fn e2e_delete_the_smoke_test_meetings_and_group() {
+    use acta_desktop_lib::native::NativePorts;
+    if !enabled() {
+        return;
+    }
+    let Ok(dir) = std::env::var("ACTA_DELETE_TEST_DATA") else { return };
+    let layout = DataLayout::new(&dir);
+    let store = Arc::new(SqliteStore::open(&layout.db_path()).unwrap().with_layout(layout.clone()));
+    let core = AppCore::start(CoreDeps {
+        layout: layout.clone(),
+        clock: Arc::new(SystemClock),
+        store,
+        secrets: Arc::new(InMemorySecretStore::default()),
+        factory: None,
+        local_llm: None,
+        native: NativePorts::unavailable("borrado"),
+        emitter: Arc::new(Events::default()),
+        supervisor_config: SupervisorConfig::default(),
+    })
+    .await
+    .unwrap();
+    // 16-nov-2026 en hora de Madrid (UTC+1): [15-nov 23:00Z, 16-nov 23:00Z).
+    let (from, to) = (1_794_783_600_000_i64, 1_794_870_000_000_i64);
+    let test_titles = ["Grabación", "Prueba de humo", "Segunda prueba de humo", "Grabación breve sin contenido"];
+    let all = core.meetings_list(MeetingQuery { limit: Some(500), ..Default::default() }).await.unwrap().items;
+    for m in &all {
+        let day16 = (from..to).contains(&m.started_at.0);
+        let is_test = test_titles.iter().any(|t| m.title.starts_with(t));
+        if day16 && is_test {
+            eprintln!("borro {} «{}»", m.id, m.title);
+            core.meeting_delete(m.id).await.unwrap();
+            assert!(!layout.meeting_dir(m.id).exists());
+        } else {
+            eprintln!("mantengo {} «{}»", m.id, m.title);
+        }
+    }
+    for g in core.groups_list().await.unwrap() {
+        if g.name.trim() == "test" {
+            eprintln!("borro el grupo {} «{}»", g.id, g.name);
+            core.group_delete(g.id).await.unwrap();
+        }
+    }
+    // Las sugerencias viejas apuntaban a reuniones borradas.
+    let left = core.meetings_list(MeetingQuery { limit: Some(500), ..Default::default() }).await.unwrap().items;
+    eprintln!("quedan {} reuniones: {:?}", left.len(), left.iter().map(|m| &m.title).collect::<Vec<_>>());
+    assert!(left.iter().all(|m| !(from..to).contains(&m.started_at.0)));
+    core.shutdown().await;
+}

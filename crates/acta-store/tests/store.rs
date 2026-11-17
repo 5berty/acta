@@ -452,6 +452,27 @@ async fn suggestions_save_replace_accept_dismiss() {
     assert!(matches!(s.accept_suggestion(GroupId::from_u128(103), None).await, Err(PortError::InvalidInput(_))));
 }
 
+#[tokio::test]
+async fn deleting_a_meeting_drops_it_from_suggestions_and_drops_suggestions_left_too_small() {
+    let (s, _d, _c) = store();
+    for n in 1..=4u128 {
+        s.create_meeting(new_meeting(n, &format!("R{n}"), T0)).await.unwrap();
+    }
+    let sug = |n: u128, ids: Vec<u128>| GroupSuggestion {
+        id: GroupId::from_u128(n),
+        name: Some("G".into()),
+        description: None,
+        meeting_ids: ids.into_iter().map(mid).collect(),
+        cohesion: 0.9,
+        created_at: UnixMs(T0),
+    };
+    s.save_suggestions(vec![sug(100, vec![1, 2, 3, 4]), sug(101, vec![1, 2])]).await.unwrap();
+    s.delete_meeting(mid(1)).await.unwrap();
+    let left = s.list_suggestions().await.unwrap();
+    assert_eq!(left.len(), 1, "una sugerencia con una sola reunión ya no es un grupo");
+    assert_eq!(left[0].meeting_ids, vec![mid(2), mid(3), mid(4)]);
+}
+
 // ---------- huellas ----------
 
 fn voiceprint(n: u128, name: &str, emb: Vec<f32>, model: &str) -> Voiceprint {

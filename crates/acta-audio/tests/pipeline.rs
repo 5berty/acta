@@ -372,3 +372,30 @@ async fn live_transcription_means_only_the_tail_is_transcribed_after_stopping() 
     w.pipeline.run(w.id, &[ProcessingStep::Transcribing], &sink).await.unwrap();
     assert!(rec.0.lock().unwrap().iter().all(|p| !p.to_string_lossy().contains("/live/")));
 }
+
+/// El idioma de Ajustes dirige el ASR (pista) y el acta: `auto` deja que el
+/// transcriptor lo detecte y el acta se escribe en el idioma de la reunión.
+#[tokio::test]
+async fn the_meeting_language_setting_drives_the_asr_hint_and_the_minutes_language() {
+    struct LangAsr(Arc<Mutex<Vec<Option<String>>>>);
+    #[async_trait]
+    impl Transcriber for LangAsr {
+        async fn transcribe(&self, r: TranscribeRequest, p: Option<ProgressFn>) -> PortResult<Vec<AsrSegment>> {
+            self.0.lock().unwrap().push(r.language.clone());
+            FakeAsr.transcribe(r, p).await
+        }
+    }
+    for (setting, hint, minutes_language) in [("auto", None, "auto"), ("es-ES", Some("es"), "es"), ("", None, "auto"), ("ja", None, "ja")] {
+        let w = world().await;
+        let seen = Arc::new(Mutex::new(vec![]));
+        let mut settings = Settings::default();
+        settings.transcription.language = setting.into();
+        // Sin nombre en Ajustes (instalación nueva): no rompe la fusión.
+        assert_eq!(settings.user.display_name, "");
+        let pipeline = DefaultPipeline { settings, transcriber: Arc::new(LangAsr(seen.clone())), ..w.pipeline };
+        pipeline.run(w.id, &ProcessingStep::ORDER, &Sink(Mutex::new(vec![]))).await.unwrap();
+        let seen = seen.lock().unwrap().clone();
+        assert!(!seen.is_empty() && seen.iter().all(|l| l.as_deref() == hint), "{setting}: {seen:?}");
+        assert_eq!(w.minutes.inputs.lock().unwrap()[0].language, minutes_language, "{setting}");
+    }
+}

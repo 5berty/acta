@@ -638,7 +638,7 @@ impl Actor {
             platform: app.as_ref().map_or(Platform::Other, |a| a.platform),
             app_bundle_id: app.as_ref().map(|a| a.bundle_id.clone()),
             started_at: at,
-            language: s.transcription.language.clone(),
+            language: acta_core::settings::language::normalize(&s.transcription.language),
         };
         if let Err(e) = self.ports.store.create_meeting(new).await {
             tracing::error!("no se pudo crear la reunión en la base de datos: {e}");
@@ -760,7 +760,7 @@ impl Actor {
             }
         }
         if let (Some(session), Some(asr)) = (live_session, self.ports.live_asr.clone()) {
-            let lang = Some(s.transcription.language.clone()).filter(|l| !l.is_empty());
+            let lang = acta_core::settings::language::asr_hint(&s.transcription.language);
             let tx = self.tx.clone();
             let on_update = move |u: crate::live::LiveUpdate| {
                 for partial in u.partials {
@@ -773,7 +773,7 @@ impl Actor {
         } else if s.transcription.live_preview
             && let Some(live) = self.ports.live.clone()
         {
-            let lang = Some(s.transcription.language.clone()).filter(|l| !l.is_empty());
+            let lang = acta_core::settings::language::asr_hint(&s.transcription.language);
             match live.start(&Track::ALL, lang).await {
                 Ok(stream) => {
                     rec.live_on = true;
@@ -876,7 +876,7 @@ impl Actor {
                 platform: manifest.app.as_ref().map_or(Platform::Other, |a| a.platform),
                 app_bundle_id: manifest.app.as_ref().map(|a| a.bundle_id.clone()),
                 started_at: manifest.created_at,
-                language: self.settings.transcription.language.clone(),
+                language: acta_core::settings::language::normalize(&self.settings.transcription.language),
             };
             store.create_meeting(new).await?;
         }

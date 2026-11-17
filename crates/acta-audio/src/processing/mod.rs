@@ -200,7 +200,8 @@ impl DefaultPipeline {
         if let Ok(manifest) = blocking(move || crate::writer::read_manifest(&layout, id)).await {
             ensure_recorded_audio(&manifest)?;
         }
-        let language = Some(self.settings.transcription.language.clone()).filter(|l| !l.is_empty());
+        // `auto` (o un idioma que el transcriptor no conoce): que lo detecte él.
+        let language = acta_core::settings::language::asr_hint(&self.settings.transcription.language);
         for (i, track) in Track::ALL.into_iter().enumerate() {
             let wav = self.layout.track_wav(id, track);
             // Primera vez tras grabar con transcripción en vivo: solo falta la
@@ -268,6 +269,8 @@ impl DefaultPipeline {
             .collect();
         self_names.push(self.settings.user.display_name.clone());
         self_names.extend(self.settings.user.aliases.iter().cloned());
+        // Sin nombre en Ajustes no hay nada que comparar.
+        self_names.retain(|n| !n.trim().is_empty());
 
         let mut voiceprints = HashMap::new();
         if let Some(d) = &diarization {
@@ -341,7 +344,7 @@ impl DefaultPipeline {
             speakers: transcript.speakers,
             utterances: transcript.utterances,
             captures: refs,
-            language: self.settings.transcription.language.clone(),
+            language: acta_core::settings::language::normalize(&self.settings.transcription.language),
         };
         let output: MinutesOutput = self.minutes.generate(input).await?;
         write_json(&self.layout.minutes_json(id), &output)?;

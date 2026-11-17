@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, Mic, Minus, Plus } from "lucide-react";
-import { useEffect, useId, useState, type ButtonHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
+import { useEffect, useId, useState, type ButtonHTMLAttributes, type ReactNode, type Ref, type SelectHTMLAttributes } from "react";
 import type { Platform } from "../../api";
 import { BrandLogo } from "../brand/BrandLogo";
 import { platformBrand } from "../brand/brands";
@@ -21,9 +21,9 @@ const sizeClass = (small: boolean | undefined, size: Size | undefined): string =
   return s === "md" ? "" : ` btn-${s}`;
 };
 
-export function Button({ variant = "secondary", small, size, capsule, icon, className = "", children, ...rest }: ButtonProps) {
+export function Button({ variant = "secondary", small, size, capsule, icon, className = "", children, ref, ...rest }: ButtonProps & { ref?: Ref<HTMLButtonElement> }) {
   return (
-    <button type="button" className={`btn btn-${variant}${sizeClass(small, size)}${capsule ? " btn-capsule" : ""} ${className}`} {...rest}>
+    <button ref={ref} type="button" className={`btn btn-${variant}${sizeClass(small, size)}${capsule ? " btn-capsule" : ""} ${className}`} {...rest}>
       {icon}
       {children}
     </button>

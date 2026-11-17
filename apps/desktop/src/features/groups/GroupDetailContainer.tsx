@@ -3,7 +3,8 @@ import type { Group, MeetingSummary } from "../../api";
 import { useApi } from "../../app/ApiContext";
 import { AudioLines, FolderOpen, Trash2, X } from "lucide-react";
 import { StarButton } from "../../shared/ui/Star";
-import { EmptyState, IconButton, Select } from "../../shared/ui/ui";
+import { EmptyState, IconButton } from "../../shared/ui/ui";
+import { MeetingPicker } from "./MeetingPicker";
 import { MeetingRow } from "../meetings/MeetingRow";
 import { ChatContainer } from "../chat/ChatContainer";
 
@@ -18,14 +19,12 @@ interface Props {
 export function GroupDetailContainer({ group, onChanged, onFavourite, onDeleted, onOpenMeeting }: Props) {
   const api = useApi();
   const [members, setMembers] = useState<MeetingSummary[]>([]);
-  const [all, setAll] = useState<MeetingSummary[]>([]);
   const [name, setName] = useState(group.name);
   const [description, setDescription] = useState(group.description ?? "");
 
   const load = useCallback(async () => {
-    const [m, a] = await Promise.all([api.meetingsList({ groupId: group.id, limit: 200 }), api.meetingsList({ limit: 200 })]);
+    const m = await api.meetingsList({ groupId: group.id, limit: 200 });
     setMembers([...m.items]);
-    setAll([...a.items]);
   }, [api, group.id]);
 
   useEffect(() => {
@@ -34,7 +33,6 @@ export function GroupDetailContainer({ group, onChanged, onFavourite, onDeleted,
     void load();
   }, [group.id, group.name, group.description, load]);
 
-  const candidates = all.filter((m) => !members.some((x) => x.id === m.id));
   const save = () => {
     if (name.trim() && (name !== group.name || description !== (group.description ?? ""))) {
       void api.groupUpdate(group.id, name.trim(), description).then(onChanged);
@@ -66,24 +64,17 @@ export function GroupDetailContainer({ group, onChanged, onFavourite, onDeleted,
         <div className="group-col">
           <div className="col-head">
             <h3>Reuniones</h3>
-            {candidates.length > 0 ? (
-              <Select
-                label="Añadir reunión"
-                capsule
-                value=""
-                onChange={(e) => e.target.value && void api.groupAddMeeting(group.id, e.target.value).then(() => Promise.all([load(), Promise.resolve(onChanged())]))}
-              >
-                <option value="">Añadir reunión…</option>
-                {candidates.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.title}
-                  </option>
-                ))}
-              </Select>
-            ) : null}
+            <MeetingPicker
+              excludeIds={members.map((m) => m.id)}
+              onAdd={async (ids) => {
+                for (const id of ids) await api.groupAddMeeting(group.id, id);
+                await load();
+                onChanged();
+              }}
+            />
           </div>
           {members.length === 0 ? (
-            <EmptyState compact icon={<AudioLines size={20} strokeWidth={1.8} />} title="Este grupo aún no tiene reuniones" hint="Añade la primera con el selector de arriba." />
+            <EmptyState compact icon={<AudioLines size={20} strokeWidth={1.8} />} title="Este grupo aún no tiene reuniones" hint="Pulsa «Añadir reunión» para buscar y elegir varias a la vez." />
           ) : (
             <ul className="group m-rows">
               {members.map((m) => (
@@ -115,7 +106,8 @@ export function GroupDetailContainer({ group, onChanged, onFavourite, onDeleted,
           <ChatContainer
             scope={{ kind: "group", groupId: group.id }}
             placeholder="este grupo"
-            suggestions={["¿En qué hemos avanzado?", "¿Qué sigue pendiente?"]}
+            variant="panel"
+            suggestions={["¿Qué tareas tengo?", "¿Qué se decidió?", "Resume lo último sobre este tema"]}
             onCitation={(c) => onOpenMeeting(c.meetingId, c.at)}
           />
         </div>

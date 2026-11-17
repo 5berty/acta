@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import type { Citation, Group, MeetingDetail, ProcessingStep, VoiceprintSummary } from "../../api";
+import type { Citation, MeetingDetail, ProcessingStep, VoiceprintSummary } from "../../api";
 import { useApi, useApiEvent } from "../../app/ApiContext";
 import { ChevronLeft, FolderOpen, Pencil, Trash2, TriangleAlert, X } from "lucide-react";
 import { formatDay, formatDuration, formatTime, platformLabel } from "../../shared/format";
 import { StarButton } from "../../shared/ui/Star";
-import { AvatarStack, Badge, EmptyState, IconButton, PlatformIcon, Select, Tabs, errorMessage, type TabDef } from "../../shared/ui/ui";
+import { AvatarStack, Badge, EmptyState, IconButton, PlatformIcon, Tabs, errorMessage, type TabDef } from "../../shared/ui/ui";
 import { CapturesContainer } from "../captures/CapturesContainer";
 import { ChatContainer } from "../chat/ChatContainer";
+import { GroupPicker } from "../groups/GroupPicker";
 import { EscaletaTab } from "../escaleta/EscaletaTab";
 import { MinutesTab } from "../minutes/MinutesTab";
 import { AudioPlayer } from "../player/AudioPlayer";
@@ -60,16 +61,12 @@ function Body({ meetingId, initialSeekMs, onBack, onOpenMeeting, detail, voicepr
   const api = useApi();
   const player = usePlayer();
   const [tab, setTab] = useState<TabKey>("resumen");
-  const [groups, setGroups] = useState<Group[]>([]);
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState("");
   const [progress, setProgress] = useState<{ step: ProcessingStep; fraction: number } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const { seek } = player;
 
-  useEffect(() => {
-    void api.groupsList().then(setGroups);
-  }, [api]);
   useEffect(() => {
     if (initialSeekMs != null) seek(initialSeekMs);
     // Solo al abrir.
@@ -99,7 +96,6 @@ function Body({ meetingId, initialSeekMs, onBack, onOpenMeeting, detail, voicepr
     { key: "capturas", label: "Capturas", count: detail.captures.length },
     { key: "chat", label: "Chat" },
   ];
-  const free = groups.filter((g) => !detail.groups.some((x) => x.id === g.id));
 
   const onCitation = (c: Citation) => (c.meetingId === meetingId ? player.seek(c.at) : onOpenMeeting(c.meetingId, c.at));
 
@@ -115,21 +111,14 @@ function Body({ meetingId, initialSeekMs, onBack, onOpenMeeting, detail, voicepr
               <ChevronLeft size={17} strokeWidth={2.2} aria-hidden />
             </IconButton>
             <span className="spacer" />
-            {free.length > 0 ? (
-              <Select
-                label="Añadir a grupo"
-                capsule
-                value=""
-                onChange={(e) => e.target.value && void run(() => api.groupAddMeeting(e.target.value, meeting.id)).then(() => api.groupsList().then(setGroups))}
-              >
-                <option value="">Añadir a grupo…</option>
-                {free.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name}
-                  </option>
-                ))}
-              </Select>
-            ) : null}
+            <GroupPicker
+              memberOf={detail.groups.map((g) => g.id)}
+              onAdd={(ids) =>
+                run(async () => {
+                  for (const id of ids) await api.groupAddMeeting(id, meeting.id);
+                })
+              }
+            />
             <StarButton className="star-glass" on={meeting.favourite} name={meeting.title} size={17} onToggle={(f) => void run(() => api.meetingSetFavourite(meeting.id, f))} />
             <IconButton
               label="Eliminar reunión"

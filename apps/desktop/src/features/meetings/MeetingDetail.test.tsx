@@ -77,7 +77,9 @@ describe("MeetingDetailContainer", () => {
   it("asigna la reunión a un grupo", async () => {
     const { api, controls } = setup();
     const g = await api.groupCreate("Producto");
-    await userEvent.selectOptions(await screen.findByLabelText("Añadir a grupo"), g.id);
+    await userEvent.click(await screen.findByRole("button", { name: "Añadir a grupo" }));
+    await userEvent.click(await screen.findByRole("option", { name: /Producto/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Añadir a 1 grupo" }));
     await waitFor(() => expect(controls.state.meetings[0]!.groups.map((x) => x.id)).toContain(g.id));
   });
 

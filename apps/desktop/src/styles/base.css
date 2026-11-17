@@ -20,7 +20,7 @@ body {
   overflow: hidden;
 }
 /* El texto de lectura sí se puede seleccionar. */
-.selectable, .md, .bubble, .line-text, input, textarea, code, pre { -webkit-user-select: text; user-select: text; }
+.selectable, .md, .msg, .line-text, input, textarea, code, pre { -webkit-user-select: text; user-select: text; }
 
 h1, h2, h3, h4, p { margin: 0; }
 h1 { font-size: var(--t-large); line-height: 1.12; letter-spacing: -0.022em; font-weight: 700; }

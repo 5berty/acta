@@ -54,7 +54,9 @@ describe("GroupsContainer", () => {
     await userEvent.type(screen.getByRole("textbox", { name: "Nombre del grupo nuevo" }), "Otro");
     await userEvent.click(screen.getByRole("button", { name: "Crear grupo" }));
     await userEvent.click(await screen.findByRole("button", { name: /^Producto/ }));
-    await userEvent.selectOptions(await screen.findByLabelText("Añadir reunión"), d.meeting.id);
+    await userEvent.click(await screen.findByRole("button", { name: "Añadir reunión" }));
+    await userEvent.click(await screen.findByRole("option", { name: /Daily del equipo/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Añadir 1 reunión" }));
     expect(await screen.findByRole("button", { name: /^Daily del equipo/ })).toBeInTheDocument();
     expect(controls.state.groups.find((x) => x.id === g.id)!.meetingCount).toBe(1);
   });

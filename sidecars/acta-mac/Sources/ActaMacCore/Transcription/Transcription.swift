@@ -456,10 +456,12 @@ final class LiveAsr: Sendable {
         try await mgr.loadModels(models)
         try await mgr.startStreaming(source: track == .mic ? .microphone : .system)
         let (stream, cont) = AsyncStream<[Float]>.makeStream(bufferingPolicy: .bufferingNewest(200))
-        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)
         let feeder = Task {
             for await samples in stream {
-                guard let format, let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)) else { continue }
+                // Formato y buffer nacen en cada vuelta: así forman una región aislada que se
+                // puede enviar al actor sin riesgo de carrera (Swift 6.1 lo exige).
+                guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false),
+                      let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)) else { continue }
                 buf.frameLength = AVAudioFrameCount(samples.count)
                 samples.withUnsafeBufferPointer { buf.floatChannelData![0].update(from: $0.baseAddress!, count: samples.count) }
                 await mgr.streamAudio(buf)

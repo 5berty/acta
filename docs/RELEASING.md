@@ -64,7 +64,7 @@ La documentación de Homebrew exige que la app no obligue a saltarse Gatekeeper,
 
 ## Por qué se compila en GitHub y no en servidores propios
 
-El sidecar usa Core Audio, ScreenCaptureKit y Accessibility, y el bundle necesita el SDK de macOS: solo se puede compilar en macOS. Un servidor Linux no sirve. Se usa el runner `macos-15` (Apple Silicon) de GitHub.
+El sidecar usa Core Audio, ScreenCaptureKit y Accessibility, y el bundle necesita el SDK de macOS: solo se puede compilar en macOS. Un servidor Linux no sirve. Se usa el runner `macos-26` (Apple Silicon, Xcode 26) de GitHub: el mismo Swift que en local. Con `macos-15` (Xcode 16.4, Swift 6.1) el sidecar no compila por la concurrencia estricta.
 
 **Coste:** según la política de GitHub, los runners estándar son gratuitos en repos públicos; en privados los minutos de macOS cuentan por diez. Una compilación completa tarda decenas de minutos, así que conviene comprobarlo en tu plan antes de lanzar muchas en un repo privado. Por eso `ci.yml` solo corre en pull requests y a mano.
 

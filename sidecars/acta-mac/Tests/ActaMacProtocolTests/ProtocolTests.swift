@@ -35,3 +35,10 @@ import Testing
 @Test func `speaker embedding model id matches the Rust constant`() {
     #expect(speakerEmbeddingModel == "fluidaudio-wespeaker-community1-256")
 }
+
+@Test func `decodes the meeting title and calendar commands`() throws {
+    let t = try ProtocolCoding.decoder().decode(Request.self, from: Data(#"{"id":3,"cmd":"meeting.titles","args":{"pid":42,"bundle_id":"com.microsoft.teams2"}}"#.utf8))
+    #expect(t.command == .meetingTitles(MeetingTitlesArgs(pid: 42, bundleId: "com.microsoft.teams2")))
+    let c = try ProtocolCoding.decoder().decode(Request.self, from: Data(#"{"id":4,"cmd":"calendar.events","args":{"from_unix_ms":1,"to_unix_ms":2,"request_access":true}}"#.utf8))
+    #expect(c.command == .calendarEvents(CalendarEventsArgs(fromUnixMs: 1, toUnixMs: 2, requestAccess: true)))
+}

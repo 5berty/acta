@@ -314,6 +314,56 @@ public enum Command: Sendable, Equatable {
     case modelsStatus
     case modelsDownload(ModelsDownloadArgs)
     case jobCancel(JobCancelArgs)
+    case meetingTitles(MeetingTitlesArgs)
+    case calendarEvents(CalendarEventsArgs)
+}
+
+public struct MeetingTitlesArgs: Codable, Sendable, Equatable {
+    public var pid: Int32
+    public var bundleId: String
+    public init(pid: Int32, bundleId: String) {
+        self.pid = pid
+        self.bundleId = bundleId
+    }
+}
+
+public struct MeetingTitlesResult: Codable, Sendable, Equatable {
+    public var titles: [String]
+    public init(titles: [String]) { self.titles = titles }
+}
+
+public struct CalendarEventsArgs: Codable, Sendable, Equatable {
+    public var fromUnixMs: Int64
+    public var toUnixMs: Int64
+    public var requestAccess: Bool
+    public init(fromUnixMs: Int64, toUnixMs: Int64, requestAccess: Bool) {
+        self.fromUnixMs = fromUnixMs
+        self.toUnixMs = toUnixMs
+        self.requestAccess = requestAccess
+    }
+}
+
+public struct CalendarEventWire: Codable, Sendable, Equatable {
+    public var title: String
+    public var startUnixMs: Int64
+    public var endUnixMs: Int64
+    public var allDay: Bool
+    public init(title: String, startUnixMs: Int64, endUnixMs: Int64, allDay: Bool) {
+        self.title = title
+        self.startUnixMs = startUnixMs
+        self.endUnixMs = endUnixMs
+        self.allDay = allDay
+    }
+}
+
+public struct CalendarEventsResult: Codable, Sendable, Equatable {
+    /// granted | denied | not_determined
+    public var access: String
+    public var events: [CalendarEventWire]
+    public init(access: String, events: [CalendarEventWire]) {
+        self.access = access
+        self.events = events
+    }
 }
 
 public enum RequestDecodingError: Error, Equatable {
@@ -365,6 +415,8 @@ public struct Request: Decodable, Sendable, Equatable {
         case "models.status": command = .modelsStatus
         case "models.download": command = .modelsDownload(try args(ModelsDownloadArgs.self))
         case "job.cancel": command = .jobCancel(try args(JobCancelArgs.self))
+        case "meeting.titles": command = .meetingTitles(try args(MeetingTitlesArgs.self))
+        case "calendar.events": command = .calendarEvents(try args(CalendarEventsArgs.self))
         default: throw RequestDecodingError.unknownCommand(id: id, cmd: cmd)
         }
     }

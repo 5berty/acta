@@ -706,3 +706,20 @@ async fn reprocessing_keeps_done_flags_by_folded_text() {
     let items = s.get_minutes(mid(1)).await.unwrap().unwrap().action_items;
     assert_eq!(items.iter().filter(|a| a.done).count(), 2);
 }
+
+/// Orden del título: Teams/Calendario mandan sobre el del LLM; el del
+/// usuario sobre todos.
+#[tokio::test]
+async fn a_title_from_teams_or_the_calendar_is_not_replaced_by_the_llm() {
+    let (s, _d, _c) = store();
+    seed_meeting(&s, 1, "Reunión de Teams", T0, &["a"]).await;
+    let m = s.set_auto_title(mid(1), "Daily Talento".into()).await.unwrap().unwrap();
+    assert_eq!(m.title, "Daily Talento");
+    let mut out = minutes_output(1, "v");
+    out.suggested_title = Some("Seguimiento diario de subcuentas".into());
+    s.save_minutes(out).await.unwrap();
+    assert_eq!(s.get_meeting(mid(1)).await.unwrap().unwrap().title, "Daily Talento");
+    // El usuario sí puede cambiarlo, y entonces ya no se toca automáticamente.
+    s.patch_meeting(mid(1), MeetingPatch { title: Some("Mío".into()), ..Default::default() }).await.unwrap();
+    assert!(s.set_auto_title(mid(1), "Otro".into()).await.unwrap().is_none());
+}

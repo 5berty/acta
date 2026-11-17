@@ -666,7 +666,7 @@ impl MeetingStore for SqliteStore {
                 .collect();
             tx.execute("DELETE FROM action_items WHERE meeting_id = ?1", [&mid]).map_err(sql_err)?;
             if let Some(title) = output.suggested_title.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
-                tx.execute("UPDATE meetings SET title = ?2 WHERE id = ?1 AND title_edited = 0", params![mid, title]).map_err(sql_err)?;
+                tx.execute("UPDATE meetings SET title = ?2 WHERE id = ?1 AND title_edited = 0 AND title_source IS NULL", params![mid, title]).map_err(sql_err)?;
             }
             tx.execute(
                 "INSERT INTO minutes(meeting_id,summary_md,escaleta,key_moments,provider,model,generated_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
@@ -853,6 +853,18 @@ fn drop_from_suggestions(tx: &rusqlite::Transaction<'_>, id: MeetingId) -> PortR
 }
 
 impl crate::SqliteStore {
+    /// Título automático (Teams, Calendario): solo si el usuario no lo editó,
+    /// y sin marcarlo como editado. Devuelve la reunión si cambió.
+    pub async fn set_auto_title(&self, id: MeetingId, title: String) -> PortResult<Option<Meeting>> {
+        self.with_conn(move |conn| {
+            let n = conn
+                .execute("UPDATE meetings SET title=?2, title_source='app' WHERE id=?1 AND title_edited=0 AND title<>?2", params![id.to_string(), title])
+                .map_err(sql_err)?;
+            if n == 0 { Ok(None) } else { load_meeting(conn, id) }
+        })
+        .await
+    }
+
     /// Proveedor y modelo del resumen que falló (se borran al limpiar el error).
     pub async fn set_meeting_error_llm(&self, id: MeetingId, provider: Option<String>, model: Option<String>) -> PortResult<()> {
         self.with_conn(move |conn| {

@@ -125,8 +125,28 @@ fn forward_events(handle: AppHandle, core: Core) {
                     tray::update(&handle, s);
                 }
                 SupervisorEvent::MeetingUpdated(m) if m.status == MeetingStatus::Recording => {
-                    let core = core.clone();
-                    tauri::async_runtime::spawn(async move { core.warm_models().await });
+                    let warm = core.clone();
+                    tauri::async_runtime::spawn(async move { warm.warm_models().await });
+                    // Teams tarda en poner el nombre de la reunión en su ventana.
+                    let (core, id) = (core.clone(), m.meeting_id);
+                    tauri::async_runtime::spawn(async move {
+                        for wait in [5u64, 55, 180] {
+                            tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                            let app = match core.session_get_state().await.map(|s| s.state) {
+                                Ok(acta_core::recording::SessionState::Recording(r)) if r.meeting_id == id => r.app,
+                                Ok(acta_core::recording::SessionState::Paused { recording, .. }) if recording.meeting_id == id => recording.app,
+                                _ => None,
+                            };
+                            match core.resolve_title(id, app.as_ref()).await {
+                                Ok(Some(t)) => {
+                                    tracing::info!(%id, title = %t, "título de la reunión");
+                                    break;
+                                }
+                                Ok(None) => {}
+                                Err(e) => tracing::warn!(%id, "título automático: {e}"),
+                            }
+                        }
+                    });
                 }
                 SupervisorEvent::MeetingUpdated(m) if m.status == MeetingStatus::Ready => {
                     let core = core.clone();

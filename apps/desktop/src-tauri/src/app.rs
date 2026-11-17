@@ -1016,6 +1016,39 @@ impl AppCore {
         Ok(())
     }
 
+    /// Pone un título mejor que «Reunión de Teams» si se puede: el nombre de
+    /// la reunión en la ventana de Teams; si no, el evento del Calendario a esa
+    /// hora (solo con `titles.calendar`). El del LLM llega después, al resumir.
+    /// Nunca toca un título editado. Devuelve el nuevo título, si lo hubo.
+    pub async fn resolve_title(&self, id: MeetingId, app: Option<&MeetingApp>) -> PortResult<Option<String>> {
+        use acta_core::library::titles::{best_window_title, is_generic_title, pick_calendar_title};
+        let Some(meeting) = self.store.get_meeting(id).await? else { return Ok(None) };
+        if !is_generic_title(&meeting.title) {
+            return Ok(None);
+        }
+        let mut title = None;
+        if let Some(app) = app {
+            let mut titles: Vec<String> = app.title.iter().cloned().collect();
+            match self.native.meeting_info.window_titles(app.pid, &app.bundle_id).await {
+                Ok(t) => titles.extend(t),
+                Err(e) => tracing::debug!("títulos de ventana: {e}"),
+            }
+            title = best_window_title(&titles);
+        }
+        if title.is_none() && self.settings().titles.calendar {
+            let from = meeting.started_at.plus_ms(-30 * 60_000);
+            let to = meeting.ended_at.unwrap_or(meeting.started_at).plus_ms(30 * 60_000);
+            match self.native.meeting_info.calendar_events(from, to, true).await {
+                Ok(events) => title = pick_calendar_title(&events, meeting.started_at.0, meeting.ended_at.map(|t| t.0)),
+                Err(e) => tracing::info!("sin título del calendario: {e}"),
+            }
+        }
+        let Some(title) = title else { return Ok(None) };
+        let Some(m) = self.store.set_auto_title(id, title.clone()).await? else { return Ok(None) };
+        self.emit(event_names::MEETING_UPDATED, &MeetingUpdated { meeting_id: id, status: m.status, title: m.title });
+        Ok(Some(title))
+    }
+
     /// Carga en memoria el ASR y el diarizador ya descargados (la primera
     /// carga en frío tarda ≈25 s). Se llama al empezar a grabar.
     pub async fn warm_models(&self) {

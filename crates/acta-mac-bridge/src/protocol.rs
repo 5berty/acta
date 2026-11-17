@@ -87,6 +87,47 @@ pub enum Command {
     ModelsDownload(ModelsDownloadArgs),
     #[serde(rename = "job.cancel")]
     JobCancel(JobCancelArgs),
+    /// Títulos de las ventanas de la app de la reunión (AX si hay
+    /// Accesibilidad, si no ScreenCaptureKit). Rust elige el bueno.
+    #[serde(rename = "meeting.titles")]
+    MeetingTitles(MeetingTitlesArgs),
+    /// Eventos del Calendario de macOS (EventKit) en un intervalo.
+    #[serde(rename = "calendar.events")]
+    CalendarEvents(CalendarEventsArgs),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MeetingTitlesArgs {
+    pub pid: i32,
+    pub bundle_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MeetingTitlesResult {
+    pub titles: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CalendarEventsArgs {
+    pub from_unix_ms: i64,
+    pub to_unix_ms: i64,
+    /// Pedir el permiso si está sin decidir (solo con el ajuste activado).
+    pub request_access: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CalendarEvent {
+    pub title: String,
+    pub start_unix_ms: i64,
+    pub end_unix_ms: i64,
+    pub all_day: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CalendarEventsResult {
+    /// `granted` | `denied` | `not_determined`
+    pub access: String,
+    pub events: Vec<CalendarEvent>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

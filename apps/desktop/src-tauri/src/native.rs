@@ -18,6 +18,20 @@ pub trait ModelManager: Send + Sync {
     async fn download(&self, name: &str) -> PortResult<EventStream<ModelDownload>>;
 }
 
+/// De dónde sacar el título de una reunión: ventanas de su app y Calendario.
+#[async_trait]
+pub trait MeetingInfo: Send + Sync {
+    async fn window_titles(&self, pid: i32, bundle_id: &str) -> PortResult<Vec<String>>;
+    /// Eventos que tocan `[from, to)`. Con `request_access`, pide el permiso
+    /// de Calendario si está sin decidir.
+    async fn calendar_events(
+        &self,
+        from: acta_core::time::UnixMs,
+        to: acta_core::time::UnixMs,
+        request_access: bool,
+    ) -> PortResult<Vec<acta_core::library::titles::CalendarEntry>>;
+}
+
 /// Micrófonos del sistema (para elegir uno en Ajustes).
 #[async_trait]
 pub trait InputDevices: Send + Sync {
@@ -36,6 +50,7 @@ pub struct NativePorts {
     pub permissions: Arc<dyn PermissionsProbe>,
     pub models: Arc<dyn ModelManager>,
     pub devices: Arc<dyn InputDevices>,
+    pub meeting_info: Arc<dyn MeetingInfo>,
     pub sidecar_version: Option<String>,
     pub macos_version: Option<String>,
     /// Por qué no hay sidecar (para el log y Ajustes).
@@ -58,6 +73,7 @@ impl NativePorts {
             diarizer: u.clone(),
             permissions: u.clone(),
             models: u.clone(),
+            meeting_info: u.clone(),
             devices: u,
             sidecar_version: None,
             macos_version: None,
@@ -83,6 +99,37 @@ mod mac {
     struct Models(MacModels);
 
     struct Devices(SidecarClient);
+
+    struct Info(SidecarClient);
+
+    #[async_trait]
+    impl MeetingInfo for Info {
+        async fn window_titles(&self, pid: i32, bundle_id: &str) -> PortResult<Vec<String>> {
+            use acta_mac_bridge::protocol::{Command, MeetingTitlesArgs, MeetingTitlesResult};
+            let args = MeetingTitlesArgs { pid, bundle_id: bundle_id.to_owned() };
+            let r: MeetingTitlesResult = self.0.call_typed(Command::MeetingTitles(args), None).await?;
+            Ok(r.titles)
+        }
+        async fn calendar_events(
+            &self,
+            from: acta_core::time::UnixMs,
+            to: acta_core::time::UnixMs,
+            request_access: bool,
+        ) -> PortResult<Vec<acta_core::library::titles::CalendarEntry>> {
+            use acta_mac_bridge::protocol::{CalendarEventsArgs, CalendarEventsResult, Command};
+            let args = CalendarEventsArgs { from_unix_ms: from.0, to_unix_ms: to.0, request_access };
+            // Pedir el permiso espera a que el usuario conteste.
+            let r: CalendarEventsResult =
+                self.0.call_typed(Command::CalendarEvents(args), Some(std::time::Duration::from_secs(120))).await?;
+            if r.access != "granted" {
+                return Err(acta_core::PortError::PermissionDenied(format!("Calendario: {}", r.access)));
+            }
+            Ok(r.events
+                .into_iter()
+                .map(|e| acta_core::library::titles::CalendarEntry { title: e.title, start_ms: e.start_unix_ms, end_ms: e.end_unix_ms, all_day: e.all_day })
+                .collect())
+        }
+    }
 
     #[async_trait]
     impl InputDevices for Devices {
@@ -139,6 +186,7 @@ mod mac {
             permissions: Arc::new(MacPermissions::new(client.clone())),
             models: Arc::new(Models(MacModels::new(client.clone()))),
             devices: Arc::new(Devices(client.clone())),
+            meeting_info: Arc::new(Info(client.clone())),
             sidecar_version: hello.as_ref().map(|h| h.sidecar_version.clone()),
             macos_version: hello.map(|h| h.macos_version),
             error: None,

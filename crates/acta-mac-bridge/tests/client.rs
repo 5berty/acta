@@ -257,3 +257,15 @@ async fn stderr_goes_to_log_file() {
     assert!(found);
     client.shutdown().await.unwrap();
 }
+
+#[test]
+fn meeting_title_and_calendar_commands_use_the_wire_names() {
+    use acta_mac_bridge::protocol::*;
+    let v = serde_json::to_value(Request { id: 1, command: Command::MeetingTitles(MeetingTitlesArgs { pid: 42, bundle_id: "com.microsoft.teams2".into() }) }).unwrap();
+    assert_eq!(v, serde_json::json!({"id": 1, "cmd": "meeting.titles", "args": {"pid": 42, "bundle_id": "com.microsoft.teams2"}}));
+    let v = serde_json::to_value(Request { id: 2, command: Command::CalendarEvents(CalendarEventsArgs { from_unix_ms: 1, to_unix_ms: 2, request_access: true }) }).unwrap();
+    assert_eq!(v["cmd"], "calendar.events");
+    assert_eq!(v["args"]["request_access"], true);
+    let r: CalendarEventsResult = serde_json::from_value(serde_json::json!({"access": "granted", "events": [{"title": "Daily", "start_unix_ms": 1, "end_unix_ms": 2, "all_day": false}]})).unwrap();
+    assert_eq!(r.events[0].title, "Daily");
+}

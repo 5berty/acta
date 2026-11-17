@@ -17,6 +17,10 @@
   <string>Lo pide el CLI de Claude o de Codex que acta ejecuta para redactar el acta. acta no lee tu Escritorio; puedes denegarlo.</string>
   <key>NSDownloadsFolderUsageDescription</key>
   <string>Lo pide el CLI de Claude o de Codex que acta ejecuta para redactar el acta. acta no lee tus Descargas; puedes denegarlo.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key>
+  <string>acta busca en tu Calendario el evento de la reunión que grabas para ponerle su título (solo si lo activas en Ajustes).</string>
+  <key>NSCalendarsUsageDescription</key>
+  <string>acta busca en tu Calendario el evento de la reunión que grabas para ponerle su título (solo si lo activas en Ajustes).</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.2</string>
 </dict>

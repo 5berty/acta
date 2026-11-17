@@ -163,6 +163,10 @@ public actor Dispatcher {
         case .jobCancel(let a):
             try await transcription.cancel(a.jobId)
             await ok(id, Empty())
+        case .meetingTitles(let a):
+            await ok(id, await MeetingTitles.read(pid: a.pid))
+        case .calendarEvents(let a):
+            await ok(id, await CalendarReader.events(a))
         }
     }
 

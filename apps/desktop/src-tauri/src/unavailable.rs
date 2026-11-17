@@ -2,7 +2,7 @@
 //! permisos, crash al iniciar), la app sigue abriendo la biblioteca y explica
 //! el motivo en cada acción nativa en lugar de morir.
 
-use crate::native::{InputDevices, ModelManager};
+use crate::native::{InputDevices, MeetingInfo, ModelManager};
 use acta_core::api::ModelStatus;
 use acta_core::api::ModelDownload;
 use acta_core::detection::*;
@@ -107,6 +107,21 @@ impl ModelManager for Unavailable {
 #[async_trait]
 impl InputDevices for Unavailable {
     async fn inputs(&self) -> PortResult<Vec<acta_core::api::AudioInput>> {
+        self.err()
+    }
+}
+
+#[async_trait]
+impl MeetingInfo for Unavailable {
+    async fn window_titles(&self, _pid: i32, _bundle_id: &str) -> PortResult<Vec<String>> {
+        self.err()
+    }
+    async fn calendar_events(
+        &self,
+        _from: acta_core::time::UnixMs,
+        _to: acta_core::time::UnixMs,
+        _request_access: bool,
+    ) -> PortResult<Vec<acta_core::library::titles::CalendarEntry>> {
         self.err()
     }
 }

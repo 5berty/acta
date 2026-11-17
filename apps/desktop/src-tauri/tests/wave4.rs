@@ -101,6 +101,7 @@ impl LlmProviderFactory for Factory {
 }
 
 struct Rig {
+    #[allow(dead_code)]
     _dir: tempfile::TempDir,
     core: AppCore,
     events: Arc<Events>,
@@ -381,4 +382,68 @@ async fn warming_loads_only_the_downloaded_speech_models() {
     core.native.models = models.clone();
     core.warm_models().await;
     assert_eq!(*models.0.lock().unwrap(), vec!["asr".to_string()]);
+}
+
+// ---------------------------------------------------------------------------
+// Título automático: Teams → Calendario (opt-in) → LLM; nunca pisa uno editado
+// ---------------------------------------------------------------------------
+
+struct Info {
+    titles: Vec<String>,
+    events: Vec<acta_core::library::titles::CalendarEntry>,
+    asked: Mutex<Vec<bool>>,
+}
+#[async_trait]
+impl acta_desktop_lib::native::MeetingInfo for Info {
+    async fn window_titles(&self, _pid: i32, _bundle_id: &str) -> PortResult<Vec<String>> {
+        Ok(self.titles.clone())
+    }
+    async fn calendar_events(&self, _from: UnixMs, _to: UnixMs, request_access: bool) -> PortResult<Vec<acta_core::library::titles::CalendarEntry>> {
+        self.asked.lock().unwrap().push(request_access);
+        Ok(self.events.clone())
+    }
+}
+
+fn teams() -> acta_core::detection::MeetingApp {
+    acta_core::detection::MeetingApp { platform: Platform::Teams, bundle_id: "com.microsoft.teams2".into(), pid: 42, audio_pids: vec![42], name: "Microsoft Teams".into(), title: None, url: None }
+}
+
+async fn titled(titles: &[&str], events: Vec<acta_core::library::titles::CalendarEntry>, calendar: bool) -> (Rig, Arc<Info>, MeetingId) {
+    let r = rig().await;
+    let info = Arc::new(Info { titles: titles.iter().map(|s| s.to_string()).collect(), events, asked: Mutex::default() });
+    let mut core = r.core;
+    core.native.meeting_info = info.clone();
+    let mut s = core.settings_get().await.unwrap();
+    s.titles.calendar = calendar;
+    core.settings_update(s).await.unwrap();
+    let id = meeting_with_transcript(&core, 8).await;
+    (Rig { core, ..r }, info, id)
+}
+
+#[tokio::test]
+async fn the_teams_window_names_the_meeting() {
+    let (r, info, id) = titled(&["Chat | Microsoft Teams", "Daily: subcuentas y LOPD | Microsoft Teams"], vec![], true).await;
+    let t = r.core.resolve_title(id, Some(&teams())).await.unwrap();
+    assert_eq!(t.as_deref(), Some("Daily: subcuentas y LOPD"));
+    let m = r.core.meeting_get(id).await.unwrap().meeting;
+    assert_eq!(m.title, "Daily: subcuentas y LOPD");
+    assert!(info.asked.lock().unwrap().is_empty(), "con el título de Teams no hace falta el calendario");
+    assert!(r.events.of("meeting:updated").iter().any(|e| e["title"] == "Daily: subcuentas y LOPD"));
+    // Un título automático NO cuenta como editado: el LLM aún podría mejorarlo… pero
+    // uno del usuario nunca se toca.
+    r.core.meeting_update(id, "Mi título".into()).await.unwrap();
+    assert_eq!(r.core.resolve_title(id, Some(&teams())).await.unwrap(), None);
+    assert_eq!(r.core.meeting_get(id).await.unwrap().meeting.title, "Mi título");
+}
+
+#[tokio::test]
+async fn without_a_window_title_the_calendar_event_is_used_only_when_enabled() {
+    let started = 1_794_905_145_738_i64;
+    let ev = acta_core::library::titles::CalendarEntry { title: "Daily Talento".into(), start_ms: started - 60_000, end_ms: started + 900_000, all_day: false };
+    let (r, info, id) = titled(&["Microsoft Teams"], vec![ev.clone()], false).await;
+    assert_eq!(r.core.resolve_title(id, Some(&teams())).await.unwrap(), None, "calendario desactivado");
+    assert!(info.asked.lock().unwrap().is_empty(), "ni se consulta ni se pide permiso");
+    let (r, info, id) = titled(&["Microsoft Teams"], vec![ev], true).await;
+    assert_eq!(r.core.resolve_title(id, Some(&teams())).await.unwrap().as_deref(), Some("Daily Talento"));
+    assert_eq!(*info.asked.lock().unwrap(), vec![true]);
 }

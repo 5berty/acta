@@ -181,6 +181,13 @@ impl TrackLive {
     /// relativos a la ventana). `at_edge`: la ventana llega al borde en vivo
     /// (si no, se cortó por el máximo). Devuelve los segmentos cambiados.
     pub fn absorb(&mut self, start_ms: u64, len_ms: u64, at_edge: bool, segments: Vec<AsrSegment>, cfg: &LiveConfig) -> Vec<LiveSegment> {
+        self.absorb_window(start_ms, len_ms, at_edge, false, segments, cfg)
+    }
+
+    /// Como [`Self::absorb`], sabiendo si la ventana era silencio (no se pasó
+    /// por el ASR). Sin texto y CON voz, la ventana no se da por vista: la
+    /// frase puede estar empezando.
+    pub fn absorb_window(&mut self, start_ms: u64, len_ms: u64, at_edge: bool, silent: bool, segments: Vec<AsrSegment>, cfg: &LiveConfig) -> Vec<LiveSegment> {
         let segs: Vec<AsrSegment> =
             segments.into_iter().filter(|s| !s.text.trim().is_empty()).map(|s| shift(s, start_ms)).collect();
         let end_ms = start_ms + len_ms;
@@ -202,8 +209,9 @@ impl TrackLive {
         }
         if confirm > 0 {
             self.state.covered_ms = self.state.covered_ms.max(segs[confirm - 1].end_ms);
-        } else if segs.is_empty() && len_ms >= 3_000 {
-            // Nada dicho: no hace falta volver a mirar este tramo.
+        } else if segs.is_empty() && ((silent && len_ms >= 3_000) || !at_edge) {
+            // Nada dicho (silencio, o ruido que llena la ventana): no hace
+            // falta volver a mirar este tramo.
             self.state.covered_ms = self.state.covered_ms.max(cutoff);
         }
         let rest = &segs[confirm..];
@@ -329,19 +337,12 @@ pub async fn step_track(
     let start_ms = start * 1000 / rate;
     let len_ms = samples.len() as u64 * 1000 / rate;
     let at_edge = start + samples.len() as u64 >= end;
-    let segments = if dbfs(&samples) < cfg.silence_dbfs {
-        Vec::new()
-    } else {
-        let wav = layout.live_window_wav(session.meeting_id, track);
-        write_wav(&wav, cfg.rate, &samples)?;
-        let r = transcriber.transcribe(TranscribeRequest { wav_path: wav.clone(), track, language }, None).await;
-        let _ = std::fs::remove_file(&wav);
-        r?
-    };
+    let silent = dbfs(&samples) < cfg.silence_dbfs;
+    let segments = if silent { Vec::new() } else { transcribe_window(layout, session.meeting_id, track, cfg.rate, &samples, transcriber, language).await? };
     let (changed, state) = {
         let mut tracks = session.tracks.lock().unwrap_or_else(|e| e.into_inner());
         let t = &mut tracks[ti(track)];
-        let changed = t.absorb(start_ms, len_ms, at_edge, segments, cfg);
+        let changed = t.absorb_window(start_ms, len_ms, at_edge, silent, segments, cfg);
         (changed, t.state.clone())
     };
     save_state(layout, session.meeting_id, track, &state)?;
@@ -406,13 +407,29 @@ pub async fn finish_track(
     };
     let mut segments = state.segments;
     if tail.len() as u64 * 1000 / u64::from(rate.max(1)) >= 300 && dbfs(&tail) >= LiveConfig::default().silence_dbfs {
-        let tmp = layout.live_window_wav(id, track);
-        write_wav(&tmp, rate, &tail)?;
-        let r = transcriber.transcribe(TranscribeRequest { wav_path: tmp.clone(), track, language }, None).await;
-        let _ = std::fs::remove_file(&tmp);
-        segments.extend(r?.into_iter().filter(|s| !s.text.trim().is_empty()).map(|s| shift(s, state.covered_ms)));
+        let r = transcribe_window(layout, id, track, rate, &tail, transcriber, language).await?;
+        segments.extend(r.into_iter().filter(|s| !s.text.trim().is_empty()).map(|s| shift(s, state.covered_ms)));
     }
     Ok(Some(segments))
+}
+
+/// Transcribe una ventana y no deja nada en `live/` (ni el WAV ni el JSON
+/// que escribe el sidecar junto a él).
+async fn transcribe_window(
+    layout: &DataLayout,
+    id: MeetingId,
+    track: Track,
+    rate: u32,
+    samples: &[i16],
+    transcriber: &dyn Transcriber,
+    language: Option<String>,
+) -> PortResult<Vec<AsrSegment>> {
+    let wav = layout.live_window_wav(id, track);
+    write_wav(&wav, rate, samples)?;
+    let r = transcriber.transcribe(TranscribeRequest { wav_path: wav.clone(), track, language }, None).await;
+    let _ = std::fs::remove_file(&wav);
+    let _ = std::fs::remove_file(wav.with_extension(format!("asr-{}.json", track.as_str())));
+    r
 }
 
 fn read_tail(wav: &Path, from_ms: u64) -> PortResult<(u32, Vec<i16>)> {
@@ -479,10 +496,24 @@ mod tests {
     fn silence_moves_the_cursor_without_segments_and_blank_text_is_ignored() {
         let cfg = LiveConfig::default();
         let mut t = TrackLive::new(Track::Mic);
-        assert!(t.absorb(0, 6_000, true, vec![seg(0, 900, "  ")], &cfg).is_empty());
+        assert!(t.absorb_window(0, 6_000, true, true, vec![], &cfg).is_empty());
         assert_eq!(t.state.covered_ms, 4_800);
-        assert!(t.absorb(4_800, 2_000, true, vec![], &cfg).is_empty());
+        assert!(t.absorb_window(4_800, 2_000, true, true, vec![seg(0, 900, "  ")], &cfg).is_empty());
         assert_eq!(t.state.covered_ms, 4_800, "una ventana corta sin nada no avanza");
+    }
+
+    /// Real (17-nov): la primera frase se perdía. La ventana tenía voz que
+    /// empezaba al final y el ASR aún no devolvía texto; se daba por silencio
+    /// y el cursor saltaba por encima del principio de la frase.
+    #[test]
+    fn audio_with_voice_but_no_text_yet_is_kept_for_the_next_window() {
+        let cfg = LiveConfig::default();
+        let mut t = TrackLive::new(Track::System);
+        assert!(t.absorb_window(0, 9_000, true, false, vec![], &cfg).is_empty());
+        assert_eq!(t.state.covered_ms, 0);
+        // Ventana llena por el máximo y aun así sin texto (ruido): se avanza.
+        t.absorb_window(0, 24_000, false, false, vec![], &cfg);
+        assert_eq!(t.state.covered_ms, 24_000);
     }
 
     #[test]

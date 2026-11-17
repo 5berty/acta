@@ -826,7 +826,9 @@ async fn e2e_delete_the_smoke_test_meetings_and_group() {
     for m in &all {
         let day16 = (from..to).contains(&m.started_at.0);
         let is_test = test_titles.iter().any(|t| m.title.starts_with(t));
-        if day16 && is_test {
+        // Grabaciones de prueba de la propia sesión de pruebas (por id).
+        let extra = std::env::var("ACTA_DELETE_IDS").unwrap_or_default().split(',').any(|x| x.trim() == m.id.to_string());
+        if (day16 && is_test) || extra {
             eprintln!("borro {} «{}»", m.id, m.title);
             core.meeting_delete(m.id).await.unwrap();
             assert!(!layout.meeting_dir(m.id).exists());
@@ -851,5 +853,6 @@ async fn e2e_delete_the_smoke_test_meetings_and_group() {
     let left = core.meetings_list(MeetingQuery { limit: Some(500), ..Default::default() }).await.unwrap().items;
     eprintln!("quedan {} reuniones: {:?}", left.len(), left.iter().map(|m| &m.title).collect::<Vec<_>>());
     assert!(left.iter().all(|m| !(from..to).contains(&m.started_at.0)));
+    assert!(left.iter().any(|m| m.id.to_string().starts_with("01a1e8af")), "la reunión real de Teams se conserva");
     core.shutdown().await;
 }

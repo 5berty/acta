@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ApiProvider } from "../../app/ApiContext";
 import { createMockApi } from "../../api";
 import { AudioPlayer, voiceActivity } from "./AudioPlayer";
@@ -9,9 +9,17 @@ import { PlayerProvider, usePlayer } from "./PlayerContext";
 function SeekButton() {
   const p = usePlayer();
   return (
-    <button type="button" onClick={() => p.seek(4500)}>
-      saltar
-    </button>
+    <>
+      <button type="button" onClick={() => p.seek(4500)}>
+        saltar
+      </button>
+      <button type="button" onClick={() => p.seek(Number.NaN)}>
+        saltar a nada
+      </button>
+      <button type="button" onClick={() => p.seek(-3000)}>
+        saltar antes del inicio
+      </button>
+    </>
   );
 }
 
@@ -105,5 +113,80 @@ describe("onda de voz", () => {
     setup({ mic: null, system: null, mix: "/m/mix.wav" });
     expect(screen.queryByLabelText("Pista")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Velocidad")).toBeInTheDocument();
+  });
+});
+
+describe("saltar a un instante", () => {
+  const setReady = (el: HTMLAudioElement, state: number) => Object.defineProperty(el, "readyState", { configurable: true, value: state });
+
+  it("si el audio aún no tiene metadatos, recuerda el salto y lo aplica al cargarlos", async () => {
+    const { container } = setup();
+    const el = container.querySelector("audio")!;
+    setReady(el, 0);
+    const play = vi.fn(() => Promise.resolve());
+    el.play = play;
+    await userEvent.click(screen.getByRole("button", { name: "saltar" }));
+    // El navegador descarta la posición pedida antes de conocer la duración.
+    el.currentTime = 0;
+    setReady(el, 1);
+    play.mockClear();
+    act(() => {
+      fireEvent.loadedMetadata(el);
+    });
+    expect(el.currentTime).toBeCloseTo(4.5);
+    expect(play).toHaveBeenCalled();
+    expect(screen.getByText("00:04")).toBeInTheDocument();
+  });
+
+  it("un salto pendiente no se vuelve a aplicar en cargas posteriores", async () => {
+    const { container } = setup();
+    const el = container.querySelector("audio")!;
+    setReady(el, 0);
+    await userEvent.click(screen.getByRole("button", { name: "saltar" }));
+    setReady(el, 1);
+    act(() => {
+      fireEvent.loadedMetadata(el);
+    });
+    el.currentTime = 30;
+    act(() => {
+      fireEvent.loadedMetadata(el);
+    });
+    expect(el.currentTime).toBeCloseTo(30);
+  });
+
+  it("ignora NaN y no baja de cero", async () => {
+    const { container } = setup();
+    const el = container.querySelector("audio")!;
+    setReady(el, 1);
+    el.currentTime = 7;
+    await userEvent.click(screen.getByRole("button", { name: "saltar a nada" }));
+    expect(el.currentTime).toBeCloseTo(7);
+    await userEvent.click(screen.getByRole("button", { name: "saltar antes del inicio" }));
+    expect(el.currentTime).toBe(0);
+    expect(container.querySelector(".player-time")).toHaveTextContent("00:00");
+  });
+
+  it("un timeupdate anterior al seeked no devuelve la interfaz a la posición vieja", async () => {
+    const { container } = setup();
+    const el = container.querySelector("audio")!;
+    setReady(el, 4);
+    await userEvent.click(screen.getByRole("button", { name: "saltar" }));
+    // El elemento todavía informa de la posición antigua mientras busca.
+    Object.defineProperty(el, "currentTime", { configurable: true, writable: true, value: 12 });
+    act(() => {
+      fireEvent.timeUpdate(el);
+    });
+    expect(screen.getByText("00:04")).toBeInTheDocument();
+    expect(screen.queryByText("00:12")).not.toBeInTheDocument();
+    // Terminada la búsqueda, el audio vuelve a mandar.
+    el.currentTime = 4.5;
+    act(() => {
+      fireEvent.seeked(el);
+    });
+    el.currentTime = 12;
+    act(() => {
+      fireEvent.timeUpdate(el);
+    });
+    expect(screen.getByText("00:12")).toBeInTheDocument();
   });
 });

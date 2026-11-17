@@ -3,6 +3,7 @@ import type { HealthWarning, Levels, Prompt, SessionSnapshot } from "../../api";
 import { useApi, useApiEvent } from "../../app/ApiContext";
 import { remainingSeconds } from "../../shared/format";
 import "./overlay.css";
+import "../../styles/interactive.css";
 import { OverlayPill } from "./OverlayPill";
 
 const DEFAULT_UNANSWERED_MS = 120_000;

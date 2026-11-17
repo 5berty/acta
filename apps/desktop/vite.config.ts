@@ -21,5 +21,7 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
+    // Los tests de estilos leen el CSS real (con ?raw); el resto sigue sin procesar CSS.
+    css: { include: [/styles\/interactive\.css/, /app\/styles\.css/] },
   },
 });

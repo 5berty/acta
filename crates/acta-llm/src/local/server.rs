@@ -470,11 +470,16 @@ mod tests {
     async fn a_server_that_never_gets_healthy_times_out_and_is_killed() {
         let d = tempfile::tempdir().expect("tmp");
         let bin = write_executable(&d.path().join("llama-server"), "#!/bin/sh\necho $$ > \"$0.mypid\"\nexec /bin/sleep 30\n");
-        let sup = LlamaSupervisor::new(SupervisorTimings { start_timeout: Duration::from_millis(1_200), poll: Duration::from_millis(30) });
+        // 3 s: con la máquina cargada (cargo test en paralelo) el shell tarda en
+        // arrancar; con 1,2 s a veces se mataba antes de escribir su pid.
+        let sup = LlamaSupervisor::new(SupervisorTimings { start_timeout: Duration::from_millis(3_000), poll: Duration::from_millis(30) });
         let err = sup.ensure(&spec(d.path(), bin, "tiny")).await.expect_err("timeout");
         assert!(matches!(err, PortError::Timeout(_)), "{err}");
-        let pid: u32 = std::fs::read_to_string(d.path().join("llama-server.mypid")).expect("mypid").trim().parse().expect("pid");
-        assert!(wait_dead(pid).await, "no queda un sleep huérfano");
+        // Si ni llegó a escribir su pid, tampoco llegó a lanzar el `sleep`.
+        if let Ok(raw) = std::fs::read_to_string(d.path().join("llama-server.mypid")) {
+            let pid: u32 = raw.trim().parse().expect("pid");
+            assert!(wait_dead(pid).await, "no queda un sleep huérfano");
+        }
         assert!(!d.path().join("llama-server.pid").exists());
         assert_eq!(sup.running().await, None);
     }

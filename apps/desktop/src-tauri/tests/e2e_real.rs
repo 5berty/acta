@@ -840,7 +840,14 @@ async fn e2e_delete_the_smoke_test_meetings_and_group() {
             core.group_delete(g.id).await.unwrap();
         }
     }
-    // Las sugerencias viejas apuntaban a reuniones borradas.
+    // «Transcripción en vivo» pasa a venir activada: sus ajustes guardados
+    // tenían el `false` del valor por defecto antiguo.
+    let mut settings = core.settings_get().await.unwrap();
+    if !settings.transcription.live_preview {
+        settings.transcription.live_preview = true;
+        core.settings_update(settings).await.unwrap();
+        eprintln!("transcripción en vivo activada");
+    }
     let left = core.meetings_list(MeetingQuery { limit: Some(500), ..Default::default() }).await.unwrap().items;
     eprintln!("quedan {} reuniones: {:?}", left.len(), left.iter().map(|m| &m.title).collect::<Vec<_>>());
     assert!(left.iter().all(|m| !(from..to).contains(&m.started_at.0)));

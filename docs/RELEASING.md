@@ -4,7 +4,7 @@ acta se publica como un `.zip` con `acta.app` **sin firmar ni notarizar**, en un
 
 ## Una sola vez, antes de la primera release
 
-1. **Licencia.** Hoy `Cargo.toml` dice `UNLICENSED` y no hay `LICENSE`. Elige una, añade el archivo y actualiza `license` en `Cargo.toml`. Sin licencia no es código abierto.
+1. **Licencia.** Hecho: GPL-3.0-or-later (`LICENSE`, `Cargo.toml` y `package.json`).
 2. **Repo público.** Quien instale por Homebrew descarga el zip sin autenticarse, así que las releases tienen que ser públicas.
 
 No hace falta crear un repo aparte para Homebrew: este mismo repo es el tap (el cask vive en `Casks/acta.rb`). Ver más abajo.

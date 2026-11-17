@@ -133,6 +133,12 @@ Lanza los guards, `cargo check`, clippy, los tests de Rust, `swift build`, `tsc`
 
 Versión **0.1.0**, en desarrollo. Solo macOS por ahora; Windows está previsto más adelante.
 
+## Licencia
+
+acta es software libre bajo la [GNU GPL v3.0 o posterior](LICENSE). Puedes usarlo, estudiarlo, modificarlo y redistribuirlo. Si distribuyes una versión modificada, tienes que publicarla bajo la misma licencia, con su código fuente.
+
+Los modelos de voz y de lenguaje que acta descarga tienen sus propias licencias.
+
 ## Marcas de terceros
 
 Los logotipos de Teams, Meet, Anthropic, OpenAI y demás que aparecen en la interfaz identifican de dónde viene una reunión o qué proveedor escribe el acta. Pertenecen a sus dueños y su uso es solo nominativo: [NOTICE](apps/desktop/src/assets/logos/NOTICE.md).

@@ -1,3 +1,5 @@
+**Español** · [English](README.en.md)
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/acta-horizontal-reversed.svg">
@@ -12,6 +14,13 @@
 
 <p align="center">
   macOS 14.2+ · Apple Silicon · Tauri v2 (Rust + React) · sin cuenta, sin servidor propio
+</p>
+
+<p align="center">
+  <a href="https://github.com/edunavajas/acta/releases/download/v0.1.0/acta-demo.mp4">
+    <img src="docs/brand/video-poster.jpg" alt="Vídeo de presentación de acta: tú y los demás en la misma reunión, cada uno en su pista" width="860">
+  </a><br>
+  <a href="https://github.com/edunavajas/acta/releases/download/v0.1.0/acta-demo.mp4">▶ Ver el vídeo (2 min)</a>
 </p>
 
 <p align="center">
@@ -55,14 +64,29 @@ Muchas herramientas de actas de reunión mandan el audio a la nube de otra empre
 
 ## Instalación
 
-> Todavía no hay binarios publicados: hoy se instala **compilando desde el código**. Tarda unos minutos y lo hace un solo script.
+### Homebrew (recomendado)
 
-> A partir de la primera release también se podrá instalar con Homebrew:
-> ```bash
-> brew tap edunavajas/acta https://github.com/edunavajas/acta
-> brew install --cask edunavajas/acta/acta
-> ```
-> Para actualizar: `brew update && brew upgrade --cask acta`. El proceso de publicación está en [docs/RELEASING.md](docs/RELEASING.md).
+```bash
+brew tap edunavajas/acta https://github.com/edunavajas/acta
+brew install --cask edunavajas/acta/acta
+```
+
+Para actualizar: `brew update && brew upgrade --cask acta`.
+
+### Descarga directa
+
+Baja `acta-<versión>-macos-arm64.zip` de la [última release](https://github.com/edunavajas/acta/releases/latest), descomprímelo y arrastra `acta.app` a Aplicaciones.
+
+### Primera apertura (Gatekeeper)
+
+acta no está firmada ni notarizada, porque el proyecto no tiene cuenta de Apple Developer. Por eso macOS la bloquea la primera vez que la abres si la has descargado (también con Homebrew). Solo hay que hacerlo una vez:
+
+- Ajustes del Sistema › Privacidad y seguridad › **Abrir igualmente**, o
+- en terminal: `xattr -dr com.apple.quarantine /Applications/acta.app`
+
+### Compilar desde el código
+
+Si prefieres compilarla tú, un solo script lo hace en unos minutos.
 
 **Requisitos**
 
@@ -82,11 +106,9 @@ scripts/install-mac.sh            # instala en ~/Applications/acta.app
 # scripts/install-mac.sh --system # o en /Applications/acta.app
 ```
 
-Para **actualizar**: `git pull` y volver a ejecutar el script.
+Para **actualizar**: `git pull` y volver a ejecutar el script. Como la compilas tú, macOS no la pone en cuarentena y debería abrir directamente.
 
-acta se instala **sin firmar ni notarizar**. Como la compilas tú, macOS no la pone en cuarentena y debería abrir directamente. Si la bloquea: Ajustes del Sistema › Privacidad y seguridad › **Abrir igualmente**.
-
-Detalle completo del script, permisos y por qué no se firma: [docs/03-instalacion.md](docs/03-instalacion.md).
+Detalle del script, permisos y por qué no se firma: [docs/03-instalacion.md](docs/03-instalacion.md). Cómo se publica una release: [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Primer arranque
 
@@ -139,6 +161,4 @@ acta es software libre bajo la [GNU GPL v3.0 o posterior](LICENSE). Puedes usarl
 
 Los modelos de voz y de lenguaje que acta descarga tienen sus propias licencias.
 
-## Marcas de terceros
-
-Los logotipos de Teams, Meet, Anthropic, OpenAI y demás que aparecen en la interfaz identifican de dónde viene una reunión o qué proveedor escribe el acta. Pertenecen a sus dueños y su uso es solo nominativo: [NOTICE](apps/desktop/src/assets/logos/NOTICE.md).
+Los logotipos de terceros que aparecen en la app pertenecen a sus dueños: [NOTICE](apps/desktop/src/assets/logos/NOTICE.md).

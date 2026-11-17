@@ -52,9 +52,11 @@ interface PermissionsProps {
   onRequest(kind: PermissionKind): void;
   onOpen(kind: PermissionKind): void;
   onRefresh(): void;
+  /** Pedir un permiso o comprobar su estado ha fallado. */
+  error?: string | null;
 }
 
-export function PermissionsStep({ permissions, onRequest, onOpen, onRefresh }: PermissionsProps) {
+export function PermissionsStep({ permissions, onRequest, onOpen, onRefresh, error }: PermissionsProps) {
   const sorted = [...permissions].sort((a, b) => PERMISSION_ORDER.indexOf(a.kind) - PERMISSION_ORDER.indexOf(b.kind));
   const missing = sorted.filter((p) => PERMISSION_REQUIRED[p.kind] && p.status !== "granted");
   return (
@@ -96,7 +98,13 @@ export function PermissionsStep({ permissions, onRequest, onOpen, onRefresh }: P
         ))}
       </ul>
       <div className="ob-foot-note">
-        <span>{missing.length > 0 ? "Sin micrófono y audio del sistema no se puede grabar. El estado se actualiza solo al volver de Ajustes del Sistema." : "Lo necesario está concedido. Puedes seguir."}</span>
+        {error ? (
+          <span role="alert" className="error">
+            {error}
+          </span>
+        ) : (
+          <span>{missing.length > 0 ? "Sin micrófono y audio del sistema no se puede grabar. El estado se actualiza solo al volver de Ajustes del Sistema." : "Lo necesario está concedido. Puedes seguir."}</span>
+        )}
         <Button small capsule variant="ghost" icon={<RotateCw size={12} strokeWidth={2.2} aria-hidden />} onClick={onRefresh}>
           Comprobar ahora
         </Button>
@@ -109,9 +117,12 @@ interface ModelsProps {
   models: ModelStatus[];
   downloads: Record<string, ModelDownload>;
   onDownload(name: string): void;
+  /** No se pudo preguntar qué modelos hay. */
+  error?: string | null;
+  onRetry?: () => void;
 }
 
-export function ModelsStep({ models, downloads, onDownload }: ModelsProps) {
+export function ModelsStep({ models, downloads, onDownload, error, onRetry }: ModelsProps) {
   const running = (name: string) => {
     const d = downloads[name];
     return !!d && !d.done && !d.error;
@@ -121,6 +132,18 @@ export function ModelsStep({ models, downloads, onDownload }: ModelsProps) {
   return (
     <div className="ob-step">
       <StepHead title="Transcripción en tu Mac" sub="Los modelos de voz se descargan una sola vez y después funcionan sin conexión. Convierten el audio en texto sin enviarlo a ningún sitio." />
+      {error ? (
+        <div className="card inline-error">
+          <span role="alert" className="error">
+            No se ha podido comprobar qué modelos hay descargados: {error}
+          </span>
+          {onRetry ? (
+            <Button small capsule onClick={onRetry}>
+              Reintentar
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <ul className="plain group">
         {models.map((m) => {
           const label = MODEL_LABEL[m.name] ?? m.name;

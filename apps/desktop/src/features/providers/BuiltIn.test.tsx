@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMockApi } from "../../api";
 import type { LocalLlmDownload, LocalLlmStatus } from "../../api";
-import { defaultSettings, mockLocalLlmStatus } from "../../api/mock";
+import { defaultSettings, freshSettings, mockLocalLlmStatus } from "../../api/mock";
 import { ApiProvider } from "../../app/ApiContext";
 import { App } from "../../app/App";
 import { SettingsContainer } from "../settings/SettingsContainer";
@@ -169,12 +169,12 @@ describe("Modelo local integrado en Ajustes › Proveedores de IA", () => {
 
 describe("Modelo integrado en la bienvenida", () => {
   async function aiStep(seed: Seed = {}) {
-    const base = defaultSettings();
-    const mock = createMockApi({ settings: { ...base, onboarding: { completed: false }, llm: { ...base.llm, providers: [], minutesProvider: null, chatProvider: null, namingProvider: null } }, ...seed });
+    const mock = createMockApi({ settings: freshSettings(), ...seed });
     render(<App api={mock.api} />);
     const dialog = await screen.findByRole("dialog", { name: "Bienvenida a acta" });
     await userEvent.click(within(dialog).getByRole("button", { name: "Empezar" }));
-    for (let i = 0; i < 2; i += 1) await userEvent.click(within(dialog).getByRole("button", { name: "Continuar" }));
+    // Sobre ti, Permisos y Transcripción.
+    for (let i = 0; i < 3; i += 1) await userEvent.click(within(dialog).getByRole("button", { name: "Continuar" }));
     return { ...mock, dialog };
   }
 

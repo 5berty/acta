@@ -20,6 +20,8 @@ interface Props {
   cli: CliDetection | null | undefined;
   onDetectCli(): void;
   local: LocalDetection | null;
+  /** No se pudo buscar Ollama ni LM Studio. */
+  localError?: string | null;
   /** Modelo local integrado: catálogo, descargas y pruebas. */
   builtIn: BuiltInState;
   onRefreshLocal(): void;
@@ -71,6 +73,31 @@ function CliStatus({ path, pending }: { path: string | null | undefined; pending
   );
 }
 
+/** Qué servidores locales hay en marcha en este Mac, y con cuántos modelos. */
+function LocalStatus({ local }: { local: LocalDetection | null }) {
+  if (!local)
+    return (
+      <>
+        <Spinner /> Buscando en este Mac…
+      </>
+    );
+  const running = [local.ollama.running ? "Ollama" : null, local.lmStudio.running ? "LM Studio" : null].filter((n): n is string => n !== null);
+  const models = (local.ollama.running ? local.ollama.models.length : 0) + (local.lmStudio.running ? local.lmStudio.models.length : 0);
+  if (running.length === 0)
+    return (
+      <>
+        <StatusDot tone="neutral" />
+        Ninguno en marcha
+      </>
+    );
+  return (
+    <>
+      <StatusDot tone={models > 0 ? "ok" : "warn"} />
+      {running.join(" y ")} en marcha · {models === 0 ? "sin modelos" : `${models} ${models === 1 ? "modelo" : "modelos"}`}
+    </>
+  );
+}
+
 const iconTile = (icon: ReactNode) => (
   <span className="brand-tile brand-md brand-generic" aria-hidden>
     {icon}
@@ -78,7 +105,7 @@ const iconTile = (icon: ReactNode) => (
 );
 
 /** Paso «Inteligencia artificial»: quién escribe las actas. */
-export function AiStep({ ai, onAi, cli, onDetectCli, local, builtIn, onRefreshLocal, onOpenUrl, onCreateNanAccount, onSecret, listModels, problem, test, onTest }: Props) {
+export function AiStep({ ai, onAi, cli, onDetectCli, local, localError, builtIn, onRefreshLocal, onOpenUrl, onCreateNanAccount, onSecret, listModels, problem, test, onTest }: Props) {
   const [reloadKey, setReloadKey] = useState(0);
   const pending = cli === undefined;
   const pick = (choice: AiChoice) => onAi({ ...ai, choice });
@@ -89,7 +116,7 @@ export function AiStep({ ai, onAi, cli, onDetectCli, local, builtIn, onRefreshLo
 
   return (
     <div className="ob-step">
-      <StepHead title="¿Quién escribe tus actas?" sub="La transcripción ya es local. Para el resumen y el chat hace falta un modelo de lenguaje: elige uno. Solo recibe el texto de la reunión, nunca el audio." />
+      <StepHead title="¿Quién escribe tus actas?" sub="La transcripción ya es local. Para el resumen y el chat hace falta un modelo de lenguaje. Esto es lo que hay en tu Mac y lo que puedes conectar: no hay nada activado de antemano, decides tú. Solo recibe el texto de la reunión, nunca el audio." />
       <div role="radiogroup" aria-label="Proveedor de IA" className="ai-options">
         <Option id="claudeCode" current={ai.choice} onPick={pick} logo={<BrandLogo brand="claude" />} title="Claude Code">
           <CliStatus path={cli?.claude} pending={pending} />
@@ -101,7 +128,7 @@ export function AiStep({ ai, onAi, cli, onDetectCli, local, builtIn, onRefreshLo
           acta descarga un modelo y lo ejecuta en tu Mac.
         </Option>
         <Option id="local" current={ai.choice} onPick={pick} logo={iconTile(<Laptop strokeWidth={1.9} />)} title="Ollama o LM Studio" tag={<Badge>Todo en tu Mac</Badge>}>
-          Si ya usas uno de los dos. Nada sale del equipo.
+          <LocalStatus local={local} />
         </Option>
         <Option id="nan" current={ai.choice} onPick={pick} logo={<BrandLogo brand="nan" />} title="NaN Builders" tag={<Badge tone="ok">{PRESETS.nan.tag}</Badge>}>
           Sin registros y en la UE.
@@ -134,6 +161,7 @@ export function AiStep({ ai, onAi, cli, onDetectCli, local, builtIn, onRefreshLo
         <div className="ai-detail">
           <LocalModels
             detection={local}
+            error={localError}
             verb="Elegir"
             inUse={ai.local ? { [ai.local.kind]: ai.local.model } : {}}
             onUse={(kind, model, baseUrl) => onAi({ ...ai, local: { kind, model, baseUrl } })}
@@ -199,7 +227,12 @@ export function AiStep({ ai, onAi, cli, onDetectCli, local, builtIn, onRefreshLo
 
       <div className="ob-foot-note">
         {problem ? (
-          <span className="ai-problem">{problem}</span>
+          <>
+            <span className="ai-problem">{problem}</span>
+            <Button small capsule variant="ghost" title="Lo eliges más tarde en Ajustes › Proveedores de IA" onClick={() => onAi({ ...ai, choice: null })}>
+              Seguir sin proveedor
+            </Button>
+          </>
         ) : ai.choice ? (
           <>
             <span className="ai-test">

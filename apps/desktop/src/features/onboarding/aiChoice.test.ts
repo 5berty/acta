@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CliDetection } from "../../api";
-import { defaultSettings } from "../../api/mock";
+import { defaultSettings, freshSettings } from "../../api/mock";
 import { aiProblem, applyAi, initialAi, secretIdFor, type AiState } from "./aiChoice";
 
 const llm = () => defaultSettings().llm;
@@ -12,6 +12,16 @@ describe("elección de IA en la bienvenida", () => {
     expect(initialAi(llm()).choice).toBe("claudeCode");
     const none = { ...llm(), minutesProvider: null };
     expect(initialAi(none).choice).toBeNull();
+  });
+
+  it("en una instalación nueva no hay nada elegido, y solo se crea lo que se elige", () => {
+    const fresh = freshSettings().llm;
+    expect(initialAi(fresh).choice).toBeNull();
+    expect(applyAi(fresh, initialAi(fresh), cli({ codex: "/x/codex" }))).toEqual(fresh);
+    const out = applyAi(fresh, { ...initialAi(fresh), choice: "local", local: { kind: "ollama", model: "llama3.2:latest", baseUrl: "http://127.0.0.1:11434/v1" } }, cli());
+    expect(out.providers).toHaveLength(1);
+    expect(out.providers[0]).toMatchObject({ id: "ollama", enabled: true, kind: { model: "llama3.2:latest" } });
+    expect(out).toMatchObject({ minutesProvider: "ollama", chatProvider: "ollama", namingProvider: "ollama" });
   });
 
   it("Claude Code: usa la ruta y las variables detectadas y se queda con todas las tareas", () => {

@@ -8,16 +8,18 @@ import { useLocalDetection } from "../providers/LocalModels";
 import { NAN_REFERRAL_URL } from "../providers/presets";
 import { PERMISSION_LABEL, PERMISSION_REQUIRED } from "../settings/PermissionsSection";
 import { usePermissions } from "../settings/usePermissions";
+import { AboutStep, type AboutState } from "./AboutStep";
 import { AiStep } from "./AiStep";
 import { aiProblem, applyAi, initialAi, secretIdFor, type AiState } from "./aiChoice";
 import { DetectionStep, DoneStep, ModelsStep, PermissionsStep, WelcomeStep, type SummaryLine } from "./steps";
 
-const STEPS = ["Bienvenida", "Permisos", "Transcripción", "Inteligencia artificial", "Detección", "Listo"] as const;
-const PERMISSIONS = 1;
-const AI = 3;
-const DETECTION = 4;
+const STEPS = ["Bienvenida", "Sobre ti", "Permisos", "Transcripción", "Inteligencia artificial", "Detección", "Listo"] as const;
+const ABOUT = 1;
+const PERMISSIONS = 2;
+const MODELS = 3;
+const AI = 4;
+const DETECTION = 5;
 const LAST = STEPS.length - 1;
-/** Mientras se miran los permisos, se vuelve a preguntar cada poco. */
 
 /** Bienvenida de primer arranque. Cada paso guarda lo suyo al avanzar; se puede saltar en cualquier momento. */
 export function Onboarding({ onClose }: { onClose(): void }) {
@@ -25,7 +27,12 @@ export function Onboarding({ onClose }: { onClose(): void }) {
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState<"fwd" | "back">("fwd");
   const [saved, setSaved] = useState<Settings | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [about, setAbout] = useState<AboutState | null>(null);
+  // Lo que se propuso desde macOS, para decir de dónde sale mientras no se cambie.
+  const [fromSystem, setFromSystem] = useState<{ name: string | null; language: string | null }>({ name: null, language: null });
   const [models, setModels] = useState<ModelStatus[]>([]);
+  const [modelsError, setModelsError] = useState<string | null>(null);
   const [downloads, setDownloads] = useState<Record<string, ModelDownload>>({});
   const [cli, setCli] = useState<CliDetection | null | undefined>(undefined);
   const [ai, setAi] = useState<AiState | null>(null);
@@ -33,32 +40,57 @@ export function Onboarding({ onClose }: { onClose(): void }) {
   const [autoStop, setAutoStop] = useState<Settings["autoStop"] | null>(null);
   const [test, setTest] = useState<ProviderTestResult | "pending" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { detection: local, refresh: refreshLocal } = useLocalDetection();
+  const [permissionError, setPermissionError] = useState<string | null>(null);
+  const { detection: local, refresh: refreshLocal, error: localError } = useLocalDetection();
   const builtIn = useBuiltInModels();
   const savedRef = useRef<Settings | null>(null);
   savedRef.current = saved;
 
   // Permisos en vivo: al volver de Ajustes del Sistema, con `permissions:changed` y cada pocos segundos en su paso.
-  const { permissions, refresh: refreshPermissions } = usePermissions(step === PERMISSIONS);
+  const { permissions, refresh: refreshPermissions, error: permissionsLoadError } = usePermissions(step === PERMISSIONS);
   const detectCli = useCallback(() => {
     setCli(undefined);
     api.llmCliDetect().then(setCli, () => setCli(null));
   }, [api]);
 
+  const load = useCallback(() => {
+    setLoadError(null);
+    // El perfil de macOS solo sirve para proponer: si no se puede leer, los campos salen vacíos.
+    const profile = api.systemProfile().catch(() => null);
+    Promise.all([api.settingsGet(), profile]).then(
+      ([s, p]) => {
+        const name = !s.user.displayName.trim() && p?.fullName?.trim() ? p.fullName.trim() : null;
+        // «Automático» solo se cambia por el idioma del Mac la primera vez; después es una elección.
+        const language = s.transcription.language === "auto" && !s.onboarding.completed && p && p.meetingLanguage !== "auto" ? p.meetingLanguage : null;
+        setSaved(s);
+        setAbout({ name: name ?? s.user.displayName, aliases: s.user.aliases, language: language ?? s.transcription.language });
+        setFromSystem({ name, language });
+        setAi(initialAi(s.llm));
+        setDetection(s.detection);
+        setAutoStop(s.autoStop);
+      },
+      (e: unknown) => setLoadError(errorMessage(e)),
+    );
+  }, [api]);
+  const loadModels = useCallback(() => {
+    api.modelsStatus().then(
+      (m) => {
+        setModels([...m]);
+        setModelsError(null);
+      },
+      (e: unknown) => setModelsError(errorMessage(e)),
+    );
+  }, [api]);
+
   useEffect(() => {
-    void api.settingsGet().then((s) => {
-      setSaved(s);
-      setAi(initialAi(s.llm));
-      setDetection(s.detection);
-      setAutoStop(s.autoStop);
-    });
-    void api.modelsStatus().then(setModels);
+    load();
+    loadModels();
     detectCli();
-  }, [api, detectCli]);
+  }, [load, loadModels, detectCli]);
 
   useApiEvent("model:download", (d) => {
     setDownloads((prev) => ({ ...prev, [d.name]: d }));
-    if (d.done) void api.modelsStatus().then((m) => setModels([...m]));
+    if (d.done) loadModels();
   });
 
   const download = (name: string) => {
@@ -82,13 +114,34 @@ export function Onboarding({ onClose }: { onClose(): void }) {
     }
   };
 
-  if (!saved || !ai || !detection || !autoStop) return null;
+  if (loadError) {
+    return (
+      <div className="ob-backdrop">
+        <div className="ob-drag" data-tauri-drag-region aria-hidden />
+        <div role="dialog" aria-modal="true" aria-label="Bienvenida a acta" className="ob-sheet ob-sheet-error glass-thick">
+          <p role="alert" className="error">
+            No se han podido leer los ajustes: {loadError}
+          </p>
+          <div className="cluster">
+            <Button capsule variant="ghost" onClick={onClose}>
+              Cerrar
+            </Button>
+            <Button capsule variant="primary" onClick={load}>
+              Reintentar
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (!saved || !about || !ai || !detection || !autoStop) return null;
 
   const problem = aiProblem(ai, cli ?? null, cli === undefined);
   const llm = () => applyAi(saved.llm, ai, cli ?? null);
 
   /** Lo que haya que guardar del paso actual antes de salir de él. */
   const leave = async (): Promise<boolean> => {
+    if (step === ABOUT) return (await commit({ user: { displayName: about.name.trim(), aliases: about.aliases }, transcription: { ...saved.transcription, language: about.language } })) !== null;
     if (step === AI && ai.choice && !problem) return (await commit({ llm: llm() })) !== null;
     if (step === DETECTION) return (await commit({ detection, autoStop })) !== null;
     return true;
@@ -129,6 +182,18 @@ export function Onboarding({ onClose }: { onClose(): void }) {
     ];
   };
 
+  /** Pedir un permiso, abrir Ajustes del Sistema o un enlace: si falla, se dice. */
+  const permission = (run: Promise<unknown>, what: string) => {
+    setPermissionError(null);
+    run.then(refreshPermissions, (e: unknown) => setPermissionError(`${what}: ${errorMessage(e)}`));
+  };
+  const openUrl = (url: string) => {
+    api.openExternalUrl(url).then(
+      () => setError(null),
+      (e: unknown) => setError(`No se ha podido abrir el navegador: ${errorMessage(e)}`),
+    );
+  };
+
   const blocked = step === AI && !!problem;
   const primary = step === 0 ? "Empezar" : step === LAST ? "Empezar a usar acta" : "Continuar";
 
@@ -156,8 +221,17 @@ export function Onboarding({ onClose }: { onClose(): void }) {
 
         <div className="ob-body" data-dir={dir} key={step}>
           {step === 0 ? <WelcomeStep /> : null}
-          {step === 1 ? <PermissionsStep permissions={permissions} onRequest={(k) => void api.permissionsRequest(k).then(refreshPermissions)} onOpen={(k) => void api.openSystemSettings(k)} onRefresh={refreshPermissions} /> : null}
-          {step === 2 ? <ModelsStep models={models} downloads={downloads} onDownload={download} /> : null}
+          {step === ABOUT ? <AboutStep about={about} onAbout={setAbout} systemName={fromSystem.name} systemLanguage={fromSystem.language} /> : null}
+          {step === PERMISSIONS ? (
+            <PermissionsStep
+              permissions={permissions}
+              error={permissionError ?? permissionsLoadError}
+              onRequest={(k) => permission(api.permissionsRequest(k), "No se ha podido pedir el permiso")}
+              onOpen={(k) => permission(api.openSystemSettings(k), "No se ha podido abrir Ajustes del Sistema")}
+              onRefresh={refreshPermissions}
+            />
+          ) : null}
+          {step === MODELS ? <ModelsStep models={models} downloads={downloads} onDownload={download} error={modelsError} onRetry={loadModels} /> : null}
           {step === AI ? (
             <AiStep
               ai={ai}
@@ -168,10 +242,11 @@ export function Onboarding({ onClose }: { onClose(): void }) {
               cli={cli}
               onDetectCli={detectCli}
               local={local}
+              localError={localError}
               builtIn={builtIn}
               onRefreshLocal={refreshLocal}
-              onOpenUrl={(url) => void api.openExternalUrl(url)}
-              onCreateNanAccount={() => void api.openExternalUrl(NAN_REFERRAL_URL)}
+              onOpenUrl={openUrl}
+              onCreateNanAccount={() => openUrl(NAN_REFERRAL_URL)}
               onSecret={(value) => api.secretSet(secretIdFor(saved.llm, ai) ?? "custom", value)}
               listModels={(baseUrl, withKey) => api.llmListModels(baseUrl, withKey ? secretIdFor(saved.llm, ai) : null)}
               problem={problem}

@@ -7,7 +7,7 @@
 //!   por el usuario (reprocesado) > huella de voz > hablante activo de Teams
 //!   con mayor solape > "Speaker N".
 //! - Eco: segmentos `system` que solapan ≥ 80 % con uno `mic` de texto casi
-//!   igual se descartan (la voz de Edu saliendo por los altavoces).
+//!   igual se descartan (la voz del usuario saliendo por los altavoces).
 
 use acta_core::ids::{MeetingId, SpeakerId, VoiceprintId};
 use acta_core::recording::Track;

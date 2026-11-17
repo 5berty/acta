@@ -9,7 +9,7 @@
 //! - Nombre de cada hablante diarizado: (1) huella de voz confirmada con
 //!   similitud ≥ umbral, (2) hablante activo de Teams con mayor solape
 //!   temporal, (3) "Speaker N". Nunca se marca `confirmed` sin el usuario.
-//! - Eco: si la pista `system` contiene la voz de Edu (altavoces), las
+//! - Eco: si la pista `system` contiene la voz del usuario (altavoces), las
 //!   utterances `system` que solapan ≥ 80 % con una `mic` de texto casi
 //!   igual se descartan.
 

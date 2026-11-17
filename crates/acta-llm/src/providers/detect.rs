@@ -211,7 +211,7 @@ mod tests {
         assert_eq!(d.env.get("CLAUDE_CONFIG_DIR").map(String::as_str), Some("/Users/e/.c"));
     }
 
-    /// Caso real de Edu (16-nov-2026): `/opt/homebrew/bin` está en el PATH del
+    /// Caso real (16-nov-2026): `/opt/homebrew/bin` está en el PATH del
     /// shell de login, así que `-lc` encuentra el binario SIN el alias y se
     /// perdía `CLAUDE_CONFIG_DIR`. En su terminal manda el alias: gana `-ic`.
     #[tokio::test]
@@ -227,7 +227,7 @@ mod tests {
         assert_eq!(d.env.get("CLAUDE_CONFIG_DIR").map(String::as_str), Some("/Users/e/.c"));
     }
 
-    /// El `~/.zshrc` de Edu tarda 12,3 s en arrancar sin TTY (nvm, asdf…):
+    /// Un `~/.zshrc` real tarda 12,3 s en arrancar sin TTY (nvm, asdf…):
     /// con 10 s el shell interactivo moría por timeout y se perdía el alias.
     #[test]
     fn interactive_shell_gets_time_for_a_slow_zshrc() {

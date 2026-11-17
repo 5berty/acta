@@ -168,7 +168,7 @@ struct WindowGeometry: Equatable, Sendable {
     var scale: Double
 }
 
-/// Edu tiene hasta 5 monitores y mueve las ventanas: se vuelve a elegir la
+/// Con varios monitores las ventanas se mueven: se vuelve a elegir la
 /// ventana cada pocos segundos y, si cambia (otra ventana, otra pantalla con
 /// otra escala o otro tamaño), se reconfigura el stream sin pararlo.
 enum WindowTracking {
@@ -418,7 +418,7 @@ public actor ScreenService {
 
     /// AX solo es fiable para "no comparte" si alguna vez vio "comparte" (si
     /// las heurísticas no encajan nunca, manda el detector de frames).
-    /// Que comparta Edu (presenter "") queda fuera del MVP: cuenta como no.
+    /// Que comparta el propio usuario (presenter "") queda fuera del MVP: cuenta como no.
     private func axUpdate(sharing raw: Bool?, presenter: String?) async {
         guard args != nil else { return }
         let ax: Bool? = presenter == "" ? false : raw

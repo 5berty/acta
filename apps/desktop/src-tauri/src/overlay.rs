@@ -43,7 +43,7 @@ fn clamp_into(origin: (f64, f64), size: (f64, f64), r: Rect) -> (f64, f64) {
     (origin.0.clamp(r.x, (r.x + r.w - size.0).max(r.x)), origin.1.clamp(r.y, (r.y + r.h - size.1).max(r.y)))
 }
 
-/// Dónde dejó Edu la pastilla en cada pantalla (relativo a la pantalla).
+/// Dónde dejó el usuario la pastilla en cada pantalla (relativo a la pantalla).
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Positions(pub std::collections::BTreeMap<String, (f64, f64)>);
 
@@ -142,7 +142,7 @@ pub fn monitor_rects(m: &tauri::Monitor) -> (String, Rect, Rect) {
     (key, screen, work)
 }
 
-/// Coloca la pastilla: donde Edu la dejó en la pantalla principal o, si no,
+/// Coloca la pastilla: donde el usuario la dejó en la pantalla principal o, si no,
 /// abajo en el centro encima del Dock.
 pub fn place<R: tauri::Runtime>(win: &tauri::WebviewWindow<R>, positions: &std::path::Path) {
     let Ok(Some(m)) = win.primary_monitor() else { return };

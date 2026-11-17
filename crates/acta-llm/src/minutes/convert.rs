@@ -22,7 +22,7 @@ fn name_tokens(s: &str) -> Vec<String> {
         .collect()
 }
 
-/// "Edu" ~ "Edu Navajas", "Eduardo García" ~ alias "Eduardo": un nombre encaja
+/// "Ana" ~ "Ana García", "Ana María López" ~ alias "Ana María": un nombre encaja
 /// si sus tokens son subconjunto de los del otro (o al revés).
 pub fn names_match(a: &str, b: &str) -> bool {
     let (ta, tb) = (name_tokens(a), name_tokens(b));
@@ -123,7 +123,7 @@ fn speaker_for(name: &str, input: &MinutesInput, mine: bool) -> Option<SpeakerId
 
 fn convert_task(t: TareaV1, ctx: &ConvertCtx, map: &HashMap<String, CaptureId>) -> ActionItem {
     let input = ctx.input;
-    // "Edu (yo)" es la etiqueta del transcript, no un nombre: fuera el marcador.
+    // "Ana (yo)" es la etiqueta del transcript, no un nombre: fuera el marcador.
     let raw = t.responsable.map(|r| r.trim().to_owned()).filter(|r| !r.is_empty());
     let marked_me = raw.as_deref().is_some_and(|r| r.to_lowercase().ends_with("(yo)"));
     let responsable = raw

@@ -14,7 +14,7 @@ pub struct Decision {
     pub at: Option<MediaMs>,
 }
 
-/// Tarea. `is_mine` = "en tu tejado" (responsable = Edu).
+/// Tarea. `is_mine` = "en tu tejado" (responsable = el usuario).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActionItem {
@@ -105,8 +105,10 @@ pub struct TimelineEvent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserIdentity {
+    /// Vacío hasta que el usuario lo pone (bienvenida o Ajustes): los
+    /// prompts y «mis tareas» usan entonces solo «Yo».
     pub display_name: String,
-    /// Otras formas de nombrarle ("Eduardo", "Edu Navajas").
+    /// Otras formas de nombrarle ("Ana María", "Ana García").
     pub aliases: Vec<String>,
 }
 
@@ -133,7 +135,7 @@ pub struct MinutesInput {
     pub speakers: Vec<Speaker>,
     pub utterances: Vec<Utterance>,
     pub captures: Vec<CaptureRef>,
-    /// Idioma de salida ("es").
+    /// Idioma de salida: `"auto"` (el que se habla en la reunión) o ISO 639-1 ("es").
     pub language: String,
 }
 

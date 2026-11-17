@@ -20,13 +20,13 @@ acta es un grabador de reuniones local para Mac. Está hecho en Rust con arquite
 |---|---|---|
 | Arquitectura | Hexagonal. `acta-core` no hace I/O: solo dominio, puertos y lógica pura. Carpetas por funcionalidad (screaming). | Se puede testear todo con fakes y Windows solo necesita adaptadores nuevos. |
 | Audio | Lo escribe **Rust** (`hound`): WAV de 16 kHz, mono, s16 por pista, un segmento cada 30 s, primero `.tmp`, luego fsync y rename. El manifiesto se escribe de forma atómica. | Así no se repite el bug de Meetily, que lanzaba un proceso por chunk y no avisaba cuando se perdían segmentos. |
-| Pistas | `mic` es "Yo" (Edu) y `system` son los demás. Siempre separadas. | "Yo" sale gratis y solo hay que diarizar a los demás. |
+| Pistas | `mic` es "Yo" (quien usa el Mac) y `system` son los demás. Siempre separadas. | "Yo" sale gratis y solo hay que diarizar a los demás. |
 | Transporte del audio | El sidecar envía frames PCM **s16le en base64** de 100 ms por stdout (evento `audio.frame`). | Rust se queda como dueño único del writer y de la recuperación. Son unos 85 KB/s con las dos pistas, nada para un pipe. |
 | Sidecar | Swift (`acta-mac`) con JSON por líneas por stdin/stdout. Si recibe EOF en stdin, sale. | No puede quedar huérfano y el protocolo se puede testear. |
 | Procesos hijo | `tokio::process` + `kill_on_drop(true)` + `wait()` en **todos** los caminos. Además `#![deny(clippy::zombie_processes)]`, `disallowed-methods` sobre `std::process::Command::spawn` y `scripts/guards.sh`. | Es la lección de Meetily. |
 | Base de datos | **rusqlite 0.37 (bundled)** con FTS5 + sqlite-vec 0.1.x. Migraciones con `PRAGMA user_version`. | Es síncrono y simple (va con `spawn_blocking`). sqlx no aporta nada sin servidor. |
 | Embeddings | fastembed-rs con `intfloat/multilingual-e5-small` (384 dims), detrás del puerto `Embedder` y de la feature `local-embeddings`. | Es multilingüe y ligero. bge-m3 (1024) queda como opción futura con una migración. |
-| LLM | Puerto `LlmProvider` con cinco adaptadores: `claude -p`, `codex exec`, OpenAI-compatible, Anthropic y el **modelo local integrado** (§15, opcional). **Por defecto `claude -p`.** | Es lo que eligió Edu. Nunca se tocan las credenciales del CLI. |
+| LLM | Puerto `LlmProvider` con cinco adaptadores: `claude -p`, `codex exec`, OpenAI-compatible, Anthropic y el **modelo local integrado** (§15, opcional). **De fábrica no hay ninguno activado**: la bienvenida detecta lo que hay en el Mac y el usuario elige. | Nada personal viaja como valor por defecto. Nunca se tocan las credenciales del CLI. |
 | Procesado | Va en una cola de fondo y **no bloquea** una grabación nueva. | Así se pueden encadenar reuniones seguidas. |
 | Firma | **Ninguna**: `bundle.macOS.signingIdentity: null`, `hardenedRuntime: false`. El sidecar se compila con `swift build --disable-get-task-allow-entitlement`. | Es el EDR del portátil de empresa (ver §11). |
 
@@ -182,6 +182,8 @@ Cada aviso se emite al aparecer y otra vez con `cleared: true` al resolverse. La
 | `models.status` | — | `models[{name, downloaded, bytes?}]` |
 | `models.download` | `name` (`asr` \| `diarizer` \| `vad`) | `{}`. El progreso llega por `models.progress`. |
 | `job.cancel` | `job_id` | `{}`. El trabajo responde con el error `cancelled`. |
+| `system.profile` | — | `full_name?, preferred_languages[]` (`NSFullUserName`, `Locale.preferredLanguages`) |
+| `apps.installed` | `icons_dir, icon_px` | `apps[{bundle_id, name, path, running, icon_path?}]`. Un nivel de `/Applications`, `/Applications/Utilities`, `/System/Applications`, `/System/Applications/Utilities` y `~/Applications`, más las apps normales en marcha. Escribe `<icons_dir>/<bundle id>.png` solo si falta o la app es más nueva. |
 
 ### 4.3 Eventos
 
@@ -289,7 +291,7 @@ Durante la grabación, el supervisor guarda las `SpeakerSignal` (roster y hablan
 Reglas comunes de los CLI:
 
 - Se lanzan **solo** con `acta_llm::process::run_supervised` (ya hecho y testeado).
-- Variables extra con `extra_env` (por ejemplo `CLAUDE_CONFIG_DIR`, porque Edu usa un alias).
+- Variables extra con `extra_env` (por ejemplo `CLAUDE_CONFIG_DIR`, si el `claude` del usuario es un alias que la fija).
 - Las apps GUI **no heredan el PATH**. `llm_cli_detect` resuelve las rutas con `zsh -lc 'command -v claude'`, también supervisado.
 
 ### 7.3 Esquemas
@@ -307,7 +309,8 @@ Reglas comunes de los CLI:
   "momentos_clave": [{ "ts_ms": 0, "motivo": "", "tema": "string|null" }] }
 ```
 
-- Entrada (`prompts/minutes.user.md`): metadatos, la lista de capturas como `c1 [mm:ss] slide_change` y el transcript en líneas `[mm:ss|ms] Nombre: texto`. Edu aparece como `Edu (yo)`.
+- Entrada (`prompts/minutes.user.md`): metadatos, la lista de capturas como `c1 [mm:ss] slide_change` y el transcript en líneas `[mm:ss|ms] Nombre: texto`. El usuario aparece como `<nombre> (yo)` o, si no ha puesto nombre en Ajustes, solo como `Yo`.
+- Idioma: `Settings.transcription.language` es `"auto"` o un código ISO 639-1. Dirige la pista de idioma del ASR (`settings::language::asr_hint`; `auto` o un idioma que Parakeet no conoce = que lo detecte) y el idioma en que se escriben acta, chat, preguntas en vivo y nombres de grupo (`auto` = el que se habla en la reunión).
 - `es_mia = true` solo si el responsable es el usuario (`Settings.user` + aliases).
 - acta-llm traduce las refs `cN` a `CaptureId` y las `ts_ms` a `MediaMs` para construir `MinutesOutput`.
 
@@ -338,7 +341,7 @@ Requiere el permiso de Grabación de pantalla y `Settings.screen.enabled = true`
 2. **Cuándo hay alguien compartiendo**:
    - Por AX: elementos de "está presentando" o la vista de contenido compartido (`source: ax`).
    - Fallback: una región grande y estable que cambia por bloques (`source: frame`).
-   - Esto genera `screen.share_state`. Cuando Edu comparte su propia pantalla queda fuera del MVP.
+   - Esto genera `screen.share_state`. Cuando el propio usuario comparte su pantalla queda fuera del MVP.
 3. **Cambio de diapositiva**: dHash de 64 bits por frame. Si la distancia de Hamming con la última guardada es ≥ `phash_threshold` (10) y la imagen se mantiene estable `stable_frames` (2) frames seguidos, se guarda como `slide_change` en `captures/`.
 4. **Candidatas**: mientras se comparte, se guarda una cada `candidate_every_s` (30 s) en `captures/candidates/`, con calidad menor.
 5. **Anillo en memoria**: los últimos `ring_seconds` (20 s) de frames, para que `screen.snapshot{at_unix_ms}` guarde el frame más cercano de forma retroactiva. Lo usan `keyword` y `manual`.
@@ -379,7 +382,8 @@ Búsqueda híbrida:
 
 Grupos sugeridos:
 
-1. Clustering aglomerativo por coseno sobre `vec_meetings`, con umbral 0,80 y mínimo 3 reuniones por cluster, excluyendo las que ya están en grupos manuales.
+1. Clustering aglomerativo por coseno sobre `vec_meetings`, con umbral 0,80 y mínimo 3 reuniones por cluster. Solo entran las reuniones indexadas (con embedding) que no están ya en ningún grupo, y como mucho las 600 más recientes.
+   - `group_suggestions_refresh` reintenta indexar las pendientes; si no hay sugerencias y sigue habiendo reuniones sin indexar, devuelve un error (no una lista vacía).
 2. Se devuelven sin nombre. La app los nombra con `GroupNamer` y los guarda con `save_suggestions`.
 
 ---
@@ -392,6 +396,7 @@ Grupos sugeridos:
   logs/acta.log  logs/acta-mac.log
   models/  (fastembed/, fluidaudio/, llm/<modelo>.gguf)
   runtime/llama/<versión>/llama-server  (+ dylib; llama-server.pid)
+  cache/app-icons/<bundle id>.png  (iconos de `apps_list`; se regeneran)
   meetings/<meeting_id>/
     manifest.json
     audio/{mic,system}/seg-000000.wav[.tmp]   audio/{mic,system,mix}.wav
@@ -430,9 +435,9 @@ Tabla completa de comandos: `crates/acta-core/src/api/commands.rs` (documentaci�
 | Limpieza | `cleanup_suggestions`, `cleanup_delete{ids}`, `cleanup_keep{ids}` (§16) |
 | Modelo local | `local_llm_status`, `local_llm_download{modelId}`, `local_llm_cancel{modelId}`, `local_llm_delete{modelId}`, `local_llm_test{modelId}` (§15) |
 | Grupos | `groups_list`, `group_create`, `group_update`, `group_delete`, `group_set_favourite{id, favourite}`, `group_add_meeting`, `group_remove_meeting`, `group_suggestions_list`, `group_suggestions_refresh`, `group_suggestion_accept`, `group_suggestion_dismiss` |
-| Búsqueda y chat | `search{query}`, `chat_threads_list`, `chat_thread_create`, `chat_thread_delete`, `chat_messages_list`, `chat_send{threadId, text}` (devuelve `ChatSendResult` y luego llegan `chat:delta`) |
+| Búsqueda y chat | `search{query}`, `chat_threads_list`, `chat_thread_create`, `chat_thread_delete`, `chat_messages_list`, `chat_send{threadId, text, providerId?, model?}` (proveedor y modelo solo para esa respuesta; devuelve `ChatSendResult` y luego llegan `chat:delta`) |
 | Huellas | `voiceprints_list`, `voiceprint_delete{id}` |
-| Ajustes y diagnóstico | `settings_get`, `settings_update{settings}`, `llm_provider_test{providerId}`, `llm_cli_detect`, `secret_set{providerId, value}`, `secret_delete{providerId}`, `models_status`, `models_download{name}`, `permissions_status`, `permissions_request{kind}`, `open_system_settings{kind}`, `health_get`, `app_info` |
+| Ajustes y diagnóstico | `settings_get`, `settings_update{settings}`, `llm_provider_test{providerId}`, `llm_cli_detect`, `secret_set{providerId, value}`, `secret_delete{providerId}`, `models_status`, `models_download{name}`, `permissions_status`, `permissions_request{kind}`, `open_system_settings{kind}`, `health_get`, `app_info`, `system_profile` (nombre de la cuenta e idiomas de macOS, para la bienvenida), `apps_list` (apps instaladas y en marcha con icono) |
 | Ventanas | `overlay_set_expanded{expanded}`, `main_window_show{meetingId?}` |
 
 | Evento | Payload | Frecuencia |
@@ -489,7 +494,7 @@ Ventanas (`tauri.conf.json`, con `macOSPrivateApi: true`):
 - **WP1 ↔ WP2**: `save_transcript` reemplaza todo. `index_meeting` se llama después de `save_minutes`.
 - **WP1 ↔ WP3**: `MinutesGenerator::generate` recibe utterances en `MediaMs` y devuelve `MinutesOutput` con `CaptureId` ya traducidos.
 - **WP5 ↔ WP6**: la UI solo habla con `src/api`. Las preguntas se leen de `snapshot.state` (`detected.prompt` o `recording.stopPrompt`). No hay evento aparte para las preguntas.
-- **Todos**: los `Settings` traen valores por defecto (`Settings::default()` ⇄ `defaultSettings()` del mock).
+- **Todos**: los `Settings` traen valores por defecto (`Settings::default()` ⇄ `defaultSettings()` del mock). Son **neutros**: sin nombre ni alias, idioma `"auto"` y sin ningún proveedor LLM (los pone la bienvenida con `system_profile`, `llm_cli_detect` y `llm_detect_local`). Los ajustes ya guardados se leen tal cual: los valores de fábrica solo afectan a instalaciones nuevas (test `fresh_defaults_contain_no_personal_strings`).
 
 ### 12.4 Orden recomendado
 
@@ -512,7 +517,7 @@ WP6 es ahora dueño de la integración y de los contratos. Cambios hechos (Rust,
 |---|---|---|
 | `llm::ProviderKind::ClaudeCli` | `effort: Option<String>` → `claude -p --effort <nivel>` | WP3 |
 | `settings::DetectionSettings` | `denylist: Vec<String>` (bundle ids que nunca disparan; se quitan de `rules` y se filtran los eventos) | WP5 |
-| `api::CliDetection` | `claude_env`, `codex_env` (variables del alias con `$HOME` expandido). La detección prueba `zsh -lc` y, si no, `zsh -ic` (lee `~/.zshrc`) | El `claude` de Edu es un alias con `CLAUDE_CONFIG_DIR` |
+| `api::CliDetection` | `claude_env`, `codex_env` (variables del alias con `$HOME` expandido). La detección prueba `zsh -lc` y, si no, `zsh -ic` (lee `~/.zshrc`) | El `claude` del usuario puede ser un alias con `CLAUDE_CONFIG_DIR` |
 | `api` | Comandos `secret_set`, `secret_delete` (Llavero, cuenta `provider:<id>`), `models_status`, `models_download`; DTO `ModelStatus`; evento `main:navigate` | WP5 |
 | `library::SearchIndex` | `remove_meeting` → `unindex_meeting`; `stale_meetings()` | Choque de nombres con `GroupStore::remove_meeting`; reindexar reuniones cuyo embedding falló |
 | `library::MeetingStore` | `save_screen_shares`, `get_capture` | Timeline con `screenShare`; borrar el fichero de una captura |

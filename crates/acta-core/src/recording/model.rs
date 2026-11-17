@@ -3,7 +3,7 @@ use crate::ids::MeetingId;
 use crate::time::{MediaMs, UnixMs};
 use serde::{Deserialize, Serialize};
 
-/// Las dos pistas SIEMPRE separadas: `Mic` = "Yo" (Edu), `System` = los demás.
+/// Las dos pistas SIEMPRE separadas: `Mic` = "Yo" (el usuario), `System` = los demás.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Track {

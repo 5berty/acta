@@ -85,7 +85,7 @@ pub struct DetectionConfig {
 #[serde(rename_all = "camelCase")]
 pub struct Participant {
     pub name: String,
-    /// La app lo marca como "tú" (Edu).
+    /// La app lo marca como "tú" (el usuario).
     pub is_self: bool,
 }
 

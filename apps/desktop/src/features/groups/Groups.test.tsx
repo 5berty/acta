@@ -61,6 +61,19 @@ describe("GroupsContainer", () => {
     expect(controls.state.groups.find((x) => x.id === g.id)!.meetingCount).toBe(1);
   });
 
+  it("«Sugerir título» nombra el grupo por lo que se habló en sus reuniones", async () => {
+    const d = sampleMeeting();
+    const { api, controls } = setup({ meetings: [d] });
+    const g = await api.groupCreate("test");
+    await api.groupAddMeeting(g.id, d.meeting.id);
+    await userEvent.type(screen.getByRole("textbox", { name: "Nombre del grupo nuevo" }), "Otro");
+    await userEvent.click(screen.getByRole("button", { name: "Crear grupo" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^test/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Sugerir título" }));
+    await waitFor(() => expect(controls.state.groups.find((x) => x.id === g.id)!.name).toBe("Seguimiento: Daily del equipo"));
+    expect(screen.getByRole("textbox", { name: "Nombre del grupo" })).toHaveValue("Seguimiento: Daily del equipo");
+  });
+
   it("quita una reunión del grupo", async () => {
     const d = sampleMeeting();
     const { api } = setup({ meetings: [d] });

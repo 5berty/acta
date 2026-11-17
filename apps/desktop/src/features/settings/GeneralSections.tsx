@@ -26,6 +26,8 @@ interface GeneralProps {
   cleanup: Settings["cleanup"];
   onCleanup(v: Settings["cleanup"]): void;
   transcription: Settings["transcription"];
+  titles?: Settings["titles"];
+  onTitles?(v: Settings["titles"]): void;
   onUser(v: Settings["user"]): void;
   onTranscription(v: Settings["transcription"]): void;
   voiceprints: VoiceprintSummary[];
@@ -33,7 +35,7 @@ interface GeneralProps {
   onReplayOnboarding?: () => void;
 }
 
-export function GeneralSection({ user, cleanup, onCleanup, transcription, onUser, onTranscription, voiceprints, onForget, onReplayOnboarding }: GeneralProps) {
+export function GeneralSection({ user, cleanup, onCleanup, transcription, titles, onTitles, onUser, onTranscription, voiceprints, onForget, onReplayOnboarding }: GeneralProps) {
   const ages = CLEANUP_AGES.some((a) => a.days === cleanup.minAgeDays) ? CLEANUP_AGES : [...CLEANUP_AGES, { days: cleanup.minAgeDays, label: `${cleanup.minAgeDays} días` }].sort((a, b) => a.days - b.days);
   return (
     <Section title="General" hint="Todo se procesa en tu Mac. Lo único que sale es el texto que le mandas a tu proveedor de IA para escribir el acta.">
@@ -63,6 +65,17 @@ export function GeneralSection({ user, cleanup, onCleanup, transcription, onUser
         <ToggleRow label="Separar hablantes" hint="Distingue quién habla entre los demás participantes." checked={transcription.diarization} onChange={(diarization) => onTranscription({ ...transcription, diarization })} />
         <ToggleRow label="Transcripción en vivo" hint="Vista previa mientras grabas y detección de momentos importantes." checked={transcription.livePreview} onChange={(livePreview) => onTranscription({ ...transcription, livePreview })} />
       </Group>
+
+      {titles && onTitles ? (
+        <Group title="Títulos de las reuniones" foot="acta usa el nombre de la reunión que muestra Teams. Si no lo hay, puede buscarlo en tu Calendario; si tampoco, lo saca de lo que se habló. Un título que cambies tú no se toca nunca.">
+          <ToggleRow
+            label="Usar el calendario para titular reuniones"
+            hint="Busca en el Calendario de macOS (donde suele estar Outlook) el evento a la hora de la reunión. La primera vez pide permiso."
+            checked={titles.calendar}
+            onChange={(calendar) => onTitles({ ...titles, calendar })}
+          />
+        </Group>
+      ) : null}
 
       <Group title="Voces recordadas" foot="Cuando confirmas un nombre en un transcript, acta recuerda esa voz para la próxima reunión.">
         {voiceprints.length === 0 ? <Row label={<span className="muted">Todavía no recuerdo ninguna voz</span>} /> : null}

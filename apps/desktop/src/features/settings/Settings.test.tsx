@@ -75,6 +75,15 @@ describe("SettingsContainer", () => {
     await waitFor(() => expect(controls.state.settings.user).toEqual({ displayName: "Eduardo", aliases: ["Edu", "Navajas"] }));
   });
 
+  it("usar el calendario para titular reuniones es opcional y se guarda", async () => {
+    const { controls } = setup();
+    const toggle = await screen.findByRole("checkbox", { name: "Usar el calendario para titular reuniones" });
+    expect(toggle).not.toBeChecked();
+    await userEvent.click(toggle);
+    await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await waitFor(() => expect(controls.state.settings.titles).toEqual({ calendar: true }));
+  });
+
   it("esconde lo técnico de un proveedor tras «Avanzado»", async () => {
     setup();
     await goTo("Proveedores de IA");

@@ -141,6 +141,8 @@ export function SettingsContainer({ onReplayOnboarding }: { onReplayOnboarding?:
               cleanup={draft.cleanup}
               onCleanup={(cleanup) => setDraft({ ...draft, cleanup })}
               transcription={draft.transcription}
+              titles={draft.titles ?? { calendar: false }}
+              onTitles={(titles) => setDraft({ ...draft, titles })}
               onUser={(user) => setDraft({ ...draft, user })}
               onTranscription={(transcription) => setDraft({ ...draft, transcription })}
               voiceprints={voiceprints}

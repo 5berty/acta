@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Group, MeetingSummary } from "../../api";
 import { useApi } from "../../app/ApiContext";
-import { AudioLines, FolderOpen, Trash2, X } from "lucide-react";
+import { AudioLines, FolderOpen, Sparkles, Trash2, X } from "lucide-react";
 import { StarButton } from "../../shared/ui/Star";
 import { EmptyState, IconButton } from "../../shared/ui/ui";
 import { MeetingPicker } from "./MeetingPicker";
@@ -33,6 +33,25 @@ export function GroupDetailContainer({ group, onChanged, onFavourite, onDeleted,
     void load();
   }, [group.id, group.name, group.description, load]);
 
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
+  const suggestTitle = async () => {
+    setSuggesting(true);
+    setSuggestError(null);
+    try {
+      const s = await api.groupsSuggestTitle(group.id);
+      setName(s.name);
+      const desc = description.trim() ? description : (s.description ?? "");
+      setDescription(desc);
+      await api.groupUpdate(group.id, s.name, desc);
+      onChanged();
+    } catch (e) {
+      setSuggestError((e as { message?: string }).message ?? "No se pudo sugerir un título.");
+    } finally {
+      setSuggesting(false);
+    }
+  };
+
   const save = () => {
     if (name.trim() && (name !== group.name || description !== (group.description ?? ""))) {
       void api.groupUpdate(group.id, name.trim(), description).then(onChanged);
@@ -48,7 +67,11 @@ export function GroupDetailContainer({ group, onChanged, onFavourite, onDeleted,
         <div className="group-head-text">
           <input className="title-input" aria-label="Nombre del grupo" value={name} onChange={(e) => setName(e.target.value)} onBlur={save} />
           <input className="subtitle-input" aria-label="Descripción" placeholder="Añade una descripción" value={description} onChange={(e) => setDescription(e.target.value)} onBlur={save} />
+          {suggestError ? <span className="muted" role="status">{suggestError}</span> : null}
         </div>
+        <IconButton label="Sugerir título" variant="glass" disabled={suggesting || members.length === 0} onClick={() => void suggestTitle()}>
+          <Sparkles size={15} strokeWidth={1.9} aria-hidden />
+        </IconButton>
         <StarButton className="star-glass" on={group.favourite} name={group.name} noun="favorito" size={17} onToggle={onFavourite} />
         <IconButton
           label="Eliminar grupo"

@@ -322,6 +322,24 @@ export function createDemoApi(overlay: DemoOverlay = "idle", opts: DemoOptions =
     localLlm: opts.onboarding ? mockLocalLlmStatus() : localLlm,
   });
 
+  // Transcripción en vivo de la grabación en curso (solo en demo).
+  const LIVE_SCRIPT: [T.LiveSpeaker, string][] = [
+    ["otros", "Vale, empezamos. Lo primero es la fecha del lanzamiento."],
+    ["yo", "Por mi parte el lunes me cuadra, si el piloto está listo el viernes."],
+    ["Ana García", "El grupo piloto serían diez personas del equipo de ventas."],
+    ["yo", "Perfecto. Yo envío el presupuesto el viernes a finanzas."],
+    ["Luis Ortega", "Ojo con la demo: hay que preparar los datos de prueba antes."],
+    ["otros", "Esto es importante: la fecha límite del contrato es el día veinte."],
+    ["yo", "Apuntado. ¿Alguien más tiene bloqueos?"],
+    ["Marta Ruiz", "Yo necesito acceso a las tablas nuevas, sigo esperando permiso."],
+  ];
+  const liveFor = (meetingId: string) => {
+    const segs: T.LiveSegment[] = LIVE_SCRIPT.slice(0, 6).map(([speaker, text], i) => ({ id: `${speaker === "yo" ? "mic" : "system"}-${i}`, speaker, text, startMs: 600_000 + i * 22_000, endMs: 600_000 + i * 22_000 + 18_000, final: true }));
+    segs.push({ id: "system-6", speaker: "otros", text: "Y sobre la demo del cliente…", startMs: 740_000, endMs: 752_000, final: false });
+    mock.controls.state.live[meetingId] = segs;
+  };
+  for (const st of Object.values(session)) if (st.state === "recording") liveFor(st.meetingId);
+
   const processing = byTitle("Revisión de diseño");
   const wavs = new Map<string, string>();
   const api: ActaApi = {
@@ -353,6 +371,15 @@ export function createDemoApi(overlay: DemoOverlay = "idle", opts: DemoOptions =
         mock.controls.emit("session:state", mock.controls.state.snapshot);
       },
     };
+    let line = 6;
+    window.setInterval(() => {
+      const st = mock.controls.state.snapshot.state;
+      if (st.state !== "recording") return;
+      const [speaker, text] = LIVE_SCRIPT[line % LIVE_SCRIPT.length]!;
+      const startMs = 600_000 + line * 22_000;
+      mock.controls.pushLive(st.meetingId, [{ id: `${speaker === "yo" ? "mic" : "system"}-${line}`, speaker, text, startMs, endMs: startMs + 18_000, final: true }]);
+      line += 1;
+    }, 4_000);
     let t = 0;
     window.setInterval(() => {
       if (mock.controls.state.snapshot.state.state !== "recording") return;

@@ -49,4 +49,17 @@ pub struct ReprocessRequest {
     pub meeting_id: MeetingId,
     /// Vacío = todos desde `Transcribing`.
     pub steps: Vec<ProcessingStep>,
+    /// Proveedor/modelo SOLO para este reintento (acta y escaleta); no cambia
+    /// los ajustes. `None` = el de `Settings.llm.minutesProvider`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub llm: Option<LlmOverride>,
+}
+
+/// «Reintentar con…»: proveedor y, opcionalmente, modelo.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmOverride {
+    pub provider_id: crate::ids::ProviderId,
+    #[serde(default)]
+    pub model: Option<String>,
 }

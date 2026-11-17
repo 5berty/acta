@@ -154,6 +154,105 @@ export interface ProcessingProgress {
 export interface ReprocessRequest {
   meetingId: MeetingId;
   steps: ProcessingStep[];
+  /** Proveedor/modelo solo para este reintento (no cambia los ajustes). */
+  llm?: LlmOverride | null;
+}
+
+/** `meeting_retry`. Sin `steps`: desde transcribir. Proveedor/modelo solo para esta vez. */
+export interface MeetingRetryRequest {
+  meetingId: MeetingId;
+  steps?: ProcessingStep[] | null;
+  providerId?: ProviderId | null;
+  model?: string | null;
+}
+
+/** `live_ask`. Sin proveedor: el del chat. */
+export interface LiveAskRequest {
+  sessionId: MeetingId;
+  question: string;
+  providerId?: ProviderId | null;
+  model?: string | null;
+}
+
+/** `permissions:changed`: un permiso cambió (se comprueba al volver a la app). */
+export interface PermissionChanged {
+  kind: PermissionKind;
+  status: PermissionStatus;
+}
+
+/** «Reintentar con…»: proveedor y, opcionalmente, modelo. */
+export interface LlmOverride {
+  providerId: ProviderId;
+  model?: string | null;
+}
+
+// ---------------------------------------------------------------- ola 4: en vivo y búsqueda
+// Espejo de `acta_core::api::live`.
+
+/** `"yo"` (micro), `"otros"` (sistema sin diarizar) o un nombre (Teams). */
+export type LiveSpeaker = "yo" | "otros" | (string & {});
+
+export interface LiveSegment {
+  /** Estable: el provisional y su versión final comparten id. */
+  id: string;
+  speaker: LiveSpeaker;
+  text: string;
+  /** Tiempo media desde el inicio de la grabación. */
+  startMs: number;
+  endMs: number;
+  /** `false` mientras la ventana de audio aún puede cambiar. */
+  final: boolean;
+}
+
+/** `live:transcript` trae los segmentos NUEVOS o CAMBIADOS (fusionar por `id`); `liveTranscriptGet` trae todos. */
+export interface LiveTranscript {
+  /** `MeetingId` de la grabación en curso. */
+  sessionId: MeetingId;
+  segments: LiveSegment[];
+}
+
+export interface LiveCitation {
+  startMs: number;
+}
+
+/** `live:answer`: streaming de `liveAsk`. El último lleva `done: true`. */
+export interface LiveAnswer {
+  requestId: string;
+  delta?: string;
+  done: boolean;
+  /** Solo con `done: true`: momentos citados. */
+  citations?: LiveCitation[];
+  /** En castellano, apto para mostrar. Llega con `done: true`. */
+  error?: string;
+}
+
+/** Proveedor activado y sus modelos elegibles («Reintentar con…»). */
+export interface AvailableProvider {
+  providerId: ProviderId;
+  label: string;
+  kind: ProviderKind["type"];
+  /** Puede estar vacío (el CLI usa su modelo por defecto). */
+  models: string[];
+  defaultModel: string | null;
+  /** Es el proveedor por defecto del acta (`minutesProvider`). */
+  isDefault: boolean;
+  /** Para qué es el proveedor por defecto: "minutes" | "chat" | "naming". */
+  defaultFor: ("minutes" | "chat" | "naming")[];
+}
+
+export interface TranscriptMatch {
+  /** `Utterance.idx`. */
+  utteranceId: number;
+  startMs: number;
+  /** Texto entero de la utterance. */
+  snippet: string;
+  /** `[inicio, fin)` en unidades UTF-16 de `snippet` (vale con `String.slice`). */
+  ranges: [number, number][];
+}
+
+export interface GroupTitleSuggestion {
+  name: string;
+  description: string | null;
 }
 
 // ---------------------------------------------------------------- transcript
@@ -692,6 +791,8 @@ export interface Settings {
   embeddings: { model: string };
   /** Bienvenida de primer arranque: se marca al terminarla o saltarla. */
   onboarding: { completed: boolean };
+  /** Título de una reunión nueva: Teams → Calendario (opt-in, pide permiso) → LLM. Nunca pisa uno editado. */
+  titles: { calendar: boolean };
   /** Sugerencias de borrado de reuniones antiguas (nunca borra sola). */
   cleanup: {
     enabled: boolean;

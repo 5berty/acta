@@ -22,6 +22,14 @@ export function createTauriApi(): ActaApi {
     meetingDelete: (id) => invoke(C.meetingDelete, { id }),
     meetingSetFavourite: (id, favourite) => invoke(C.meetingSetFavourite, { id, favourite }),
     meetingReprocess: (request) => invoke(C.meetingReprocess, { request }),
+    meetingRetry: (r) =>
+      invoke(C.meetingRetry, {
+        meetingId: r.meetingId,
+        steps: r.steps ?? null,
+        providerId: r.providerId ?? null,
+        model: r.model ?? null,
+      }),
+    meetingSearchTranscript: (meetingId, query) => invoke(C.meetingSearchTranscript, { meetingId, query }),
     speakerRename: (meetingId, speakerId, displayName, remember) =>
       invoke(C.speakerRename, { meetingId, speakerId, displayName, remember }),
     actionItemSetDone: (id, done) => invoke(C.actionItemSetDone, { id, done }),
@@ -39,6 +47,11 @@ export function createTauriApi(): ActaApi {
     groupSuggestionsRefresh: () => invoke(C.groupSuggestionsRefresh),
     groupSuggestionAccept: (id, name) => invoke(C.groupSuggestionAccept, { id, name: name ?? null }),
     groupSuggestionDismiss: (id) => invoke(C.groupSuggestionDismiss, { id }),
+    groupsSuggestTitle: (groupId) => invoke(C.groupsSuggestTitle, { groupId }),
+
+    liveTranscriptGet: (sessionId) => invoke(C.liveTranscriptGet, { sessionId }),
+    liveAsk: (r) =>
+      invoke(C.liveAsk, { sessionId: r.sessionId, question: r.question, providerId: r.providerId ?? null, model: r.model ?? null }),
 
     cleanupSuggestions: () => invoke(C.cleanupSuggestions),
     cleanupDelete: (ids) => invoke(C.cleanupDelete, { ids }),
@@ -60,6 +73,7 @@ export function createTauriApi(): ActaApi {
     llmCliDetect: () => invoke(C.llmCliDetect),
     llmListModels: (baseUrl, providerId) => invoke(C.llmListModels, { baseUrl, providerId: providerId ?? null }),
     llmDetectLocal: () => invoke(C.llmDetectLocal),
+    llmProvidersAvailable: () => invoke(C.llmProvidersAvailable),
     localLlmStatus: () => invoke(C.localLlmStatus),
     localLlmDownload: (modelId) => invoke(C.localLlmDownload, { modelId }),
     localLlmCancel: (modelId) => invoke(C.localLlmCancel, { modelId }),

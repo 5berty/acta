@@ -12,9 +12,11 @@
 
 pub mod commands;
 pub mod events;
+pub mod live;
 
 pub use commands::*;
 pub use events::*;
+pub use live::*;
 
 use crate::PortError;
 use serde::{Deserialize, Serialize};

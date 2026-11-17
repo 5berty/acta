@@ -13,6 +13,8 @@
 //! | `model:download` | `ModelDownload` | descarga de modelos ASR/embeddings |
 //! | `localmodel:download` | `llm::local::LocalLlmDownload` | descarga del modelo local integrado |
 //! | `main:navigate` | `MainNavigate` | `main_window_show{meetingId}`: la ventana principal abre esa reunión |
+//! | `live:transcript` | `LiveTranscript` | cada pocos segundos mientras graba (ver `api::live`) |
+//! | `live:answer` | `LiveAnswer` | streaming de `live_ask` |
 
 use crate::ids::MeetingId;
 use crate::library::MeetingStatus;
@@ -30,6 +32,12 @@ pub mod event_names {
     pub const MODEL_DOWNLOAD: &str = "model:download";
     pub const LOCAL_LLM_DOWNLOAD: &str = "localmodel:download";
     pub const MAIN_NAVIGATE: &str = "main:navigate";
+    /// `api::LiveTranscript` (segmentos nuevos o cambiados).
+    pub const LIVE_TRANSCRIPT: &str = "live:transcript";
+    /// `api::LiveAnswer` (streaming de `live_ask`).
+    pub const LIVE_ANSWER: &str = "live:answer";
+    /// `api::PermissionChanged`.
+    pub const PERMISSIONS_CHANGED: &str = "permissions:changed";
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

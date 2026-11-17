@@ -58,6 +58,9 @@
 //! | `app_info` | — | `AppInfo` |
 //! | `overlay_set_expanded` | `{ expanded }` | `null` |
 //! | `main_window_show` | `{ meetingId? }` | `null` |
+//!
+//! Ola 4 (en vivo, reintento con otro proveedor, búsqueda en el transcript,
+//! título de grupos): ver [`super::live`].
 
 use crate::chat::ChatMessage;
 use crate::ids::ChatMessageId;
@@ -131,6 +134,13 @@ pub mod command_names {
     pub const CLEANUP_SUGGESTIONS: &str = "cleanup_suggestions";
     pub const CLEANUP_DELETE: &str = "cleanup_delete";
     pub const CLEANUP_KEEP: &str = "cleanup_keep";
+    // Ola 4 (`api::live`).
+    pub const MEETING_RETRY: &str = "meeting_retry";
+    pub const LLM_PROVIDERS_AVAILABLE: &str = "llm_providers_available";
+    pub const LIVE_TRANSCRIPT_GET: &str = "live_transcript_get";
+    pub const LIVE_ASK: &str = "live_ask";
+    pub const MEETING_SEARCH_TRANSCRIPT: &str = "meeting_search_transcript";
+    pub const GROUPS_SUGGEST_TITLE: &str = "groups_suggest_title";
 }
 
 /// Estado de la sesión tal como lo ve la UI (comandos `session_*` y evento

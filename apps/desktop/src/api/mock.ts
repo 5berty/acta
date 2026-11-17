@@ -7,6 +7,8 @@ import type * as T from "./types";
 
 export interface MockControls {
   emit<E extends EventName>(event: E, payload: EventPayloads[E]): void;
+  /** Simula el ASR en vivo: fusiona por `id` y emite `live:transcript`. */
+  pushLive(sessionId: T.MeetingId, segments: T.LiveSegment[]): void;
   /** Estado interno, para aserciones. */
   state: MockState;
 }
@@ -34,7 +36,45 @@ export interface MockState {
   cleanup: T.CleanupCandidate[];
   /** Reuniones con «Mantener». */
   kept: T.MeetingId[];
+  /** Peticiones de `meetingRetry`, en orden. */
+  retries: T.ReprocessRequest[];
+  /** Transcript en vivo por sesión. */
+  live: Record<T.MeetingId, T.LiveSegment[]>;
 }
+
+/** Minúsculas y sin diacríticos, con el índice UTF-16 original de cada unidad. */
+function foldWithMap(text: string): { folded: string; map: number[] } {
+  let folded = "";
+  const map: number[] = [];
+  let i = 0;
+  for (const ch of text) {
+    const f = ch.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+    for (let k = 0; k < f.length; k++) map.push(i);
+    folded += f;
+    i += ch.length;
+  }
+  map.push(i);
+  return { folded, map };
+}
+
+/** Igual que `meeting_search_transcript` en Rust: sin acentos ni mayúsculas. */
+export function searchUtterances(utterances: T.Utterance[], query: string): T.TranscriptMatch[] {
+  const q = foldWithMap(query.trim()).folded;
+  if (!q) return [];
+  return utterances.flatMap((u) => {
+    const { folded, map } = foldWithMap(u.text);
+    const ranges: [number, number][] = [];
+    for (let at = folded.indexOf(q); at >= 0; at = folded.indexOf(q, at + q.length)) {
+      ranges.push([map[at]!, map[at + q.length]!]);
+    }
+    return ranges.length ? [{ utteranceId: u.idx, startMs: u.start, snippet: u.text, ranges }] : [];
+  });
+}
+
+const CLI_MODELS: Partial<Record<T.ProviderKind["type"], string[]>> = {
+  claudeCli: ["sonnet", "opus", "haiku"],
+  codexCli: [],
+};
 
 const GIB = 1024 ** 3;
 
@@ -142,7 +182,7 @@ export function defaultSettings(): T.Settings {
       keywords: ["importante", "apuntad", "esto es clave", "deadline", "fecha"],
       pruneCandidates: true,
     },
-    transcription: { language: "es", diarization: true, livePreview: false, voiceprintMinSimilarityPct: 75 },
+    transcription: { language: "es", diarization: true, livePreview: true, voiceprintMinSimilarityPct: 75 },
     llm: {
       providers: [
         {
@@ -161,6 +201,7 @@ export function defaultSettings(): T.Settings {
     // En los tests la bienvenida ya está vista; los suyos la reabren.
     onboarding: { completed: true },
     cleanup: { enabled: true, minAgeDays: 90, snoozedUntil: null },
+    titles: { calendar: false },
   };
 }
 
@@ -303,6 +344,8 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     localLlm: mockLocalLlmStatus(),
     cleanup: [],
     kept: [],
+    retries: [],
+    live: {},
     ...seed,
   };
 
@@ -439,6 +482,14 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     async meetingReprocess(request) {
       findMeeting(request.meetingId);
     },
+    async meetingRetry({ meetingId, steps, providerId, model }) {
+      findMeeting(meetingId);
+      const llm = providerId ? { providerId, model: model ?? null } : null;
+      state.retries.push({ meetingId, steps: steps ?? [], llm });
+    },
+    async meetingSearchTranscript(meetingId, query) {
+      return searchUtterances(findMeeting(meetingId).transcript.utterances, query);
+    },
     async speakerRename(meetingId, speakerId, displayName) {
       const m = findMeeting(meetingId);
       const sp = m.transcript.speakers.find((s) => s.id === speakerId);
@@ -534,6 +585,27 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     },
     async groupSuggestionDismiss(id) {
       state.suggestions = state.suggestions.filter((x) => x.id !== id);
+    },
+    async groupsSuggestTitle(groupId) {
+      findGroup(groupId);
+      const titles = state.meetings.filter((m) => m.groups.some((g) => g.id === groupId)).map((m) => m.meeting.title);
+      return { name: titles[0] ? `Seguimiento: ${titles[0]}` : "Reuniones del equipo", description: null };
+    },
+
+    async liveTranscriptGet(sessionId) {
+      return { sessionId, segments: structuredClone(state.live[sessionId] ?? []) };
+    },
+    async liveAsk({ sessionId, question }) {
+      const requestId = newId();
+      const words = foldWithMap(question).folded.split(/\W+/u).filter((w) => w.length > 4);
+      const hits = (state.live[sessionId] ?? []).filter((s) => words.some((w) => foldWithMap(s.text).folded.includes(w)));
+      setTimeout(() => {
+        const answer = hits.length ? "Sí, se habló de ello " : "No, todavía no se ha hablado de eso.";
+        emit("live:answer", { requestId, delta: answer, done: false });
+        if (hits.length) emit("live:answer", { requestId, delta: "[01:05].", done: false });
+        emit("live:answer", { requestId, done: true, citations: hits.map((s) => ({ startMs: s.startMs })) });
+      }, 0);
+      return requestId;
     },
 
     async search(query) {
@@ -632,6 +704,18 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     async llmDetectLocal() {
       return structuredClone(state.local);
     },
+    async llmProvidersAvailable() {
+      const { llm } = state.settings;
+      return llm.providers
+        .filter((p) => p.enabled)
+        .map((p): T.AvailableProvider => {
+          const configured = "model" in p.kind ? (p.kind.model ?? null) : p.kind.type === "builtIn" ? p.kind.modelId : null;
+          const remote = p.kind.type === "openAiCompatible" ? state.remoteModels[p.kind.baseUrl.replace(/\/+$/, "")] : undefined;
+          const models = remote ?? CLI_MODELS[p.kind.type] ?? (configured ? [configured] : []);
+          const defaultFor = (["minutes", "chat", "naming"] as const).filter((r) => llm[`${r}Provider`] === p.id);
+          return { providerId: p.id, label: p.label, kind: p.kind.type, models: [...models], defaultModel: configured, isDefault: llm.minutesProvider === p.id, defaultFor };
+        });
+    },
     async localLlmStatus() {
       return structuredClone(state.localLlm);
     },
@@ -727,5 +811,15 @@ export function createMockApi(seed: Partial<MockState> = {}): { api: ActaApi; co
     fileUrl: (absolutePath) => `file://${absolutePath}`,
   };
 
-  return { api, controls: { emit, state } };
+  const pushLive = (sessionId: T.MeetingId, segments: T.LiveSegment[]) => {
+    const all = (state.live[sessionId] ??= []);
+    for (const seg of segments) {
+      const i = all.findIndex((x) => x.id === seg.id);
+      if (i >= 0) all[i] = seg;
+      else all.push(seg);
+    }
+    emit("live:transcript", { sessionId, segments: structuredClone(segments) });
+  };
+
+  return { api, controls: { emit, state, pushLive } };
 }

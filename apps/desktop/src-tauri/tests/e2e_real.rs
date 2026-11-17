@@ -411,7 +411,7 @@ async fn e2e_full_pipeline_search_chat_and_groups() {
     let vps = r.core.voiceprints_list().await.unwrap();
     eprintln!("huellas: {vps:?}");
     assert_eq!(vps.len(), 1);
-    r.core.meeting_reprocess(acta_core::processing::ReprocessRequest { meeting_id: ids[1], steps: vec![] }).await.unwrap();
+    r.core.meeting_reprocess(acta_core::processing::ReprocessRequest { meeting_id: ids[1], steps: vec![], llm: None }).await.unwrap();
     let m = wait_reprocessed(&r.core, ids[1], Duration::from_secs(600)).await;
     assert_eq!(m.status, MeetingStatus::Ready, "{:?}", m.error);
     let d1 = r.core.meeting_get(ids[1]).await.unwrap();
@@ -513,7 +513,7 @@ async fn e2e_retry_failed_meetings_on_a_data_copy() {
         ProcessingStep::PruningCaptures,
     ];
     for id in &failed {
-        r.core.meeting_reprocess(ReprocessRequest { meeting_id: *id, steps: steps.clone() }).await.unwrap();
+        r.core.meeting_reprocess(ReprocessRequest { meeting_id: *id, steps: steps.clone(), llm: None }).await.unwrap();
     }
     for id in &failed {
         let m = wait_reprocessed(&r.core, *id, Duration::from_secs(600)).await;
@@ -742,7 +742,7 @@ async fn e2e_v3_favourites_cleanup_and_built_in_model_on_a_data_copy() {
     r.core.settings_update(settings).await.unwrap();
     let t0 = Instant::now();
     r.core
-        .meeting_reprocess(ReprocessRequest { meeting_id: starred, steps: vec![ProcessingStep::Summarizing, ProcessingStep::Indexing] })
+        .meeting_reprocess(ReprocessRequest { meeting_id: starred, steps: vec![ProcessingStep::Summarizing, ProcessingStep::Indexing], llm: None })
         .await
         .unwrap();
     let m = wait_reprocessed(&r.core, starred, Duration::from_secs(600)).await;

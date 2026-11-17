@@ -69,6 +69,13 @@ export const COMMANDS = {
   localLlmCancel: "local_llm_cancel",
   localLlmDelete: "local_llm_delete",
   localLlmTest: "local_llm_test",
+  // ola 4 (acta_core::api::live)
+  meetingRetry: "meeting_retry",
+  llmProvidersAvailable: "llm_providers_available",
+  liveTranscriptGet: "live_transcript_get",
+  liveAsk: "live_ask",
+  meetingSearchTranscript: "meeting_search_transcript",
+  groupsSuggestTitle: "groups_suggest_title",
 } as const;
 
 export const EVENTS = {
@@ -83,6 +90,9 @@ export const EVENTS = {
   modelDownload: "model:download",
   localLlmDownload: "localmodel:download",
   mainNavigate: "main:navigate",
+  liveTranscript: "live:transcript",
+  liveAnswer: "live:answer",
+  permissionsChanged: "permissions:changed",
 } as const;
 
 /** Payload de cada evento. */
@@ -98,6 +108,9 @@ export interface EventPayloads {
   "model:download": T.ModelDownload;
   "localmodel:download": T.LocalLlmDownload;
   "main:navigate": T.MainNavigate;
+  "live:transcript": T.LiveTranscript;
+  "live:answer": T.LiveAnswer;
+  "permissions:changed": T.PermissionChanged;
 }
 
 export type EventName = keyof EventPayloads;
@@ -122,6 +135,10 @@ export interface ActaApi {
   /** Pone o quita la estrella. Las favoritas nunca se sugieren para borrar. */
   meetingSetFavourite(id: T.MeetingId, favourite: boolean): Promise<T.Meeting>;
   meetingReprocess(request: T.ReprocessRequest): Promise<void>;
+  /** «Reintentar» (opcionalmente «con…» otro proveedor/modelo solo esta vez). Sin `steps`: desde transcribir. */
+  meetingRetry(request: T.MeetingRetryRequest): Promise<void>;
+  /** Coincidencias dentro del transcript, sin distinguir acentos ni mayúsculas. */
+  meetingSearchTranscript(meetingId: T.MeetingId, query: string): Promise<T.TranscriptMatch[]>;
   speakerRename(
     meetingId: T.MeetingId,
     speakerId: T.SpeakerId,
@@ -143,6 +160,14 @@ export interface ActaApi {
   groupSuggestionsRefresh(): Promise<T.GroupSuggestion[]>;
   groupSuggestionAccept(id: T.GroupId, name?: string | null): Promise<T.Group>;
   groupSuggestionDismiss(id: T.GroupId): Promise<void>;
+  /** Nombre sacado de lo hablado en sus reuniones. No lo aplica: usa `groupUpdate`. */
+  groupsSuggestTitle(groupId: T.GroupId): Promise<T.GroupTitleSuggestion>;
+
+  // en vivo (mientras graba)
+  /** Todo lo transcrito hasta ahora en la grabación `sessionId`. */
+  liveTranscriptGet(sessionId: T.MeetingId): Promise<T.LiveTranscript>;
+  /** Pregunta sobre lo dicho hasta ahora. Devuelve el `requestId`; la respuesta llega por `live:answer`. */
+  liveAsk(request: T.LiveAskRequest): Promise<string>;
 
   // limpieza de reuniones antiguas (solo sugiere)
   /** Vacío si las sugerencias están apagadas en Ajustes. */
@@ -173,6 +198,8 @@ export interface ActaApi {
   llmListModels(baseUrl: string, providerId?: T.ProviderId | null): Promise<string[]>;
   /** Ollama y LM Studio en sus puertos por defecto. Que no estén no es un error. */
   llmDetectLocal(): Promise<T.LocalDetection>;
+  /** Proveedores activados con sus modelos elegibles (menú «Reintentar con…»). */
+  llmProvidersAvailable(): Promise<T.AvailableProvider[]>;
   /** Modelo local integrado: hardware, niveles, qué hay descargado y recomendación. */
   localLlmStatus(): Promise<T.LocalLlmStatus>;
   /** Descarga (reanudable) llama.cpp y el modelo. Progreso: `localmodel:download`. */

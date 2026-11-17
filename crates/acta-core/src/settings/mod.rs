@@ -27,6 +27,17 @@ pub struct Settings {
     pub onboarding: OnboardingSettings,
     /// Sugerencias de borrado de reuniones antiguas (nunca borra sola).
     pub cleanup: CleanupSettings,
+    /// De dónde sale el título de una reunión nueva.
+    pub titles: TitleSettings,
+}
+
+/// Orden: título de la reunión en Teams → evento del Calendario de macOS a esa
+/// hora (solo con `calendar`, pide permiso de Calendario) → título del LLM.
+/// Un título que el usuario editó nunca se cambia.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TitleSettings {
+    pub calendar: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -100,7 +111,8 @@ pub struct ScreenSettings {
 pub struct TranscriptionSettings {
     pub language: String,
     pub diarization: bool,
-    /// Previsualización en vivo (gasta ANE/CPU durante la llamada).
+    /// Transcripción en vivo durante la llamada (`live:transcript`, `live_ask`);
+    /// al parar solo se finaliza en vez de transcribir todo otra vez.
     pub live_preview: bool,
     /// Umbral coseno para reconocer una huella de voz.
     pub voiceprint_min_similarity_pct: u32,
@@ -142,6 +154,7 @@ impl Default for Settings {
             embeddings: EmbeddingSettings::default(),
             onboarding: OnboardingSettings::default(),
             cleanup: CleanupSettings::default(),
+            titles: TitleSettings::default(),
         }
     }
 }
@@ -220,7 +233,7 @@ impl Default for TranscriptionSettings {
         Self {
             language: "es".into(),
             diarization: true,
-            live_preview: false,
+            live_preview: true,
             voiceprint_min_similarity_pct: 75,
         }
     }
@@ -276,5 +289,20 @@ impl Default for EmbeddingSettings {
         Self {
             model: "intfloat/multilingual-e5-small".into(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn live_preview_is_on_and_calendar_titles_are_opt_in_by_default() {
+        let s = Settings::default();
+        assert!(s.transcription.live_preview);
+        assert!(!s.titles.calendar);
+        let old: Settings = serde_json::from_str(r#"{"transcription":{"language":"es"}}"#).unwrap_or_default();
+        assert!(!old.titles.calendar);
+        assert_eq!(old.transcription.language, "es");
     }
 }

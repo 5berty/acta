@@ -595,6 +595,37 @@ async fn chat_threads_messages_and_scopes() {
 
 // ---------- ajustes ----------
 
+/// Una instalación anterior a los valores neutros conserva SUS ajustes: lo
+/// guardado manda sobre los valores de fábrica (que solo son para instalaciones nuevas).
+#[tokio::test]
+async fn settings_saved_by_an_older_version_load_as_they_were() {
+    let (s, _d, _c) = store();
+    let stored = r#"{"user":{"displayName":"Edu","aliases":["Eduardo","Edu Navajas"]},
+        "transcription":{"language":"es","diarization":true,"livePreview":true,"voiceprintMinSimilarityPct":75},
+        "llm":{"providers":[
+          {"id":"claude-cli","label":"Claude Code (CLI)","enabled":true,"timeoutS":600,
+           "kind":{"type":"claudeCli","binaryPath":"/opt/homebrew/bin/claude","model":null,"effort":null,"extraEnv":{"CLAUDE_CONFIG_DIR":"/Users/someone/.claude-personal"}}},
+          {"id":"nan","label":"NaN Builders","enabled":true,"timeoutS":600,
+           "kind":{"type":"openAiCompatible","baseUrl":"https://api.nan.builders/v1","model":"deepseek-v4-pro","apiKey":{"service":"acta","account":"provider:nan"}}}],
+          "minutesProvider":"claude-cli","chatProvider":"nan","namingProvider":"claude-cli"},
+        "onboarding":{"completed":true}}"#;
+    s.with_conn(move |conn| {
+        conn.execute("INSERT INTO settings(key,value) VALUES ('app', ?1)", [stored]).map_err(|e| acta_core::PortError::Internal(e.to_string()))?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    let got = s.load_settings().await.unwrap();
+    assert_eq!((got.user.display_name.as_str(), got.user.aliases.len()), ("Edu", 2));
+    assert_eq!(got.transcription.language, "es");
+    assert_eq!(got.llm.providers.iter().map(|p| (p.id.0.as_str(), p.enabled)).collect::<Vec<_>>(), [("claude-cli", true), ("nan", true)]);
+    assert_eq!((got.llm.minutes_provider.clone(), got.llm.chat_provider.clone()), (Some("claude-cli".into()), Some("nan".into())));
+    assert!(got.onboarding.completed);
+    // Guardarlos de nuevo no los cambia.
+    s.save_settings(got.clone()).await.unwrap();
+    assert_eq!(s.load_settings().await.unwrap(), got);
+}
+
 #[tokio::test]
 async fn settings_default_then_roundtrip_with_secret_refs_only() {
     use acta_core::llm::{ProviderConfig, ProviderKind, SecretRef};

@@ -222,6 +222,21 @@ async fn suggest_groups_clusters_by_meeting_embedding_excluding_manual_groups() 
     assert_eq!(again.iter().map(|g| g.meeting_ids.clone()).collect::<Vec<_>>(), sugg.iter().map(|g| g.meeting_ids.clone()).collect::<Vec<_>>());
 }
 
+/// Aceptar una sugerencia crea un grupo: esas reuniones no se vuelven a proponer.
+#[tokio::test]
+async fn meetings_of_an_accepted_suggestion_are_not_suggested_again() {
+    let (s, _d, _c) = store_with_embedder(TopicEmbedder::new(topics()));
+    for n in 1..=3u128 {
+        seed_meeting(&s, n, &format!("Fin {n}"), T0 + n as i64, &["revisión del presupuesto"]).await;
+        s.index_meeting(mid(n)).await.unwrap();
+    }
+    let sugg = s.suggest_groups().await.unwrap();
+    assert_eq!(sugg.len(), 1);
+    s.save_suggestions(sugg.clone()).await.unwrap();
+    s.accept_suggestion(sugg[0].id, Some("Finanzas".into())).await.unwrap();
+    assert!(s.suggest_groups().await.unwrap().is_empty(), "ya están en el grupo aceptado");
+}
+
 #[tokio::test]
 async fn suggest_groups_needs_embeddings_and_enough_meetings() {
     let (s, _d, _c) = store();

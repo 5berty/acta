@@ -87,16 +87,18 @@ fn mean_pairwise(embeddings: &[Vec<f32>], m: &[usize]) -> f32 {
 // GroupSuggester sobre SqliteStore
 // ---------------------------------------------------------------------------
 
-use crate::codec::{col_id, enc, sql_err};
+use crate::codec::{col_id, sql_err};
 use crate::db::SqliteStore;
 use crate::vectors::blob_to_vec;
 use acta_core::ids::{GroupId, MeetingId};
-use acta_core::library::{GroupKind, GroupSuggester, GroupSuggestion};
+use acta_core::library::{GroupSuggester, GroupSuggestion};
 use acta_core::PortResult;
 use async_trait::async_trait;
 use std::collections::HashMap;
 
-/// Parámetros del clustering (§9: umbral 0,80 y mínimo 3 reuniones).
+/// Parámetros del clustering (§9). La regla que ve el usuario: hace falta un
+/// mínimo de 3 reuniones parecidas (similitud coseno media ≥ 0,80 entre sus
+/// embeddings) que estén indexadas y no pertenezcan ya a ningún grupo.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ClusterConfig {
     pub threshold: f32,
@@ -126,14 +128,15 @@ impl SqliteStore {
                     .into_iter()
                     .filter_map(|(id, b)| blob_to_vec(&b).map(|v| (id, v)))
                     .collect();
-                let manual = enc(&GroupKind::Manual);
+                // Solo las que no están en NINGÚN grupo (creado a mano o aceptado
+                // de una sugerencia): si no, lo aceptado se volvía a proponer.
                 let meetings = conn
                     .prepare(
                         "SELECT rowid_alias, id FROM meetings
-                         WHERE id NOT IN (SELECT gm.meeting_id FROM group_meetings gm JOIN groups g ON g.id = gm.group_id WHERE g.kind = ?1)
+                         WHERE id NOT IN (SELECT meeting_id FROM group_meetings)
                          ORDER BY started_at DESC, rowid_alias DESC",
                     )
-                    .and_then(|mut st| st.query_map([manual], |r| Ok((r.get::<_, i64>(0)?, col_id::<MeetingId>(r, 1)?)))?.collect::<Result<Vec<_>, _>>())
+                    .and_then(|mut st| st.query_map([], |r| Ok((r.get::<_, i64>(0)?, col_id::<MeetingId>(r, 1)?)))?.collect::<Result<Vec<_>, _>>())
                     .map_err(sql_err)?;
                 Ok(meetings
                     .into_iter()

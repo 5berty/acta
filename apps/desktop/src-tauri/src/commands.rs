@@ -51,6 +51,13 @@ cmd!(cleanup_suggestions() -> CleanupSuggestions => |c| c.cleanup_suggestions())
 cmd!(cleanup_delete(ids: Vec<MeetingId>) -> CleanupResult => |c| c.cleanup_delete(ids));
 cmd!(cleanup_keep(ids: Vec<MeetingId>) -> () => |c| c.cleanup_keep(ids));
 cmd!(meeting_reprocess(request: ReprocessRequest) -> () => |c| c.meeting_reprocess(request));
+cmd!(meeting_retry(meeting_id: MeetingId, steps: Option<Vec<acta_core::processing::ProcessingStep>>, provider_id: Option<ProviderId>, model: Option<String>) -> () =>
+    |c| c.meeting_retry(meeting_id, steps, provider_id, model));
+cmd!(meeting_search_transcript(meeting_id: MeetingId, query: String) -> Vec<TranscriptMatch> => |c| c.meeting_search_transcript(meeting_id, query));
+cmd!(groups_suggest_title(group_id: GroupId) -> GroupTitleSuggestion => |c| c.groups_suggest_title(group_id));
+cmd!(llm_providers_available() -> Vec<AvailableProvider> => |c| c.llm_providers_available());
+cmd!(chat_cancel(request_id: String) -> () => |c| c.chat_cancel(request_id));
+cmd!(live_cancel(request_id: String) -> () => |c| c.chat_cancel(request_id));
 cmd!(speaker_rename(meeting_id: MeetingId, speaker_id: SpeakerId, display_name: String, remember: bool) -> () =>
     |c| c.speaker_rename(meeting_id, speaker_id, display_name, remember));
 cmd!(action_item_set_done(id: ActionItemId, done: bool) -> () => |c| c.action_item_set_done(id, done));

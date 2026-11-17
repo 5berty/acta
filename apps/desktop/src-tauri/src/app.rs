@@ -3,7 +3,7 @@
 
 use crate::llm::{KeychainResolver, build_provider};
 use crate::native::NativePorts;
-use crate::pipeline::{DynamicPipeline, SharedSettings, read};
+use crate::pipeline::{DynamicPipeline, LlmOverrides, SharedSettings, read};
 use acta_audio::processing::voiceprints::rename_speaker;
 use acta_audio::supervisor::{SupervisorConfig, SupervisorHandle, SupervisorPorts, spawn_with};
 use acta_core::api::*;
@@ -17,7 +17,7 @@ use acta_core::llm::{LlmProviderFactory, ProviderTestResult, SecretRef};
 use acta_llm::local::{BuiltInProvider, LocalLlm, LocalLlmConfig};
 use acta_core::minutes::GroupNamer;
 use acta_core::permissions::{PermissionKind, PermissionState, PermissionStatus};
-use acta_core::processing::ReprocessRequest;
+use acta_core::processing::{LlmOverride, ProcessingStep, ReprocessRequest};
 use acta_core::recording::{HealthWarning, PromptAnswer, SessionEvent, SessionState, StopReason};
 use acta_core::screen::Capture;
 use acta_core::settings::Settings;
@@ -32,8 +32,13 @@ use acta_llm::providers::{DefaultProviderFactory, test_provider};
 use acta_store::SqliteStore;
 use acta_store::secrets::{SecretStore, secret_ref_for_provider};
 use futures::StreamExt;
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
+use tokio::sync::oneshot;
+
+/// Respuestas en curso que «Detener» puede cortar (`chat_cancel`, `live_cancel`).
+pub type Cancels = Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>;
 
 /// Publica eventos hacia la UI (Tauri `emit` en la app, un vector en tests).
 pub trait Emit: Send + Sync {
@@ -57,6 +62,9 @@ pub struct AppCore {
     pub local_llm: Arc<LocalLlm>,
     /// Hardware fijo en vez del de este Mac (pruebas).
     pub hardware_override: Option<HardwareInfo>,
+    /// Proveedor/modelo de un «Reintentar con…» pendiente.
+    pub llm_overrides: LlmOverrides,
+    pub cancels: Cancels,
 }
 
 pub struct CoreDeps {
@@ -91,7 +99,10 @@ impl AppCore {
                 DefaultProviderFactory::new(Arc::new(KeychainResolver(deps.secrets.clone()))).with_local(local_llm.clone()),
             )
         });
+        let llm_overrides: LlmOverrides = Arc::default();
         let pipeline = DynamicPipeline {
+            overrides: llm_overrides.clone(),
+            errors: Some(deps.store.clone()),
             layout: deps.layout.clone(),
             settings: shared.clone(),
             store: deps.store.clone(),
@@ -131,6 +142,8 @@ impl AppCore {
             home: dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")),
             local_llm,
             hardware_override: None,
+            llm_overrides,
+            cancels: Arc::default(),
         })
     }
 
@@ -364,7 +377,41 @@ impl AppCore {
         if self.store.get_meeting(request.meeting_id).await?.is_none() {
             return Err(PortError::NotFound("No existe esa reunión.".into()));
         }
+        if let Some(o) = request.llm {
+            self.check_provider(&o.provider_id)?;
+            self.llm_overrides.lock().unwrap_or_else(|p| p.into_inner()).insert(request.meeting_id, o);
+        }
         self.supervisor.reprocess(request.meeting_id, request.steps)
+    }
+
+    fn check_provider(&self, id: &ProviderId) -> PortResult<()> {
+        if self.settings().llm.providers.iter().any(|p| &p.id == id) {
+            Ok(())
+        } else {
+            Err(PortError::NotFound(format!("No existe el proveedor «{id}».")))
+        }
+    }
+
+    /// «Reintentar» (y «Reintentar con…»). Sin pasos: desde transcribir.
+    /// El proveedor/modelo solo vale para esta vez.
+    pub async fn meeting_retry(
+        &self,
+        meeting_id: MeetingId,
+        steps: Option<Vec<ProcessingStep>>,
+        provider_id: Option<ProviderId>,
+        model: Option<String>,
+    ) -> PortResult<()> {
+        let llm = provider_id.map(|provider_id| LlmOverride { provider_id, model: model.filter(|m| !m.trim().is_empty()) });
+        self.meeting_reprocess(ReprocessRequest { meeting_id, steps: steps.unwrap_or_default(), llm }).await
+    }
+
+    /// Coincidencias dentro del transcript (sin acentos ni mayúsculas).
+    pub async fn meeting_search_transcript(&self, meeting_id: MeetingId, query: String) -> PortResult<Vec<TranscriptMatch>> {
+        if self.store.get_meeting(meeting_id).await?.is_none() {
+            return Err(PortError::NotFound("No existe esa reunión.".into()));
+        }
+        let utterances = self.store.get_transcript(meeting_id).await?.map(|t| t.utterances).unwrap_or_default();
+        Ok(acta_store::text::search_utterances(&utterances, &query))
     }
 
     pub async fn speaker_rename(
@@ -477,6 +524,26 @@ impl AppCore {
         self.store.list_suggestions().await
     }
 
+    /// Título para un grupo sacado de lo hablado en sus reuniones (no lo aplica).
+    pub async fn groups_suggest_title(&self, group_id: GroupId) -> PortResult<GroupTitleSuggestion> {
+        if !self.store.list_groups().await?.iter().any(|g| g.id == group_id) {
+            return Err(PortError::NotFound("No existe ese grupo.".into()));
+        }
+        let page = self.store.list_meetings(MeetingQuery { group_id: Some(group_id), limit: Some(30), ..Default::default() }).await?;
+        if page.items.is_empty() {
+            return Err(PortError::InvalidInput("El grupo aún no tiene reuniones de las que sacar un título.".into()));
+        }
+        let settings = self.settings();
+        let (_, provider) = build_provider(&settings, self.factory.as_ref(), settings.llm.naming_provider.as_ref())?;
+        let mut metas = Vec::new();
+        for m in &page.items {
+            let summary = self.store.get_minutes(m.id).await?.map(|x| x.summary_md).unwrap_or_default();
+            metas.push((m.title.clone(), summary));
+        }
+        let n = LlmGroupNamer::new(provider, settings.user.display_name.clone()).name_group(&metas).await?;
+        Ok(GroupTitleSuggestion { name: n.name, description: Some(n.description).filter(|d| !d.is_empty()) })
+    }
+
     /// Tras procesar una reunión: reindexa las que quedaron sin vectores y
     /// refresca las sugerencias de grupos. Mejor esfuerzo.
     pub async fn after_processing(&self) {
@@ -565,24 +632,58 @@ impl AppCore {
         }
         let engine = LlmChatEngine::new(provider, self.store.clone(), self.store.clone(), settings.user.clone());
         let assistant_message_id = ChatMessageId::new();
-        let mut stream = engine.ask(&thread, &history, &text, assistant_message_id).await?;
         let store = self.store.clone();
         let emitter = self.emitter.clone();
         let clock = self.clock.clone();
+        let (cancel_tx, mut cancel_rx) = oneshot::channel::<()>();
+        let key = assistant_message_id.to_string();
+        self.cancels.lock().unwrap_or_else(|p| p.into_inner()).insert(key.clone(), cancel_tx);
+        let cancels = self.cancels.clone();
+        // La respuesta entera va en segundo plano: con un CLI (`claude -p`)
+        // `ask` no vuelve hasta el final, y «Detener» tiene que poder cortarlo
+        // (soltar el futuro mata el proceso: `kill_on_drop`).
         tokio::spawn(async move {
+            let finish = |error: Option<String>| ChatDelta {
+                thread_id,
+                message_id: assistant_message_id,
+                delta: String::new(),
+                done: true,
+                citations: vec![],
+                error,
+            };
             let mut content = String::new();
             let mut citations = Vec::new();
-            while let Some(delta) = stream.next().await {
-                content.push_str(&delta.delta);
-                let done = delta.done;
-                if done {
-                    citations = delta.citations.clone();
-                }
-                emitter.emit(event_names::CHAT_DELTA, to_json(&delta));
-                if done {
-                    break;
-                }
+            let stream = tokio::select! {
+                r = engine.ask(&thread, &history, &text, assistant_message_id) => Some(r),
+                _ = &mut cancel_rx => None,
+            };
+            let mut cancelled = stream.is_none();
+            match stream {
+                None => emitter.emit(event_names::CHAT_DELTA, to_json(&finish(None))),
+                Some(Err(e)) => emitter.emit(event_names::CHAT_DELTA, to_json(&finish(Some(e.to_string())))),
+                Some(Ok(mut stream)) => loop {
+                    let next = tokio::select! {
+                        d = stream.next() => d,
+                        _ = &mut cancel_rx => { cancelled = true; None }
+                    };
+                    let Some(delta) = next else {
+                        if cancelled {
+                            emitter.emit(event_names::CHAT_DELTA, to_json(&finish(None)));
+                        }
+                        break;
+                    };
+                    content.push_str(&delta.delta);
+                    let done = delta.done;
+                    if done {
+                        citations = delta.citations.clone();
+                    }
+                    emitter.emit(event_names::CHAT_DELTA, to_json(&delta));
+                    if done {
+                        break;
+                    }
+                },
             }
+            cancels.lock().unwrap_or_else(|p| p.into_inner()).remove(&key);
             if content.trim().is_empty() {
                 return;
             }
@@ -605,6 +706,15 @@ impl AppCore {
             }
         });
         Ok(ChatSendResult { user_message, assistant_message_id })
+    }
+
+    /// «Detener» de `chat_send` o de `live_ask`: corta la generación. Lo que
+    /// ya no está en curso se ignora.
+    pub async fn chat_cancel(&self, request_id: String) -> PortResult<()> {
+        if let Some(tx) = self.cancels.lock().unwrap_or_else(|p| p.into_inner()).remove(&request_id) {
+            let _ = tx.send(());
+        }
+        Ok(())
     }
 
     // ------------------------------------------------------------------
@@ -642,6 +752,54 @@ impl AppCore {
             Ok(p) => Ok(test_provider(p.as_ref()).await),
             Err(e) => Ok(ProviderTestResult { ok: false, message: e.to_string(), latency_ms: None }),
         }
+    }
+
+    /// Proveedores activados y sus modelos elegibles («Reintentar con…»).
+    pub async fn llm_providers_available(&self) -> PortResult<Vec<AvailableProvider>> {
+        use acta_core::llm::ProviderKind;
+        let settings = self.settings();
+        let roles = |id: &ProviderId| {
+            let l = &settings.llm;
+            [("minutes", &l.minutes_provider), ("chat", &l.chat_provider), ("naming", &l.naming_provider)]
+                .into_iter()
+                .filter(|(_, p)| p.as_ref() == Some(id))
+                .map(|(r, _)| r.to_owned())
+                .collect::<Vec<_>>()
+        };
+        let mut out = Vec::new();
+        for cfg in settings.llm.providers.iter().filter(|p| p.enabled) {
+            let configured = crate::llm::model_of(cfg);
+            let (kind, mut models): (&str, Vec<String>) = match &cfg.kind {
+                ProviderKind::ClaudeCli { .. } => ("claudeCli", ["sonnet", "opus", "haiku"].map(String::from).to_vec()),
+                ProviderKind::CodexCli { .. } => ("codexCli", vec![]),
+                ProviderKind::Anthropic { .. } => ("anthropic", vec![]),
+                ProviderKind::BuiltIn { .. } => (
+                    "builtIn",
+                    self.local_llm_status().await.map(|s| s.models.into_iter().filter(|m| m.downloaded).map(|m| m.model.id).collect()).unwrap_or_default(),
+                ),
+                ProviderKind::OpenAiCompatible { base_url, api_key, .. } => {
+                    let key = api_key.as_ref().and_then(|r| self.secrets.get(r).ok().flatten());
+                    let listed = acta_llm::providers::models::list_models(base_url, key.as_deref(), std::time::Duration::from_secs(5)).await;
+                    ("openAiCompatible", listed.unwrap_or_default())
+                }
+            };
+            if let Some(m) = &configured
+                && !models.contains(m)
+            {
+                models.insert(0, m.clone());
+            }
+            let default_for = roles(&cfg.id);
+            out.push(AvailableProvider {
+                provider_id: cfg.id.clone(),
+                label: cfg.label.clone(),
+                kind: kind.to_owned(),
+                models,
+                default_model: configured,
+                is_default: default_for.iter().any(|r| r == "minutes"),
+                default_for,
+            });
+        }
+        Ok(out)
     }
 
     pub async fn llm_cli_detect(&self) -> PortResult<CliDetection> {

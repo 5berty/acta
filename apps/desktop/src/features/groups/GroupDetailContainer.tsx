@@ -3,7 +3,7 @@ import type { Group, MeetingSummary } from "../../api";
 import { useApi } from "../../app/ApiContext";
 import { AudioLines, FolderOpen, Sparkles, Trash2, X } from "lucide-react";
 import { StarButton } from "../../shared/ui/Star";
-import { EmptyState, IconButton } from "../../shared/ui/ui";
+import { EmptyState, IconButton, errorMessage } from "../../shared/ui/ui";
 import { MeetingPicker } from "./MeetingPicker";
 import { MeetingRow } from "../meetings/MeetingRow";
 import { ChatContainer } from "../chat/ChatContainer";
@@ -22,9 +22,26 @@ export function GroupDetailContainer({ group, onChanged, onFavourite, onDeleted,
   const [name, setName] = useState(group.name);
   const [description, setDescription] = useState(group.description ?? "");
 
+  const [error, setError] = useState<string | null>(null);
+  /** Ejecuta una acción; si falla, el motivo queda a la vista en vez de perderse. */
+  const guard = async (run: () => Promise<unknown>): Promise<boolean> => {
+    setError(null);
+    try {
+      await run();
+      return true;
+    } catch (e) {
+      setError(errorMessage(e));
+      return false;
+    }
+  };
+
   const load = useCallback(async () => {
-    const m = await api.meetingsList({ groupId: group.id, limit: 200 });
-    setMembers([...m.items]);
+    try {
+      const m = await api.meetingsList({ groupId: group.id, limit: 200 });
+      setMembers([...m.items]);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
   }, [api, group.id]);
 
   useEffect(() => {
@@ -46,7 +63,7 @@ export function GroupDetailContainer({ group, onChanged, onFavourite, onDeleted,
       await api.groupUpdate(group.id, s.name, desc);
       onChanged();
     } catch (e) {
-      setSuggestError((e as { message?: string }).message ?? "No se pudo sugerir un título.");
+      setSuggestError(errorMessage(e));
     } finally {
       setSuggesting(false);
     }
@@ -54,7 +71,7 @@ export function GroupDetailContainer({ group, onChanged, onFavourite, onDeleted,
 
   const save = () => {
     if (name.trim() && (name !== group.name || description !== (group.description ?? ""))) {
-      void api.groupUpdate(group.id, name.trim(), description).then(onChanged);
+      void guard(() => api.groupUpdate(group.id, name.trim(), description)).then((ok) => ok && onChanged());
     }
   };
 
@@ -67,7 +84,8 @@ export function GroupDetailContainer({ group, onChanged, onFavourite, onDeleted,
         <div className="group-head-text">
           <input className="title-input" aria-label="Nombre del grupo" value={name} onChange={(e) => setName(e.target.value)} onBlur={save} />
           <input className="subtitle-input" aria-label="Descripción" placeholder="Añade una descripción" value={description} onChange={(e) => setDescription(e.target.value)} onBlur={save} />
-          {suggestError ? <span className="muted" role="status">{suggestError}</span> : null}
+          {suggestError ? <span className="inline-error" role="alert">{suggestError}</span> : null}
+          {error ? <span className="inline-error" role="alert">{error}</span> : null}
         </div>
         <IconButton label="Sugerir título" variant="glass" disabled={suggesting || members.length === 0} onClick={() => void suggestTitle()}>
           <Sparkles size={15} strokeWidth={1.9} aria-hidden />
@@ -77,7 +95,7 @@ export function GroupDetailContainer({ group, onChanged, onFavourite, onDeleted,
           label="Eliminar grupo"
           variant="glass"
           onClick={() => {
-            if (window.confirm(`¿Eliminar el grupo «${group.name}»? Las reuniones se conservan.`)) void api.groupDelete(group.id).then(onDeleted);
+            if (window.confirm(`¿Eliminar el grupo «${group.name}»? Las reuniones se conservan.`)) void guard(() => api.groupDelete(group.id)).then((ok) => ok && onDeleted());
           }}
         >
           <Trash2 size={15} strokeWidth={1.9} aria-hidden />
@@ -90,9 +108,13 @@ export function GroupDetailContainer({ group, onChanged, onFavourite, onDeleted,
             <MeetingPicker
               excludeIds={members.map((m) => m.id)}
               onAdd={async (ids) => {
-                for (const id of ids) await api.groupAddMeeting(group.id, id);
+                const ok = await guard(async () => {
+                  for (const id of ids) await api.groupAddMeeting(group.id, id);
+                });
+                // Aunque falle a medias, se recarga para reflejar lo que sí entró.
                 await load();
                 onChanged();
+                return void ok;
               }}
             />
           </div>
@@ -107,13 +129,23 @@ export function GroupDetailContainer({ group, onChanged, onFavourite, onDeleted,
                   onOpen={() => onOpenMeeting(m.id)}
                   onFavourite={(f) => {
                     setMembers((prev) => prev.map((x) => (x.id === m.id ? { ...x, favourite: f } : x)));
-                    void api.meetingSetFavourite(m.id, f).catch(load);
+                    void api.meetingSetFavourite(m.id, f).catch((e) => {
+                      setError(errorMessage(e));
+                      void load();
+                    });
                   }}
                 >
                   <IconButton
                     small
                     label={`Quitar ${m.title} del grupo`}
-                    onClick={() => void api.groupRemoveMeeting(group.id, m.id).then(() => Promise.all([load(), Promise.resolve(onChanged())]))}
+                    onClick={() =>
+                      void guard(() => api.groupRemoveMeeting(group.id, m.id)).then(async (ok) => {
+                        if (ok) {
+                          await load();
+                          onChanged();
+                        }
+                      })
+                    }
                   >
                     <X size={13} strokeWidth={2.2} aria-hidden />
                   </IconButton>

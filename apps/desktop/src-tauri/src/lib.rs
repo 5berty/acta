@@ -212,6 +212,8 @@ pub fn run() {
             commands::llm_providers_available,
             commands::chat_cancel,
             commands::live_cancel,
+            commands::live_transcript_get,
+            commands::live_ask,
             commands::speaker_rename,
             commands::action_item_set_done,
             commands::capture_delete,

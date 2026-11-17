@@ -100,6 +100,8 @@ pub struct SegmentWriter {
     failures: Vec<WriteFailure>,
     seg_samples: u64,
     flush_samples: u64,
+    /// Copia para la transcripción en vivo (`crate::live`).
+    tap: Option<std::sync::Arc<crate::live::LiveTap>>,
 }
 
 impl SegmentWriter {
@@ -163,7 +165,14 @@ impl SegmentWriter {
             origin_pts_us: Some(0),
             paused: false,
             failures: Vec::new(),
+            tap: None,
         })
+    }
+
+    /// Todo lo que se escriba (también el relleno de huecos) se copia aquí,
+    /// con su posición media, para la transcripción en vivo.
+    pub fn set_live_tap(&mut self, tap: std::sync::Arc<crate::live::LiveTap>) {
+        self.tap = Some(tap);
     }
 
     /// Apunta la app de la reunión en el manifiesto (se guarda en el próximo cierre).
@@ -267,6 +276,9 @@ impl SegmentWriter {
             let room = (seg_samples - seg.buf.len() as u64) as usize;
             let n = room.min(data.len());
             let (chunk, rest) = data.split_at(n);
+            if let Some(tap) = &self.tap {
+                tap.append(tw.track, tw.position, chunk);
+            }
             if let Sink::Wav { writer, .. } = &mut seg.sink {
                 let res = chunk.iter().try_for_each(|&s| writer.write_sample(s));
                 if let Err(e) = res {

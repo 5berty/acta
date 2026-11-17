@@ -322,6 +322,11 @@ impl Actor {
                     self.snapshot_frame(CaptureReason::Keyword, hit.at, Some(hit.keyword)).await;
                 }
             }
+            Msg::LiveTranscript { gen_id, transcript } => {
+                if self.current_gen(gen_id) {
+                    self.emit(SupervisorEvent::LiveTranscript(transcript));
+                }
+            }
             Msg::Processing(ev) => {
                 let _ = self.apply(ev).await;
             }
@@ -658,6 +663,12 @@ impl Actor {
         writer.set_app(app.clone());
         self.next_gen += 1;
         let gen_id = self.next_gen;
+        let live_session = (s.transcription.live_preview && self.ports.live_asr.is_some()).then(|| {
+            let session = crate::live::LiveSession::new(meeting_id);
+            writer.set_live_tap(session.tap.clone());
+            lock(&self.ports.live_sessions).insert(meeting_id, session.clone());
+            session
+        });
         let watchdog = Watchdog::new(s.health, s.recording.segment_seconds, &Track::ALL, at);
         let core: SharedCore = Arc::new(Mutex::new(CaptureCore::new(writer, watchdog)));
         let mut autostop = AutoStopPolicy::new(s.auto_stop);
@@ -748,7 +759,18 @@ impl Actor {
                 }
             }
         }
-        if s.transcription.live_preview
+        if let (Some(session), Some(asr)) = (live_session, self.ports.live_asr.clone()) {
+            let lang = Some(s.transcription.language.clone()).filter(|l| !l.is_empty());
+            let tx = self.tx.clone();
+            let on_update = move |u: crate::live::LiveUpdate| {
+                for partial in u.partials {
+                    let _ = tx.send(Msg::Live { gen_id, partial });
+                }
+                let _ = tx.send(Msg::LiveTranscript { gen_id, transcript: u.transcript });
+            };
+            let task = crate::live::run(session, asr, self.ports.layout.clone(), lang, crate::live::LiveConfig::default(), self.ports.clock.clone(), on_update);
+            rec.tasks.push(tokio::spawn(task));
+        } else if s.transcription.live_preview
             && let Some(live) = self.ports.live.clone()
         {
             let lang = Some(s.transcription.language.clone()).filter(|l| !l.is_empty());

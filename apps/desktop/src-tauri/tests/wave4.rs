@@ -70,6 +70,7 @@ impl LlmProvider for Fake {
             }
             Mode::Garbage => "Lo siento, no puedo".to_owned(),
             Mode::Ok if r.system.as_deref().unwrap_or_default().contains("acta.minutes") || r.system.as_deref().unwrap_or_default().contains("secretario") => MINUTES_JSON.to_owned(),
+            Mode::Ok if r.system.as_deref().unwrap_or_default().contains("DURANTE una reunión") => "Sí, José preguntó por las subcuentas [00:01].".to_owned(),
             Mode::Ok if r.json_schema.is_some() => r#"{"nombre":"Daily del equipo","descripcion":"Seguimiento diario."}"#.to_owned(),
             Mode::Ok => "ok".to_owned(),
         };
@@ -284,4 +285,70 @@ async fn stopping_a_chat_answer_kills_the_slow_provider_at_once() {
     }
     // Cancelar algo que ya terminó (o no existe) no es un error.
     r.core.chat_cancel("nada".into()).await.unwrap();
+}
+
+fn live_session(core: &AppCore, id: MeetingId) {
+    let session = acta_audio::live::LiveSession::new(id);
+    {
+        let mut tracks = session.tracks.lock().unwrap();
+        let seg = |a, b, t: &str| AsrSegment { start_ms: a, end_ms: b, text: t.into(), confidence: None, words: vec![] };
+        tracks[1].absorb(0, 10_000, true, vec![seg(1_000, 4_000, "José, ¿cómo están las subcuentas?"), seg(8_500, 9_800, "Y la LOPD")], &acta_audio::live::LiveConfig::default());
+    }
+    core.live_sessions.lock().unwrap().insert(id, session);
+}
+
+use acta_core::transcription::AsrSegment;
+
+#[tokio::test]
+async fn the_live_transcript_so_far_comes_from_the_session_or_from_disk() {
+    let r = rig().await;
+    let id = meeting_with_transcript(&r.core, 6).await;
+    assert!(r.core.live_transcript_get(id).await.unwrap().segments.is_empty());
+    live_session(&r.core, id);
+    let t = r.core.live_transcript_get(id).await.unwrap();
+    assert_eq!(t.session_id, id);
+    assert_eq!(t.segments.iter().map(|s| (s.id.as_str(), s.is_final, s.speaker.as_str())).collect::<Vec<_>>(), vec![("system-0", true, "otros"), ("system-1", false, "otros")]);
+    // Tras reiniciar la app (sin sesión en memoria), lo confirmado sigue en disco.
+    r.core.live_sessions.lock().unwrap().clear();
+    let state = acta_audio::live::LiveAsrState { covered_ms: 4_000, segments: vec![AsrSegment { start_ms: 1_000, end_ms: 4_000, text: "hola".into(), confidence: None, words: vec![] }] };
+    let path = r.core.layout.live_asr_path(id, Track::Mic);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, serde_json::to_vec(&state).unwrap()).unwrap();
+    let t = r.core.live_transcript_get(id).await.unwrap();
+    assert_eq!(t.segments.len(), 1);
+    assert_eq!((t.segments[0].speaker.as_str(), t.segments[0].start_ms), ("yo", 1_000));
+    assert!(matches!(r.core.live_transcript_get(MeetingId::from_u128(404)).await, Err(PortError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn a_live_question_streams_an_answer_with_citations_and_can_be_stopped() {
+    let r = rig().await;
+    let id = meeting_with_transcript(&r.core, 7).await;
+    live_session(&r.core, id);
+    let request_id = r.core.live_ask(id, "¿Han hablado de subcuentas?".into(), None, None).await.unwrap();
+    let start = Instant::now();
+    let answers = loop {
+        let a: Vec<_> = r.events.of("live:answer").into_iter().filter(|a| a["requestId"] == request_id.as_str()).collect();
+        if a.iter().any(|x| x["done"] == true) {
+            break a;
+        }
+        assert!(start.elapsed() < Duration::from_secs(5), "sin respuesta");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    let text: String = answers.iter().filter_map(|a| a["delta"].as_str()).collect();
+    assert!(text.contains("subcuentas"), "{text}");
+    assert_eq!(answers.last().unwrap()["citations"], serde_json::json!([{"startMs": 1000}]));
+    assert!(r.factory.built.lock().unwrap().iter().any(|(p, _)| p == "nan"), "sin proveedor: el del chat");
+    assert!(matches!(r.core.live_ask(id, "  ".into(), None, None).await, Err(PortError::InvalidInput(_))));
+
+    // «Detener» con un proveedor que no termina.
+    r.factory.modes.lock().unwrap().insert("claude-cli".into(), Mode::Hang);
+    let rid = r.core.live_ask(id, "¿Y la LOPD?".into(), Some("claude-cli".into()), Some("haiku".into())).await.unwrap();
+    assert!(r.factory.built.lock().unwrap().contains(&("claude-cli".into(), Some("haiku".into()))));
+    r.core.chat_cancel(rid.clone()).await.unwrap();
+    let start = Instant::now();
+    while !r.events.of("live:answer").iter().any(|a| a["requestId"] == rid.as_str() && a["done"] == true) {
+        assert!(start.elapsed() < Duration::from_secs(3), "«Detener» no cortó la respuesta");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }

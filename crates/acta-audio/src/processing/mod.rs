@@ -203,7 +203,16 @@ impl DefaultPipeline {
         let language = Some(self.settings.transcription.language.clone()).filter(|l| !l.is_empty());
         for (i, track) in Track::ALL.into_iter().enumerate() {
             let wav = self.layout.track_wav(id, track);
-            let segments = if wav.exists() {
+            // Primera vez tras grabar con transcripción en vivo: solo falta la
+            // cola. «Reintentar» (ya hay caché) transcribe la pista entera.
+            let live = if wav.exists() && !self.layout.asr_cache_json(id, track).exists() {
+                crate::live::finish_track(&self.layout, id, track, self.transcriber.as_ref(), language.clone()).await?
+            } else {
+                None
+            };
+            let segments = if let Some(segments) = live {
+                segments
+            } else if wav.exists() {
                 self.transcriber
                     .transcribe(
                         TranscribeRequest {
@@ -384,6 +393,7 @@ impl ProcessingPipeline for DefaultPipeline {
                 continue;
             }
             progress.progress(meeting_id, step, 0.0);
+            let started = std::time::Instant::now();
             let result = match step {
                 ProcessingStep::Concatenating => self.concatenate(meeting_id).await,
                 ProcessingStep::Transcribing => self.transcribe(meeting_id, progress).await,
@@ -394,6 +404,7 @@ impl ProcessingPipeline for DefaultPipeline {
                 ProcessingStep::PruningCaptures if summarized && deferred.is_none() => self.prune(meeting_id).await,
                 ProcessingStep::PruningCaptures => Ok(()),
             };
+            tracing::info!(%meeting_id, step = step_label(step), ms = started.elapsed().as_millis() as u64, ok = result.is_ok(), "paso del procesado");
             match result {
                 Ok(()) => progress.progress(meeting_id, step, 1.0),
                 Err(e) if step == ProcessingStep::Summarizing => {

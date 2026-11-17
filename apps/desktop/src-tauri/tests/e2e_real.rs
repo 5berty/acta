@@ -43,6 +43,13 @@ fn enabled() -> bool {
     std::env::var("ACTA_E2E").is_ok()
 }
 
+/// Con `ACTA_E2E_TRACE=1`, los logs (tiempos de cada paso) van a stderr.
+fn trace() {
+    if std::env::var("ACTA_E2E_TRACE").is_ok() {
+        let _ = tracing_subscriber::fmt().with_max_level(tracing::Level::INFO).with_writer(std::io::stderr).try_init();
+    }
+}
+
 struct Rig {
     layout: DataLayout,
     core: AppCore,
@@ -498,6 +505,7 @@ async fn e2e_retry_failed_meetings_on_a_data_copy() {
         return;
     }
     let Ok(dir) = std::env::var("ACTA_E2E_DATA_COPY") else { return };
+    trace();
     let r = rig(Path::new(&dir)).await;
     let page = r.core.meetings_list(MeetingQuery::default()).await.unwrap();
     let failed: Vec<_> = page.items.iter().filter(|m| m.status == MeetingStatus::Failed).map(|m| m.id).collect();
@@ -516,7 +524,9 @@ async fn e2e_retry_failed_meetings_on_a_data_copy() {
         r.core.meeting_reprocess(ReprocessRequest { meeting_id: *id, steps: steps.clone(), llm: None }).await.unwrap();
     }
     for id in &failed {
+        let t0 = Instant::now();
         let m = wait_reprocessed(&r.core, *id, Duration::from_secs(600)).await;
+        eprintln!("{id}: {:.1} s en total", t0.elapsed().as_secs_f32());
         let d = r.core.meeting_get(*id).await.unwrap();
         eprintln!("{id}: {:?} «{}» error={:?}\n{}", m.status, m.title, m.error, d.minutes.as_ref().map(|x| x.summary_md.as_str()).unwrap_or(""));
         assert_eq!(m.status, MeetingStatus::Ready, "{:?}", m.error);

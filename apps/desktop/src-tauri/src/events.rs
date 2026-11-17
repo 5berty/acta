@@ -13,6 +13,7 @@ pub fn to_tauri(e: &SupervisorEvent) -> (&'static str, serde_json::Value) {
         SupervisorEvent::Processing(p) => (ev::PROCESSING_PROGRESS, json(serde_json::to_value(p))),
         SupervisorEvent::MeetingUpdated(m) => (ev::MEETING_UPDATED, json(serde_json::to_value(m))),
         SupervisorEvent::LivePartial(p) => (ev::LIVE_PARTIAL, json(serde_json::to_value(p))),
+        SupervisorEvent::LiveTranscript(t) => (ev::LIVE_TRANSCRIPT, json(serde_json::to_value(t))),
     }
 }
 

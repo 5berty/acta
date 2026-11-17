@@ -9,10 +9,12 @@
 //! - `minutes`: impl de `MinutesGenerator` (esquema `schemas/minutes.v1.json`).
 //! - `chat`: impl de `ChatEngine` (reunión = transcript completo; grupo/todo = RAG con citas `[n]`).
 //! - `naming`: impl de `GroupNamer` (esquema `schemas/group_name.v1.json`).
+//! - `live`: preguntas sobre la reunión EN CURSO (`live_ask`), con citas `[mm:ss]`.
 //! - `moments`: impl de `ImportantMomentDetector` (palabras clave ES/EN).
 #![deny(clippy::zombie_processes)]
 
 pub mod chat;
+pub mod live;
 pub mod local;
 pub mod minutes;
 pub mod moments;
@@ -36,6 +38,7 @@ pub mod prompts {
     pub const MINUTES_USER: &str = include_str!("../prompts/minutes.user.md");
     pub const CHAT_SYSTEM: &str = include_str!("../prompts/chat.system.md");
     pub const GROUP_NAME_SYSTEM: &str = include_str!("../prompts/group_name.system.md");
+    pub const LIVE_ASK_SYSTEM: &str = include_str!("../prompts/live_ask.system.md");
 }
 
 #[cfg(test)]

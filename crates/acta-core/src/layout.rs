@@ -121,6 +121,15 @@ impl DataLayout {
     pub fn live_screen_path(&self, id: MeetingId) -> PathBuf {
         self.meeting_dir(id).join("live").join("screen.jsonl")
     }
+    /// Transcripción en vivo CONFIRMADA de una pista (`LiveAsrState`): al
+    /// parar, el pipeline solo transcribe lo que falta desde `coveredMs`.
+    pub fn live_asr_path(&self, id: MeetingId, track: Track) -> PathBuf {
+        self.meeting_dir(id).join("live").join(format!("asr-{}.json", track.as_str()))
+    }
+    /// Ventana de audio temporal que se transcribe en vivo (o la cola al parar).
+    pub fn live_window_wav(&self, id: MeetingId, track: Track) -> PathBuf {
+        self.meeting_dir(id).join("live").join(format!("win-{}.wav", track.as_str()))
+    }
     /// Caché del pipeline: segmentos ASR de una pista (`Vec<AsrSegment>`).
     pub fn asr_cache_json(&self, id: MeetingId, track: Track) -> PathBuf {
         self.transcript_dir(id)

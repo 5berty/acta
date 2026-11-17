@@ -58,6 +58,9 @@ cmd!(groups_suggest_title(group_id: GroupId) -> GroupTitleSuggestion => |c| c.gr
 cmd!(llm_providers_available() -> Vec<AvailableProvider> => |c| c.llm_providers_available());
 cmd!(chat_cancel(request_id: String) -> () => |c| c.chat_cancel(request_id));
 cmd!(live_cancel(request_id: String) -> () => |c| c.chat_cancel(request_id));
+cmd!(live_transcript_get(session_id: MeetingId) -> LiveTranscript => |c| c.live_transcript_get(session_id));
+cmd!(live_ask(session_id: MeetingId, question: String, provider_id: Option<ProviderId>, model: Option<String>) -> String =>
+    |c| c.live_ask(session_id, question, provider_id, model));
 cmd!(speaker_rename(meeting_id: MeetingId, speaker_id: SpeakerId, display_name: String, remember: bool) -> () =>
     |c| c.speaker_rename(meeting_id, speaker_id, display_name, remember));
 cmd!(action_item_set_done(id: ActionItemId, done: bool) -> () => |c| c.action_item_set_done(id, done));

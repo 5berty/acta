@@ -415,6 +415,8 @@ impl Rig {
             speakers: self.speakers.clone(),
             screen: Some(self.screen.clone()),
             live: Some(self.live.clone()),
+            live_asr: None,
+            live_sessions: Arc::default(),
             moments: Arc::new(FakeMoments),
             store: self.store.clone(),
             pipeline: self.pipeline.clone(),

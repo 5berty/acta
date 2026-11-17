@@ -65,6 +65,8 @@ pub struct AppCore {
     /// Proveedor/modelo de un «Reintentar con…» pendiente.
     pub llm_overrides: LlmOverrides,
     pub cancels: Cancels,
+    /// Transcripción en vivo de cada grabación (de esta ejecución).
+    pub live_sessions: acta_audio::supervisor::LiveSessions,
 }
 
 pub struct CoreDeps {
@@ -114,6 +116,7 @@ impl AppCore {
             clock: deps.clock.clone(),
         };
         let layout_root = deps.layout.root().to_path_buf();
+        let live_sessions: acta_audio::supervisor::LiveSessions = Arc::default();
         let ports = SupervisorPorts {
             layout: deps.layout.clone(),
             clock: deps.clock.clone(),
@@ -122,6 +125,8 @@ impl AppCore {
             speakers: deps.native.speakers.clone(),
             screen: deps.native.screen.clone(),
             live: deps.native.live.clone(),
+            live_asr: Some(deps.native.transcriber.clone()),
+            live_sessions: live_sessions.clone(),
             moments: Arc::new(KeywordMomentDetector::with_defaults(&settings.screen.keywords)),
             store: deps.store.clone(),
             pipeline: Arc::new(pipeline),
@@ -144,6 +149,7 @@ impl AppCore {
             hardware_override: None,
             llm_overrides,
             cancels: Arc::default(),
+            live_sessions,
         })
     }
 
@@ -706,6 +712,95 @@ impl AppCore {
             }
         });
         Ok(ChatSendResult { user_message, assistant_message_id })
+    }
+
+    /// Todo lo transcrito en vivo de una grabación. Sin sesión en memoria (la
+    /// app se reinició), lo confirmado que quedó en disco.
+    pub async fn live_transcript_get(&self, session_id: MeetingId) -> PortResult<LiveTranscript> {
+        let session = self.live_sessions.lock().unwrap_or_else(|p| p.into_inner()).get(&session_id).cloned();
+        if let Some(s) = session {
+            return Ok(s.transcript());
+        }
+        if self.store.get_meeting(session_id).await?.is_none() {
+            return Err(PortError::NotFound("No existe esa grabación.".into()));
+        }
+        let mut segments = Vec::new();
+        for track in acta_core::recording::Track::ALL {
+            if let Some(state) = acta_audio::live::read_state(&self.layout, session_id, track) {
+                let mut t = acta_audio::live::TrackLive::new(track);
+                t.state = state;
+                segments.extend(t.all());
+            }
+        }
+        segments.sort_by_key(|s| s.start_ms);
+        Ok(LiveTranscript { session_id, segments })
+    }
+
+    /// Pregunta sobre lo dicho hasta ahora. La respuesta llega por
+    /// `live:answer` (streaming, citas `[mm:ss]` al final); `live_cancel` la corta.
+    pub async fn live_ask(
+        &self,
+        session_id: MeetingId,
+        question: String,
+        provider_id: Option<ProviderId>,
+        model: Option<String>,
+    ) -> PortResult<String> {
+        let question = question.trim().to_owned();
+        if question.is_empty() {
+            return Err(PortError::InvalidInput("Escribe una pregunta.".into()));
+        }
+        let segments = self.live_transcript_get(session_id).await?.segments;
+        let mut settings = self.settings();
+        let wanted = match provider_id {
+            Some(p) => {
+                self.check_provider(&p)?;
+                settings = crate::pipeline::with_override(settings, &LlmOverride { provider_id: p.clone(), model });
+                Some(p)
+            }
+            None => settings.llm.chat_provider.clone(),
+        };
+        let (_, provider) = build_provider(&settings, self.factory.as_ref(), wanted.as_ref())?;
+        let request = acta_llm::live::live_ask_request(&segments, &question, &settings.user.display_name);
+        let request_id = ChatMessageId::new().to_string();
+        let (cancel_tx, mut cancel_rx) = oneshot::channel::<()>();
+        self.cancels.lock().unwrap_or_else(|p| p.into_inner()).insert(request_id.clone(), cancel_tx);
+        let (cancels, emitter, rid) = (self.cancels.clone(), self.emitter.clone(), request_id.clone());
+        tokio::spawn(async move {
+            let send = |a: LiveAnswer| emitter.emit(event_names::LIVE_ANSWER, to_json(&a));
+            let done = |citations: Option<Vec<LiveCitation>>, error: Option<String>| LiveAnswer { request_id: rid.clone(), delta: None, done: true, citations, error };
+            let stream = tokio::select! {
+                s = provider.stream(request) => Some(s),
+                _ = &mut cancel_rx => None,
+            };
+            let mut full = String::new();
+            match stream {
+                None => send(done(None, None)),
+                Some(Err(e)) => send(done(None, Some(e.to_string()))),
+                Some(Ok(mut stream)) => loop {
+                    let next = tokio::select! {
+                        c = stream.next() => c,
+                        _ = &mut cancel_rx => { send(done(None, None)); break; }
+                    };
+                    match next {
+                        Some(Ok(t)) if t.is_empty() => {}
+                        Some(Ok(t)) => {
+                            full.push_str(&t);
+                            send(LiveAnswer { request_id: rid.clone(), delta: Some(t), done: false, citations: None, error: None });
+                        }
+                        Some(Err(e)) => {
+                            send(done(None, Some(e.to_string())));
+                            break;
+                        }
+                        None => {
+                            send(done(Some(acta_llm::live::citations(&full, &segments)), None));
+                            break;
+                        }
+                    }
+                },
+            }
+            cancels.lock().unwrap_or_else(|p| p.into_inner()).remove(&rid);
+        });
+        Ok(request_id)
     }
 
     /// «Detener» de `chat_send` o de `live_ask`: corta la generación. Lo que

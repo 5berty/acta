@@ -29,7 +29,7 @@ use acta_core::recording::{AudioSource, HealthWarning, Levels, SessionEvent};
 use acta_core::screen::{Capture, ScreenCapturer, ScreenEvent};
 use acta_core::settings::Settings;
 use acta_core::time::Clock;
-use acta_core::transcription::{LiveTranscriber, LivePartial};
+use acta_core::transcription::{LiveTranscriber, LivePartial, Transcriber};
 use acta_core::{PortError, PortResult};
 use std::path::Path;
 use std::sync::Arc;
@@ -53,7 +53,13 @@ pub enum SupervisorEvent {
     MeetingUpdated(MeetingUpdated),
     /// → `live:partial`
     LivePartial(LivePartial),
+    /// → `live:transcript` (segmentos nuevos o cambiados)
+    LiveTranscript(acta_core::api::LiveTranscript),
 }
+
+/// Sesiones de transcripción en vivo por reunión (la app las lee para
+/// `live_transcript_get` y `live_ask`).
+pub type LiveSessions = Arc<std::sync::Mutex<std::collections::HashMap<MeetingId, Arc<crate::live::LiveSession>>>>;
 
 /// Espacio libre (bytes) del volumen que contiene la ruta. Lo mide la app
 /// (necesita una llamada al sistema); `None` = desconocido.
@@ -69,6 +75,10 @@ pub struct SupervisorPorts {
     pub speakers: Arc<dyn SpeakerNameSource>,
     pub screen: Option<Arc<dyn ScreenCapturer>>,
     pub live: Option<Arc<dyn LiveTranscriber>>,
+    /// ASR para la transcripción en vivo por ventanas (`crate::live`). Si
+    /// está, sustituye a `live` (no se transcribe dos veces).
+    pub live_asr: Option<Arc<dyn Transcriber>>,
+    pub live_sessions: LiveSessions,
     pub moments: Arc<dyn ImportantMomentDetector>,
     pub store: Arc<dyn MeetingStore>,
     pub pipeline: Arc<dyn ProcessingPipeline>,
@@ -112,6 +122,7 @@ pub(crate) enum Msg {
     Speaker { gen_id: u64, signal: SpeakerSignal },
     Screen { gen_id: u64, event: ScreenEvent },
     Live { gen_id: u64, partial: LivePartial },
+    LiveTranscript { gen_id: u64, transcript: acta_core::api::LiveTranscript },
     Processing(SessionEvent),
 }
 

@@ -627,3 +627,21 @@ fn concat_fills_a_lost_segment_with_silence_to_keep_alignment() {
     assert!(s[16_000..32_000].iter().all(|&v| v == 0));
     assert_eq!(s[40_000], 800);
 }
+
+/// La transcripción en vivo ve exactamente lo que se escribe (huecos incluidos).
+#[test]
+fn the_live_tap_sees_the_written_samples_with_gaps_filled() {
+    let root = tempfile::tempdir().unwrap();
+    let mut w = SegmentWriter::create(cfg(root.path(), 1), T0).unwrap();
+    let tap = std::sync::Arc::new(acta_audio::live::LiveTap::default());
+    w.set_live_tap(tap.clone());
+    push_n(&mut w, Track::Mic, 0, 12, 100); // 1,2 s: cruza un segmento de 1 s
+    push_n(&mut w, Track::Mic, 15, 1, 200); // hueco de 300 ms
+    assert_eq!(tap.end(Track::Mic), 16 * FRAME as u64);
+    let (start, all) = tap.window(Track::Mic, 0, u64::MAX / 2);
+    assert_eq!(start, 0);
+    assert!(all[..12 * FRAME].iter().all(|&s| s == 100));
+    assert!(all[12 * FRAME..15 * FRAME].iter().all(|&s| s == 0));
+    assert!(all[15 * FRAME..].iter().all(|&s| s == 200));
+    assert_eq!(tap.end(Track::System), 0);
+}

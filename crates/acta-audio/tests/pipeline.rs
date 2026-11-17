@@ -337,3 +337,38 @@ async fn retrying_a_meeting_without_audio_fails_with_the_same_reason() {
     let e = w.pipeline.run(id, &ProcessingStep::ORDER[1..], &sink).await.unwrap_err();
     assert!(e.to_string().contains("No se grabó audio"), "{e}");
 }
+
+/// Con transcripción en vivo, al parar solo se transcribe la cola que faltaba.
+#[tokio::test]
+async fn live_transcription_means_only_the_tail_is_transcribed_after_stopping() {
+    struct Recorder(Mutex<Vec<std::path::PathBuf>>);
+    #[async_trait]
+    impl Transcriber for Recorder {
+        async fn transcribe(&self, r: TranscribeRequest, _p: Option<ProgressFn>) -> PortResult<Vec<AsrSegment>> {
+            self.0.lock().unwrap().push(r.wav_path.clone());
+            Ok(vec![AsrSegment { start_ms: 0, end_ms: 1_500, text: "y cerramos".into(), confidence: None, words: vec![] }])
+        }
+    }
+    let mut w = world().await;
+    let rec = Arc::new(Recorder(Mutex::new(vec![])));
+    w.pipeline.transcriber = rec.clone();
+    for track in Track::ALL {
+        let state = acta_audio::live::LiveAsrState {
+            covered_ms: 4_000,
+            segments: vec![AsrSegment { start_ms: 500, end_ms: 3_800, text: format!("en vivo {}", track.as_str()), confidence: None, words: vec![] }],
+        };
+        std::fs::create_dir_all(w.layout.live_asr_path(w.id, track).parent().unwrap()).unwrap();
+        std::fs::write(w.layout.live_asr_path(w.id, track), serde_json::to_vec(&state).unwrap()).unwrap();
+    }
+    let sink = Sink(Mutex::new(vec![]));
+    w.pipeline.run(w.id, &ProcessingStep::ORDER, &sink).await.unwrap();
+    let calls = rec.0.lock().unwrap().clone();
+    assert_eq!(calls.len(), 2, "una cola por pista: {calls:?}");
+    assert!(calls.iter().all(|p| p.to_string_lossy().contains("/live/win-")), "{calls:?}");
+    let mic: Vec<AsrSegment> = serde_json::from_slice(&std::fs::read(w.layout.asr_cache_json(w.id, Track::Mic)).unwrap()).unwrap();
+    assert_eq!(mic.iter().map(|s| (s.start_ms, s.text.as_str())).collect::<Vec<_>>(), vec![(500, "en vivo mic"), (4_000, "y cerramos")]);
+    // «Reintentar» transcribe la pista entera otra vez.
+    rec.0.lock().unwrap().clear();
+    w.pipeline.run(w.id, &[ProcessingStep::Transcribing], &sink).await.unwrap();
+    assert!(rec.0.lock().unwrap().iter().all(|p| !p.to_string_lossy().contains("/live/")));
+}

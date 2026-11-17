@@ -165,6 +165,7 @@ pub fn run() {
     }
     let _log_guard = init_logging(&layout);
 
+    let positions_file = layout.root().join("overlay-positions.json");
     let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
     #[cfg(target_os = "macos")]
     let builder = builder.plugin(tauri_nspanel::init());
@@ -177,6 +178,9 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if let Err(e) = overlay::panel::install(&handle) {
                 tracing::error!("no se pudo convertir la pastilla en panel: {e}");
+            }
+            if let Some(w) = handle.get_webview_window("overlay") {
+                overlay::place(&w, &layout.root().join("overlay-positions.json"));
             }
             glass::install(&handle);
             if let Err(e) = tray::install(&handle) {
@@ -224,7 +228,12 @@ pub fn run() {
             });
             Ok(())
         })
-        .on_window_event(|window, event| {
+        .on_window_event(move |window, event| {
+            if window.label() == "overlay"
+                && let WindowEvent::Moved(_) = event
+            {
+                overlay::remember(window, &positions_file);
+            }
             // Cerrar la ventana principal la oculta: acta sigue en la barra de menús.
             if window.label() == "main"
                 && let WindowEvent::CloseRequested { api, .. } = event

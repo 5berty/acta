@@ -121,11 +121,15 @@ pub async fn open_system_settings(app: AppHandle, kind: PermissionKind) -> ApiRe
 pub async fn overlay_set_expanded(app: AppHandle, expanded: bool) -> ApiResult<()> {
     let Some(win) = app.get_webview_window("overlay") else { return Ok(()) };
     let (w, h) = if expanded { EXPANDED_SIZE } else { PILL_SIZE };
-    // Crece hacia los lados y hacia abajo, centrada en su sitio.
+    // Crece hacia los lados y, abajo en la pantalla, hacia arriba.
     let scale = win.scale_factor().map_err(internal)?;
     let pos = win.outer_position().map_err(internal)?.to_logical::<f64>(scale);
     let size = win.outer_size().map_err(internal)?.to_logical::<f64>(scale);
-    let (x, y) = crate::overlay::resized_origin((pos.x, pos.y), (size.width, size.height), (w, h));
+    let screen = match win.current_monitor().map_err(internal)? {
+        Some(m) => crate::overlay::monitor_rects(&m).1,
+        None => crate::overlay::Rect { x: 0.0, y: 0.0, w: 1e5, h: 1e5 },
+    };
+    let (x, y) = crate::overlay::anchored_origin((pos.x, pos.y), (size.width, size.height), (w, h), screen);
     win.set_size(tauri::LogicalSize::new(w, h)).map_err(internal)?;
     win.set_position(tauri::LogicalPosition::new(x, y)).map_err(internal)
 }

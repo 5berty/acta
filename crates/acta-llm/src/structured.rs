@@ -61,7 +61,11 @@ where
         Ok(v) => return Ok(v),
         Err(e) => e,
     };
-    tracing::warn!(error = %err, "salida estructurada inválida; reintento de reparación");
+    let who = match &first.model {
+        Some(m) => format!("«{}» ({m})", provider.id()),
+        None => format!("«{}»", provider.id()),
+    };
+    tracing::warn!(provider = %who, error = %err, excerpt = %excerpt(&first.text), "salida estructurada inválida; reintento de reparación");
 
     let mut repair = request;
     repair.messages.push(LlmMessage {
@@ -77,9 +81,21 @@ where
         ),
     });
     let second = provider.complete(repair).await?;
-    parse::<T>(&second)
-        .and_then(|v| validate(&v).map(|()| v))
-        .map_err(|e| PortError::InvalidResponse(format!("JSON del LLM inválido tras reparar: {e}")))
+    parse::<T>(&second).and_then(|v| validate(&v).map(|()| v)).map_err(|e| {
+        let text = excerpt(&second.text);
+        let got = if text.is_empty() { String::new() } else { format!(". Respondió: «{text}»") };
+        PortError::InvalidResponse(format!("{who} no devolvió un JSON válido ni al reintentar: {e}{got}"))
+    })
+}
+
+/// Los primeros caracteres de una respuesta, en una línea (para logs y errores).
+fn excerpt(text: &str) -> String {
+    let one_line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut out: String = one_line.chars().take(160).collect();
+    if one_line.chars().count() > 160 {
+        out.push('…');
+    }
+    out
 }
 
 #[cfg(test)]
@@ -203,6 +219,21 @@ mod tests {
         .expect_err("fails");
         assert!(matches!(err, PortError::InvalidResponse(m) if m.contains("a debe ser")));
         assert_eq!(p.calls(), 2); // exactamente un reintento
+    }
+
+    #[tokio::test]
+    async fn final_error_says_which_provider_and_model_failed_and_what_came_back() {
+        let p = FakeProvider::new(vec!["Lo siento, no puedo", "Sigo sin poder"]);
+        let err = complete_structured::<Out, _>(&p, req(), |_| Ok(())).await.expect_err("fails");
+        let PortError::InvalidResponse(m) = err else { panic!("{err:?}") };
+        assert!(m.contains("«fake»") && m.contains("fake-1") && m.contains("no contiene JSON") && m.contains("Sigo sin poder"), "{m}");
+    }
+
+    #[tokio::test]
+    async fn provider_error_on_the_repair_names_the_provider() {
+        let p = FakeProvider::with_results(vec![Ok("nada".into()), Err(PortError::InvalidResponse("respuesta cortada".into()))]);
+        let err = complete_structured::<Out, _>(&p, req(), |_| Ok(())).await.expect_err("fails");
+        assert!(matches!(&err, PortError::InvalidResponse(m) if m.contains("respuesta cortada")), "{err}");
     }
 
     #[tokio::test]

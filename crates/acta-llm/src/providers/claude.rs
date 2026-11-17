@@ -77,6 +77,12 @@ pub fn parse_output(stdout: &[u8]) -> PortResult<LlmResponse> {
         let msg = v["result"].as_str().unwrap_or("error desconocido");
         return Err(PortError::Unavailable(format!("claude devolvió un error: {msg}")));
     }
+    if let Some(sub) = v["subtype"].as_str()
+        && sub != "success"
+    {
+        let msg = v["result"].as_str().unwrap_or_default();
+        return Err(PortError::InvalidResponse(format!("claude terminó sin respuesta ({sub}): {}", msg.chars().take(200).collect::<String>())));
+    }
     let structured = v.get("structured_output").filter(|s| !s.is_null()).cloned();
     let text = match (v["result"].as_str(), &structured) {
         (Some(t), _) if !t.is_empty() => t.to_owned(),
@@ -205,6 +211,12 @@ mod tests {
         assert!(r.json.is_none());
         let r = parse_output(br#"{"is_error":false,"result":"","structured_output":{"a":1}}"#).expect("ok");
         assert_eq!(r.json.expect("json")["a"], 1);
+    }
+
+    #[test]
+    fn a_non_success_subtype_is_reported_with_its_reason() {
+        let e = parse_output(br#"{"type":"result","subtype":"error_max_structured_output_retries","is_error":false,"result":"No pude"}"#).expect_err("err");
+        assert!(matches!(&e, PortError::InvalidResponse(m) if m.contains("error_max_structured_output_retries")), "{e}");
     }
 
     #[test]

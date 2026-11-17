@@ -10,6 +10,15 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use std::time::Duration;
 
+/// Tokens extra sobre el presupuesto de la RESPUESTA: los modelos de
+/// razonamiento (deepseek-v4-pro, qwen3.6, gemma4 en NaN Builders) gastan
+/// `max_tokens` pensando antes de escribir (`reasoning_content`) y, con un
+/// límite justo, devuelven la respuesta vacía o cortada. Solo se cobra lo
+/// que se genera, así que el margen no cuesta nada si no se usa.
+pub const REASONING_HEADROOM: u32 = 16_384;
+/// Tope del `max_tokens` enviado (los servidores rechazan valores enormes).
+pub const MAX_TOKENS_CAP: u32 = 32_768;
+
 #[derive(Debug, Clone)]
 pub struct OpenAiCompatibleProvider {
     id: ProviderId,
@@ -18,6 +27,7 @@ pub struct OpenAiCompatibleProvider {
     api_key: Option<String>,
     timeout: Duration,
     client: reqwest::Client,
+    reasoning_headroom: u32,
 }
 
 impl OpenAiCompatibleProvider {
@@ -29,7 +39,15 @@ impl OpenAiCompatibleProvider {
             api_key,
             timeout,
             client: reqwest::Client::new(),
+            reasoning_headroom: REASONING_HEADROOM,
         }
+    }
+
+    /// Sin margen de razonamiento: el modelo integrado arranca con
+    /// `--reasoning-budget 0` y su contexto es pequeño.
+    pub fn without_reasoning_headroom(mut self) -> Self {
+        self.reasoning_headroom = 0;
+        self
     }
 
     pub fn build_body(&self, request: &LlmRequest, stream: bool, native_schema: bool) -> Value {
@@ -46,7 +64,7 @@ impl OpenAiCompatibleProvider {
         }
         let mut body = json!({"model": self.model, "messages": messages, "stream": stream});
         if let Some(t) = request.max_tokens {
-            body["max_tokens"] = json!(t);
+            body["max_tokens"] = json!(t.saturating_add(self.reasoning_headroom).min(MAX_TOKENS_CAP).max(t));
         }
         if let Some(t) = request.temperature {
             body["temperature"] = json!(t);
@@ -99,19 +117,56 @@ fn delta_text(v: &Value) -> Option<String> {
     v["choices"][0]["delta"]["content"].as_str().map(str::to_owned)
 }
 
-pub fn parse_response(v: &Value, wants_json: bool) -> PortResult<LlmResponse> {
-    let text = v["choices"][0]["message"]["content"]
-        .as_str()
-        .ok_or_else(|| PortError::InvalidResponse("respuesta sin choices[0].message.content".into()))?
-        .to_owned();
-    let json = wants_json.then(|| crate::structured::extract_json(&text)).flatten();
+/// Interpreta `/chat/completions`. `provider` solo sirve para que el error
+/// diga QUIÉN falló (Ajustes enseña el mensaje tal cual).
+pub fn parse_response(v: &Value, wants_json: bool, provider: &str) -> PortResult<LlmResponse> {
+    let choice = &v["choices"][0];
+    let message = &choice["message"];
+    let model = v["model"].as_str().map(str::to_owned);
+    let who = match &model {
+        Some(m) => format!("«{provider}» ({m})"),
+        None => format!("«{provider}»"),
+    };
+    let content = message["content"].as_str().unwrap_or_default().trim().to_owned();
+    let reasoning = message["reasoning_content"].as_str().or_else(|| message["reasoning"].as_str()).unwrap_or_default();
+    let truncated = choice["finish_reason"].as_str() == Some("length");
+    let reasoning_tokens = v["usage"]["completion_tokens_details"]["reasoning_tokens"].as_u64();
+    let output_tokens = v["usage"]["completion_tokens"].as_u64();
+    if choice.is_null() {
+        return Err(PortError::InvalidResponse(format!("{who}: respuesta sin choices[0]")));
+    }
+
+    let mut json = wants_json.then(|| crate::structured::extract_json(&content)).flatten();
+    // Algunos modelos de razonamiento dejan el JSON en el campo de razonamiento.
+    if wants_json && json.is_none() && content.is_empty() {
+        json = crate::structured::extract_json(reasoning);
+    }
+    let text = match (&json, content.is_empty()) {
+        (Some(j), true) => j.to_string(),
+        _ => content,
+    };
+    let answered = if wants_json { json.is_some() } else { !text.is_empty() };
+    if !answered && truncated {
+        let spent = match (reasoning_tokens, output_tokens) {
+            (Some(r), Some(o)) => format!(" ({r} de {o} tokens razonando)"),
+            _ => String::new(),
+        };
+        return Err(PortError::InvalidResponse(if text.is_empty() {
+            format!("{who} agotó el límite de tokens razonando sin llegar a responder{spent}")
+        } else {
+            format!("{who}: respuesta cortada por el límite de tokens{spent}")
+        }));
+    }
+    if text.is_empty() {
+        return Err(PortError::InvalidResponse(format!("{who} devolvió una respuesta vacía")));
+    }
     Ok(LlmResponse {
         text,
         json,
-        model: v["model"].as_str().map(str::to_owned),
+        model,
         usage: Usage {
             input_tokens: v["usage"]["prompt_tokens"].as_u64(),
-            output_tokens: v["usage"]["completion_tokens"].as_u64(),
+            output_tokens,
         },
     })
 }
@@ -133,7 +188,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
             .json()
             .await
             .map_err(|e| PortError::InvalidResponse(format!("JSON de la API ilegible: {e}")))?;
-        parse_response(&v, request.json_schema.is_some())
+        parse_response(&v, request.json_schema.is_some(), &self.id.0)
     }
 
     async fn stream(&self, request: LlmRequest) -> PortResult<EventStream<PortResult<String>>> {
@@ -244,6 +299,45 @@ mod tests {
         p.timeout = Duration::from_millis(200);
         let e = p.complete(req(false)).await.expect_err("err");
         assert!(matches!(e, PortError::Timeout(_)));
+    }
+
+    #[test]
+    fn reasoning_models_get_headroom_over_the_answer_budget() {
+        let p = provider("http://127.0.0.1:9", None);
+        let mut r = req(false);
+        r.max_tokens = Some(16);
+        let b = p.build_body(&r, false, false);
+        assert!(b["max_tokens"].as_u64().expect("max") >= 16 + REASONING_HEADROOM as u64, "{b}");
+        r.max_tokens = Some(8_000);
+        assert!(p.build_body(&r, false, false)["max_tokens"].as_u64().expect("max") <= MAX_TOKENS_CAP as u64);
+        let local = provider("http://127.0.0.1:9", None).without_reasoning_headroom();
+        assert_eq!(local.build_body(&r, false, false)["max_tokens"], 8_000);
+    }
+
+    fn reasoning_body(content: Value, reasoning: &str, finish: &str) -> Value {
+        json!({"model":"deepseek-v4-pro","choices":[{"finish_reason":finish,"message":{"role":"assistant","content":content,"reasoning_content":reasoning}}],
+               "usage":{"prompt_tokens":5,"completion_tokens":300,"completion_tokens_details":{"reasoning_tokens":290}}})
+    }
+
+    #[test]
+    fn json_only_in_the_reasoning_field_is_used() {
+        let v = reasoning_body(Value::Null, "Pienso… {\"a\": 3}", "stop");
+        let r = parse_response(&v, true, "nan").expect("ok");
+        assert_eq!(r.json.expect("json")["a"], 3);
+    }
+
+    #[test]
+    fn running_out_of_tokens_while_reasoning_says_who_and_why() {
+        let e = parse_response(&reasoning_body(Value::Null, "Here's a thinking process", "length"), false, "nan").expect_err("err");
+        assert!(matches!(&e, PortError::InvalidResponse(m) if m.contains("nan") && m.contains("deepseek-v4-pro") && m.contains("razonando") && m.contains("290")), "{e}");
+        let e = parse_response(&reasoning_body(json!("{\"titulo\": \"Daily"), "…", "length"), true, "nan").expect_err("err");
+        assert!(matches!(&e, PortError::InvalidResponse(m) if m.contains("cortada") && m.contains("deepseek-v4-pro")), "{e}");
+    }
+
+    #[test]
+    fn empty_answer_names_the_provider_and_model() {
+        let e = parse_response(&reasoning_body(json!(""), "", "stop"), false, "nan").expect_err("err");
+        assert!(matches!(&e, PortError::InvalidResponse(m) if m.contains("nan") && m.contains("deepseek-v4-pro") && m.contains("vacía")), "{e}");
     }
 
     #[tokio::test]

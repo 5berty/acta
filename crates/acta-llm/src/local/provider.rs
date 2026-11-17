@@ -44,7 +44,8 @@ impl BuiltInProvider {
 
     async fn open(&self) -> PortResult<(OpenAiCompatibleProvider, Option<Lease>)> {
         let endpoint = self.runtime.acquire(&self.model_id).await?;
-        let api = OpenAiCompatibleProvider::new(self.id.clone(), &format!("{}/v1", endpoint.base_url), self.model_id.clone(), None, self.timeout);
+        let api = OpenAiCompatibleProvider::new(self.id.clone(), &format!("{}/v1", endpoint.base_url), self.model_id.clone(), None, self.timeout)
+            .without_reasoning_headroom();
         Ok((api, endpoint.lease))
     }
 }

@@ -119,3 +119,32 @@ async fn real_https_trusts_the_system_keychain() {
     // demuestra que el TLS con la CA del proxy funciona.
     assert!(!msg.contains("no se pudo conectar"), "{msg}");
 }
+
+/// NaN Builders con un modelo de razonamiento SIN coste (qwen3.6 / gemma4).
+/// Reproduce «El proveedor respondió vacío» (Probar conexión, max_tokens 16)
+/// y el nombre de grupo «sin JSON» (max_tokens 300): el razonamiento se comía
+/// el presupuesto. La clave se lee del Llavero y NUNCA se imprime.
+/// `ACTA_REAL_NAN=qwen3.6 cargo test -p acta-llm --test real_cli real_nan -- --ignored --nocapture`
+#[tokio::test]
+#[ignore = "red real + clave de NaN en el Llavero; ACTA_REAL_NAN=<modelo>"]
+async fn real_nan_reasoning_model_answers_the_test_and_names_a_group() {
+    use acta_llm::providers::{openai::OpenAiCompatibleProvider, test_provider};
+    let Ok(model) = std::env::var("ACTA_REAL_NAN") else { return };
+    let mut cmd = tokio::process::Command::new("/usr/bin/security");
+    cmd.args(["find-generic-password", "-s", "acta", "-a", "provider:nan", "-w"]);
+    let out = acta_llm::process::run_supervised(cmd, None, Duration::from_secs(10)).await.expect("security");
+    let key = String::from_utf8(out.stdout).expect("utf8").trim().to_owned();
+    assert!(!key.is_empty(), "no hay clave de NaN en el Llavero");
+    let p = Arc::new(OpenAiCompatibleProvider::new("nan".into(), "https://api.nan.builders/v1", model, Some(key), Duration::from_secs(120)));
+    let t = test_provider(p.as_ref()).await;
+    eprintln!("probar: {} ({:?} ms)", t.message, t.latency_ms);
+    assert!(t.ok, "{}", t.message);
+    let name = LlmGroupNamer::new(p, "Edu")
+        .name_group(&[
+            ("Daily del equipo".into(), "- Subcuentas pendientes de visto bueno.\n- Borrado LOPD corregido.".into()),
+            ("Daily del equipo".into(), "- Vacantes internas publicadas.\n- Permisos de la shell ampliados.".into()),
+        ])
+        .await
+        .expect("nombre");
+    eprintln!("grupo: {} — {}", name.name, name.description);
+}

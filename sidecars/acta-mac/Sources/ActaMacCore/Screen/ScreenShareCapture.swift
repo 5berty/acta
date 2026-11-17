@@ -15,7 +15,7 @@ import CoreImage
 import CoreMedia
 import Foundation
 import ImageIO
-import ScreenCaptureKit
+@preconcurrency import ScreenCaptureKit
 import UniformTypeIdentifiers
 
 // MARK: - Lógica pura

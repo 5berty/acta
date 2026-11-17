@@ -28,6 +28,11 @@ let package = Package(
             name: "acta-mac",
             dependencies: ["ActaMacCore", "ActaMacProtocol"]
         ),
+        // Banco de pruebas de ASR (no va en la app): compara motores por idioma.
+        .executableTarget(
+            name: "acta-asr-bench",
+            dependencies: [.product(name: "FluidAudio", package: "FluidAudio")]
+        ),
         .testTarget(
             name: "ActaMacProtocolTests",
             dependencies: ["ActaMacProtocol"]

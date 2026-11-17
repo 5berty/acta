@@ -1,4 +1,4 @@
-import { Check, Pause, Play, Square, TriangleAlert } from "lucide-react";
+import { Captions, Check, Pause, Play, Square, TriangleAlert } from "lucide-react";
 import type { HealthWarning, Levels, ProcessingStep, Prompt, SessionState } from "../../api";
 import { dbToLevel, formatClock, platformLabel } from "../../shared/format";
 import { PlatformIcon, Spinner } from "../../shared/ui/ui";
@@ -19,6 +19,8 @@ export interface PillProps {
   onAnswer(prompt: Prompt, answer: "accept" | "decline"): void;
   onDismiss(): void;
   onOpenMeeting(id: string): void;
+  /** Abre la vista «En directo» de la grabación en curso en la ventana principal. */
+  onLive?(meetingId: string): void;
 }
 
 function Meter({ label, db }: { label: string; db: number | null }) {
@@ -97,6 +99,11 @@ export function OverlayPill(p: PillProps) {
             <Meter label="Yo" db={paused ? null : (p.levels?.mic.rmsDbfs ?? null)} />
             <Meter label="Otros" db={paused ? null : (p.levels?.system.rmsDbfs ?? null)} />
           </div>
+          {p.onLive ? (
+            <button type="button" className="pbtn pbtn-icon pbtn-live" aria-label="Ver en directo" title="Ver la transcripción en directo y preguntar" onClick={() => p.onLive?.(s.meetingId)}>
+              <Captions size={14} strokeWidth={2.1} aria-hidden />
+            </button>
+          ) : null}
           <button type="button" className="pbtn pbtn-icon" aria-label={paused ? "Reanudar" : "Pausar"} onClick={paused ? p.onResume : p.onPause}>
             {paused ? <Play size={13} fill="currentColor" strokeWidth={0} aria-hidden /> : <Pause size={13} fill="currentColor" strokeWidth={0} aria-hidden />}
           </button>

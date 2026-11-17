@@ -11,12 +11,19 @@ import { formatClock } from "./format";
 interface Ctx {
   citations: Citation[];
   onCitation?: (c: Citation) => void;
+  onTime?: (ms: number) => void;
   openUrl(url: string): void;
 }
 
-export const citationLabel = (c: Citation): string => `${c.meetingTitle}, ${formatClock(c.at)}`;
+/** «01:05» o «1:02:03» → ms. */
+function clockToMs(clock: string): number {
+  return clock.split(":").reduce((acc, part) => acc * 60 + Number(part), 0) * 1000;
+}
 
-const INLINE = /(`[^`\n]+`|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|\*[^*\s][^*\n]*\*|\[[^\]\n]+\]\([^)\s]+\)|\[\d+\])/g;
+/** «Daily, 00:10»; sin título (el directo), solo el minuto. */
+export const citationLabel = (c: Citation): string => (c.meetingTitle ? `${c.meetingTitle}, ${formatClock(c.at)}` : formatClock(c.at));
+
+const INLINE = /(`[^`\n]+`|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|\*[^*\s][^*\n]*\*|\[[^\]\n]+\]\([^)\s]+\)|\[\d+\]|\[\d{1,2}(?::\d{2}){1,2}\])/g;
 const SAFE_URL = /^(https?:\/\/|mailto:)/i;
 
 function inline(text: string, ctx: Ctx): ReactNode[] {
@@ -34,6 +41,16 @@ function inline(text: string, ctx: Ctx): ReactNode[] {
       return (
         <button key={i} type="button" className="cite" aria-label={`Cita ${c.n}: ${label}`} title={label} onClick={() => ctx.onCitation?.(c)}>
           {c.n}
+        </button>
+      );
+    }
+    const time = /^\[(\d{1,2}(?::\d{2}){1,2})\]$/.exec(part);
+    if (time) {
+      if (!ctx.onTime) return part;
+      const ms = clockToMs(time[1] ?? "0");
+      return (
+        <button key={i} type="button" className="cite cite-time" aria-label={`Ir a ${time[1]}`} onClick={() => ctx.onTime?.(ms)}>
+          {time[1]}
         </button>
       );
     }
@@ -215,10 +232,12 @@ interface Props {
   /** Con citas, cada `[n]` conocido es un botón que salta a ese momento. */
   citations?: Citation[];
   onCitation?: (c: Citation) => void;
+  /** Con esto, cada `[mm:ss]` es un botón que salta a ese minuto (respuestas del directo). */
+  onTime?: (ms: number) => void;
 }
 
-export function Markdown({ source, citations = [], onCitation }: Props) {
+export function Markdown({ source, citations = [], onCitation, onTime }: Props) {
   const api = useApi();
-  const ctx: Ctx = { citations, onCitation, openUrl: (url) => void api.openExternalUrl(url) };
+  const ctx: Ctx = { citations, onCitation, onTime, openUrl: (url) => void api.openExternalUrl(url) };
   return <div className="md">{blocks(source, ctx)}</div>;
 }

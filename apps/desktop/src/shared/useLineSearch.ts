@@ -12,6 +12,8 @@ export interface SearchLine {
 export interface RemoteMatch {
   utteranceId: string | number;
   startMs: number;
+  /** Tramos `[inicio, fin)` dentro del texto de la línea, si el backend los da. */
+  ranges?: [number, number][];
 }
 
 export interface LineHit {
@@ -67,12 +69,16 @@ export function useLineSearch(lines: SearchLine[], { remote, onJump }: Options =
 
   const hits = useMemo<LineHit[]>(() => {
     if (!q) return [];
-    const remoteIds = found?.q === q ? new Set(found.matches.map((m) => String(m.utteranceId))) : null;
-    const remoteStarts = found?.q === q ? new Set(found.matches.map((m) => m.startMs)) : null;
+    const remote = found?.q === q ? found.matches : [];
     return lines.flatMap((line) => {
-      const ranges = findRanges(line.text, q);
-      // El backend puede encontrar lo que el texto literal no (otra forma de la palabra): se marca la línea.
-      if (ranges.length === 0 && line.text && (remoteIds?.has(String(line.id)) || remoteStarts?.has(line.at))) ranges.push([0, line.text.length]);
+      let ranges = findRanges(line.text, q);
+      if (ranges.length === 0 && line.text) {
+        // El backend puede encontrar lo que el texto literal no (otra forma de la palabra):
+        // se usan sus tramos o, si no los da, se marca la línea entera.
+        const m = remote.find((x) => String(x.utteranceId) === String(line.id) || x.startMs === line.at);
+        if (m) ranges = m.ranges?.length ? m.ranges.filter(([a, b]) => a < b && b <= line.text.length) : [[0, line.text.length]];
+        if (m && ranges.length === 0) ranges = [[0, line.text.length]];
+      }
       return ranges.map((range) => ({ lineId: line.id, range, at: line.at }));
     });
   }, [lines, q, found]);

@@ -195,4 +195,12 @@ describe("pastilla: detalles", () => {
     act(() => controls.emit("session:state", snap({ state: "recovering", meetingId: "m1" })));
     expect(await screen.findByText(/Recuperando una grabación interrumpida/)).toBeInTheDocument();
   });
+
+  it("grabando, un toque abre la vista en directo en la ventana principal", async () => {
+    vi.useRealTimers();
+    const { api } = setup(snap(recording()));
+    const show = vi.spyOn(api, "mainWindowShow");
+    await userEvent.click(await screen.findByRole("button", { name: "Ver en directo" }));
+    expect(show).toHaveBeenCalledWith("m1");
+  });
 });

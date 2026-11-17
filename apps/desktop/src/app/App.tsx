@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
-import type { ActaApi } from "../api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ActaApi, SessionSnapshot } from "../api";
 import { AskPage } from "../features/chat/AskPage";
 import { GroupsContainer } from "../features/groups/GroupsContainer";
+import { LiveContainer } from "../features/live/LiveContainer";
 import { MeetingDetailContainer } from "../features/meetings/MeetingDetailContainer";
 import { MeetingListContainer } from "../features/meetings/MeetingListContainer";
+import { ProcessingTimelineProvider } from "../features/meetings/useProcessingTimeline";
 import { Onboarding } from "../features/onboarding/Onboarding";
 import { SettingsContainer } from "../features/settings/SettingsContainer";
 import { ApiProvider, useApi, useApiEvent } from "./ApiContext";
@@ -13,6 +15,32 @@ import { Sidebar, type View } from "./Sidebar";
 interface Open {
   id: string;
   at: number | null;
+}
+
+/** La grabación en curso (si la hay) y su reloj, para la vista «En directo». */
+function useRecording() {
+  const api = useApi();
+  const [snap, setSnap] = useState<SessionSnapshot | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    let live = true;
+    void api.sessionGetState().then((s) => live && setSnap((prev) => prev ?? s));
+    return () => {
+      live = false;
+    };
+  }, [api]);
+  useApiEvent("session:state", setSnap);
+  const state = snap?.state;
+  const active = state && (state.state === "recording" || state.state === "paused") ? state : null;
+  const ticking = active?.state === "recording";
+  useEffect(() => {
+    if (!ticking) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [ticking]);
+  const elapsedMs = snap ? snap.elapsedMs + (ticking ? Math.max(0, now - snap.at) : 0) : 0;
+  return { active, elapsedMs };
 }
 
 function Shell() {
@@ -48,7 +76,17 @@ function Shell() {
     setGroup((g) => ({ id, n: (g?.n ?? 0) + 1 }));
     setView("groups");
   }, []);
-  useApiEvent("main:navigate", ({ meetingId }) => openMeeting(meetingId));
+  const { active: recording, elapsedMs } = useRecording();
+  const recordingId = recording?.meetingId ?? null;
+  // La pastilla pide una reunión: si es la que se está grabando, es el directo.
+  useApiEvent("main:navigate", ({ meetingId }) => (meetingId === recordingId ? setView("live") : openMeeting(meetingId)));
+  // Al parar estando en el directo, se pasa a la reunión recién grabada.
+  const wasRecording = useRef<string | null>(null);
+  useEffect(() => {
+    const before = wasRecording.current;
+    wasRecording.current = recordingId;
+    if (before && !recordingId && view === "live") openMeeting(before);
+  }, [recordingId, view, openMeeting]);
 
   // ⌘K: búsqueda rápida. Sin animación: es un atajo que se usa decenas de veces al día.
   useEffect(() => {
@@ -66,7 +104,7 @@ function Shell() {
     <div className="app">
       {/* Franja para arrastrar la ventana: la barra de título es transparente. */}
       <div className="window-drag" data-tauri-drag-region aria-hidden />
-      <Sidebar view={view} onView={goTo} onSearch={() => setPalette(true)} />
+      <Sidebar view={view} onView={goTo} onSearch={() => setPalette(true)} live={recording ? { paused: recording.state === "paused" } : null} />
       <main className="pane">
         {view === "meetings" ? (
           open ? (
@@ -76,6 +114,7 @@ function Shell() {
           )
         ) : null}
         {view === "groups" ? <GroupsContainer key={group ? `${group.id}-${group.n}` : "groups"} initialGroupId={group?.id ?? null} onOpenMeeting={openMeeting} /> : null}
+        {view === "live" && recording ? <LiveContainer sessionId={recording.meetingId} elapsedMs={elapsedMs} paused={recording.state === "paused"} app={recording.app} /> : null}
         {view === "ask" ? <AskPage onOpenMeeting={openMeeting} /> : null}
         {view === "settings" ? <SettingsContainer key={settingsEpoch} onReplayOnboarding={() => setOnboarding(true)} /> : null}
       </main>
@@ -95,7 +134,9 @@ function Shell() {
 export function App({ api }: { api?: ActaApi }) {
   return (
     <ApiProvider api={api}>
-      <Shell />
+      <ProcessingTimelineProvider>
+        <Shell />
+      </ProcessingTimelineProvider>
     </ApiProvider>
   );
 }

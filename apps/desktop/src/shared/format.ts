@@ -166,23 +166,57 @@ export function appDisplayName(bundleId: string): string {
 export interface HumanError {
   title: string;
   hint: string;
+  /** «Claude Code · sonnet»: quién falló, cuando el fallo es de la IA y se sabe. */
+  llm?: string;
 }
 
-const ERROR_RULES: { test: RegExp; title: string; hint: string }[] = [
+/** Proveedor y modelo que estaban trabajando cuando falló. */
+export interface LlmContext {
+  provider?: string | null;
+  model?: string | null;
+}
+
+interface ErrorRule {
+  test: RegExp;
+  title: string | ((c: LlmContext) => string);
+  hint: string | ((c: LlmContext) => string);
+  /** El fallo es del proveedor de IA: se enseña cuál. */
+  llm?: boolean;
+}
+
+const ERROR_RULES: ErrorRule[] = [
   { test: /no space|espacio|disk full|ENOSPC/i, title: "No queda espacio en el disco", hint: "Libera espacio y vuelve a intentarlo. El audio está a salvo." },
-  { test: /not found|no such file|os error 2|ENOENT|no encontr/i, title: "No encuentro el asistente de IA", hint: "Revisa el proveedor en Ajustes → Proveedores de IA y pulsa «Detectar»." },
-  { test: /timeout|timed out|tardado|deadline/i, title: "La IA ha tardado demasiado", hint: "Suele ser puntual. Reinténtalo; si se repite, prueba con otro proveedor." },
-  { test: /401|403|unauthori[sz]ed|api key|clave|credential|login/i, title: "La clave de la IA no es válida", hint: "Vuelve a iniciar sesión en el proveedor o revisa su clave en Ajustes." },
-  { test: /429|rate limit|quota|cuota|overloaded|529/i, title: "El proveedor de IA está saturado", hint: "Has llegado al límite de uso o el servicio va cargado. Reinténtalo en unos minutos." },
+  { test: /not found|no such file|os error 2|ENOENT|no encontr/i, title: "No encuentro el asistente de IA", hint: "Revisa el proveedor en Ajustes → Proveedores de IA y pulsa «Detectar».", llm: true },
+  { test: /timeout|timed out|tardado|deadline/i, title: "La IA ha tardado demasiado", hint: "Suele ser puntual. Reinténtalo; si se repite, prueba con otro proveedor.", llm: true },
+  { test: /401|403|unauthori[sz]ed|api key|clave|credential|login/i, title: "La clave de la IA no es válida", hint: "Vuelve a iniciar sesión en el proveedor o revisa su clave en Ajustes.", llm: true },
+  { test: /429|rate limit|quota|cuota|overloaded|529/i, title: "El proveedor de IA está saturado", hint: "Has llegado al límite de uso o el servicio va cargado. Reinténtalo en unos minutos.", llm: true },
   { test: /model.*(download|descarg)|not downloaded|sin descargar/i, title: "Falta descargar un modelo de voz", hint: "Descárgalo en Ajustes → Modelos y vuelve a intentarlo." },
-  { test: /network|red\b|connection|conexi|dns|offline|ECONN/i, title: "No hay conexión con la IA", hint: "Comprueba la red. La transcripción es local, pero el acta necesita al proveedor." },
+  { test: /network|red\b|connection|conexi|dns|offline|ECONN/i, title: "No hay conexión con la IA", hint: "Comprueba la red. La transcripción es local, pero el acta necesita al proveedor.", llm: true },
   { test: /permission|permiso|denied|denegad/i, title: "Falta un permiso de macOS", hint: "Revísalo en Ajustes → Permisos." },
-  { test: /json|schema|parse|esquema/i, title: "La IA ha respondido con un formato raro", hint: "Reinténtalo: normalmente sale bien a la segunda." },
+  {
+    test: /json|schema|parse|esquema|formato/i,
+    title: (c) => `${c.provider ?? "La IA"} ha respondido con un formato que acta no entiende`,
+    hint: (c) => `${c.model ? `El modelo ${c.model} no ha devuelto el acta con la estructura esperada. ` : ""}Reinténtalo, o prueba otro modelo con «Reintentar con…».`,
+  },
 ];
 
+const clean = (s: string | undefined): string | null => s?.trim().replace(/[.\s]+$/, "") || null;
+
+/** Proveedor y modelo, si el propio texto del error los trae («proveedor: X, modelo: Y»). */
+export function llmFromError(error: string): LlmContext {
+  const provider = /(?:proveedor|provider)\s*[:=]\s*[«"']?([^,;»"')\n]+)/i.exec(error)?.[1];
+  const model = /(?:modelo|model)\s*[:=]\s*[«"']?([^,;»"')\s]+)/i.exec(error)?.[1];
+  return { provider: clean(provider), model: clean(model) };
+}
+
 /** Convierte el error crudo del procesado en un título y una pista accionable. */
-export function humanizeError(error: string | null | undefined): HumanError {
+export function humanizeError(error: string | null | undefined, context: LlmContext = {}): HumanError {
+  const stated = error ? llmFromError(error) : {};
+  // Lo que diga el error manda sobre lo que hay configurado ahora.
+  const c: LlmContext = stated.provider ? { provider: stated.provider, model: stated.model ?? null } : { provider: context.provider ?? null, model: stated.model ?? context.model ?? null };
   const rule = error ? ERROR_RULES.find((r) => r.test.test(error)) : undefined;
-  if (rule) return { title: rule.title, hint: rule.hint };
-  return { title: "No se ha podido terminar el acta", hint: "El audio está a salvo. Puedes reintentarlo cuando quieras." };
+  if (!rule) return { title: "No se ha podido terminar el acta", hint: "El audio está a salvo. Puedes reintentarlo cuando quieras." };
+  const text = (t: string | ((c: LlmContext) => string)) => (typeof t === "string" ? t : t(c));
+  const llm = rule.llm && c.provider ? (c.model ? `${c.provider} · ${c.model}` : c.provider) : undefined;
+  return { title: text(rule.title), hint: text(rule.hint), llm };
 }

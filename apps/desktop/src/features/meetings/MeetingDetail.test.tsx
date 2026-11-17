@@ -65,13 +65,12 @@ describe("MeetingDetailContainer", () => {
   });
 
   it("si el procesado falló, permite reintentar", async () => {
-    const { api } = setup((d) => {
+    const { controls } = setup((d) => {
       d.meeting.status = "failed";
       d.meeting.error = "claude no responde";
     });
-    const spy = vi.spyOn(api, "meetingReprocess");
     await userEvent.click(await screen.findByRole("button", { name: "Reintentar" }));
-    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ steps: expect.arrayContaining(["summarizing"]) }));
+    await waitFor(() => expect(controls.state.retries[0]?.steps).toEqual(expect.arrayContaining(["summarizing"])));
   });
 
   it("asigna la reunión a un grupo", async () => {

@@ -31,6 +31,8 @@ interface Props {
   onStop?(): void;
   onRetry?(): void;
   onCitation(c: Citation): void;
+  /** Las respuestas del directo citan minutos `[mm:ss]`: con esto son botones. */
+  onTime?(ms: number): void;
 }
 
 function Mark({ pulse }: { pulse?: boolean }) {
@@ -85,6 +87,7 @@ export function ChatView({
   onStop,
   onRetry,
   onCitation,
+  onTime,
 }: Props) {
   const [text, setText] = useState("");
   const log = useRef<HTMLDivElement>(null);
@@ -109,7 +112,7 @@ export function ChatView({
 
   return (
     <div className={`chat chat-${variant}`}>
-      <div className="chat-log" role="log" aria-live="polite" ref={log}>
+      <div className="chat-log" role="log" aria-label="Conversación" aria-live="polite" ref={log}>
         {empty ? (
           <div className="chat-empty">
             <span className="chat-empty-icon" aria-hidden>
@@ -147,7 +150,7 @@ export function ChatView({
             <article key={m.id} className={`msg msg-assistant${streaming ? " msg-streaming" : ""}`} data-last={m.id === lastAssistant || undefined}>
               <Mark />
               <div className="msg-main">
-                {content ? <Markdown source={content} citations={m.citations} onCitation={onCitation} /> : null}
+                {content ? <Markdown source={content} citations={m.citations} onCitation={onCitation} onTime={onTime} /> : null}
                 {m.citations.length > 0 && !streaming ? (
                   <div className="cite-list">
                     {m.citations.map((c) => (
@@ -178,7 +181,7 @@ export function ChatView({
           <article key={id} className="msg msg-assistant msg-streaming">
             <Mark />
             <div className="msg-main">
-              <Markdown source={streams[id] ?? ""} />
+              <Markdown source={streams[id] ?? ""} onTime={onTime} />
             </div>
           </article>
         ))}

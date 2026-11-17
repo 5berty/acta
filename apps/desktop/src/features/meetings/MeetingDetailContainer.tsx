@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import type { Citation, MeetingDetail, ProcessingStep, VoiceprintSummary } from "../../api";
+import { useEffect, useRef, useState } from "react";
+import type { Citation, LiveSegment, LlmOverride, MeetingDetail, ProcessingStep, Settings, VoiceprintSummary } from "../../api";
 import { useApi, useApiEvent } from "../../app/ApiContext";
 import { ChevronLeft, FolderOpen, Pencil, Trash2, TriangleAlert, X } from "lucide-react";
 import { formatDay, formatDuration, formatTime, platformLabel } from "../../shared/format";
@@ -14,10 +14,19 @@ import { AudioPlayer } from "../player/AudioPlayer";
 import { PlayerProvider, usePlayer } from "../player/PlayerContext";
 import { TimelineTab } from "../timeline/TimelineTab";
 import { TranscriptTab } from "../transcript/TranscriptTab";
-import { ProcessingStatus, REPROCESS_STEPS } from "./ProcessingStatus";
+import { providerById, providerDisplay, providerModel } from "../chat/providerLabel";
+import { LiveLines } from "../live/LiveLines";
+import { ProcessingStatus } from "./ProcessingStatus";
+import { RetryMenu } from "./RetryMenu";
+import { useProcessingTimeline } from "./useProcessingTimeline";
 import { useMeetingDetail } from "./useMeetingDetail";
 
 const capitalizeFirst = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Con transcripción ya hecha, reintentar no la repite. */
+const RESUME_STEPS: ProcessingStep[] = ["summarizing", "indexing", "pruningCaptures"];
+/** «Regenerar»: solo el acta y su índice. */
+const MINUTES_STEPS: ProcessingStep[] = ["summarizing", "indexing"];
 
 type TabKey = "resumen" | "transcript" | "escaleta" | "timeline" | "capturas" | "chat";
 
@@ -60,10 +69,18 @@ interface BodyProps extends Props {
 function Body({ meetingId, initialSeekMs, onBack, onOpenMeeting, detail, voiceprints, reload }: BodyProps) {
   const api = useApi();
   const player = usePlayer();
-  const [tab, setTab] = useState<TabKey>("resumen");
+  const [tab, setTabState] = useState<TabKey>("resumen");
+  /** La persona ya eligió pestaña: no se la cambiamos. */
+  const picked = useRef(false);
+  const setTab = (t: TabKey) => {
+    picked.current = true;
+    setTabState(t);
+  };
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [liveSegments, setLiveSegments] = useState<LiveSegment[]>([]);
+  const timeline = useProcessingTimeline(meetingId);
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState("");
-  const [progress, setProgress] = useState<{ step: ProcessingStep; fraction: number } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const { seek } = player;
 
@@ -73,7 +90,35 @@ function Body({ meetingId, initialSeekMs, onBack, onOpenMeeting, detail, voicepr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meetingId]);
 
-  useApiEvent("processing:progress", (p) => p.meetingId === meetingId && setProgress({ step: p.step, fraction: p.fraction }));
+  useEffect(() => {
+    let live = true;
+    void api.settingsGet().then((s) => live && setSettings(s));
+    return () => {
+      live = false;
+    };
+  }, [api]);
+
+  // Sin transcripción definitiva todavía: si hubo directo, se enseña ya lo que se tomó.
+  const provisional = detail.meeting.status !== "ready" && detail.transcript.utterances.length === 0;
+  useEffect(() => {
+    if (!provisional) {
+      setLiveSegments([]);
+      return;
+    }
+    let live = true;
+    api.liveTranscriptGet(meetingId).then(
+      (t) => {
+        if (!live) return;
+        setLiveSegments([...t.segments]);
+        if (t.segments.length > 0 && !picked.current) setTabState("transcript");
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [api, meetingId, provisional]);
+
   useApiEvent("meeting:updated", (u) => u.meetingId === meetingId && void reload());
   useApiEvent("capture:saved", (c) => c.meetingId === meetingId && void reload());
 
@@ -96,6 +141,13 @@ function Body({ meetingId, initialSeekMs, onBack, onOpenMeeting, detail, voicepr
     { key: "capturas", label: "Capturas", count: detail.captures.length },
     { key: "chat", label: "Chat" },
   ];
+
+  const hasTranscript = detail.transcript.utterances.length > 0;
+  const retry = (steps: ProcessingStep[] | null, llm: LlmOverride | null) => void run(() => api.meetingRetry({ meetingId: meeting.id, steps, providerId: llm?.providerId ?? null, model: llm?.model ?? null }));
+  const defaultProvider = settings ? providerById(settings, settings.llm.minutesProvider) : null;
+  const minutesLlm = defaultProvider ? { provider: defaultProvider.label, model: providerModel(defaultProvider) } : undefined;
+  const author = settings && detail.minutes ? providerById(settings, detail.minutes.provider) : null;
+  const generatedBy = detail.minutes ? (author ? providerDisplay(author, detail.minutes.model) : null) : null;
 
   const onCitation = (c: Citation) => (c.meetingId === meetingId ? player.seek(c.at) : onOpenMeeting(c.meetingId, c.at));
 
@@ -190,10 +242,13 @@ function Body({ meetingId, initialSeekMs, onBack, onOpenMeeting, detail, voicepr
           ) : null}
           <ProcessingStatus
             status={meeting.status}
-            step={progress?.step}
-            fraction={progress?.fraction}
+            step={timeline?.step}
+            fraction={timeline?.fraction}
+            timings={timeline?.timings}
             error={meeting.error}
-            onRetry={() => void run(() => api.meetingReprocess({ meetingId: meeting.id, steps: REPROCESS_STEPS }))}
+            llm={minutesLlm}
+            loadProviders={() => api.llmProvidersAvailable()}
+            onRetry={(llm) => retry(hasTranscript ? RESUME_STEPS : null, llm)}
           />
           {actionError ? <p role="alert" className="inline-error">{actionError}</p> : null}
         </header>
@@ -204,15 +259,31 @@ function Body({ meetingId, initialSeekMs, onBack, onOpenMeeting, detail, voicepr
         </div>
         <div className="page-body tab-body" role="tabpanel">
           {tab === "resumen" ? (
-            <MinutesTab minutes={detail.minutes} onSeek={player.seek} onToggleTask={(id, done) => void run(() => api.actionItemSetDone(id, done))} />
+            <MinutesTab
+              minutes={detail.minutes}
+              pending={meeting.status === "processing"}
+              generatedBy={generatedBy}
+              regenerate={detail.minutes && meeting.status === "ready" ? <RetryMenu quiet label="Regenerar el acta" menuLabel="Regenerar con…" loadProviders={() => api.llmProvidersAvailable()} onRetry={(llm) => retry(MINUTES_STEPS, llm)} /> : null}
+              onReadTranscript={hasTranscript || liveSegments.length > 0 ? () => setTab("transcript") : undefined}
+              onSeek={player.seek}
+              onToggleTask={(id, done) => void run(() => api.actionItemSetDone(id, done))}
+            />
           ) : null}
-          {tab === "transcript" ? (
+          {tab === "transcript" && provisional && liveSegments.length > 0 ? (
+            <div className="transcript">
+              <p className="provisional-note">Transcripción provisional, tomada en directo. La definitiva, con nombres y mejor puntuación, llega cuando termine el procesado.</p>
+              <div className="card lines-card">
+                <LiveLines segments={liveSegments} />
+              </div>
+            </div>
+          ) : tab === "transcript" ? (
             <TranscriptTab
               transcript={detail.transcript}
               voiceprintNames={voiceprints.map((v) => v.displayName)}
               currentMs={player.currentMs}
               onSeek={player.seek}
               onRename={(sid, name, remember) => void run(() => api.speakerRename(meeting.id, sid, name, remember))}
+              onSearch={(q) => api.meetingSearchTranscript(meeting.id, q).catch(() => null)}
             />
           ) : null}
           {tab === "escaleta" ? <EscaletaTab escaleta={detail.escaleta} title={meeting.title} onSeek={player.seek} /> : null}
@@ -222,7 +293,7 @@ function Body({ meetingId, initialSeekMs, onBack, onOpenMeeting, detail, voicepr
             <ChatContainer
               scope={{ kind: "meeting", meetingId: meeting.id }}
               placeholder="esta reunión"
-              suggestions={["¿Qué se decidió?", "¿Qué tengo que hacer yo?", "Resume los desacuerdos"]}
+              suggestions={["¿Qué tareas tengo?", "¿Qué se decidió?", "Resume los desacuerdos", "¿Quién se comprometió a qué?"]}
               onCitation={onCitation}
             />
           ) : null}

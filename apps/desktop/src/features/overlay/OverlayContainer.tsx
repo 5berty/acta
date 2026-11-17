@@ -71,6 +71,7 @@ export function OverlayContainer() {
       onAnswer={(p: Prompt, a) => void api.promptAnswer(p.id, a)}
       onDismiss={() => void api.sessionDismiss()}
       onOpenMeeting={(id) => void api.mainWindowShow(id)}
+      onLive={(id) => void api.mainWindowShow(id)}
     />
   );
 }

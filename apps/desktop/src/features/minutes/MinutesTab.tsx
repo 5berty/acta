@@ -3,12 +3,20 @@ import type { ReactNode } from "react";
 import type { ActionItem, Minutes } from "../../api";
 import { formatClock, tasksSplit } from "../../shared/format";
 import { Markdown } from "../../shared/Markdown";
-import { Avatar, EmptyState } from "../../shared/ui/ui";
+import { Avatar, Button, EmptyState } from "../../shared/ui/ui";
 
 interface Props {
   minutes: Minutes | null;
   onToggleTask(id: string, done: boolean): void;
   onSeek(ms: number): void;
+  /** El acta se está generando ahora. */
+  pending?: boolean;
+  /** Quién generó el acta: «Claude Code · sonnet». */
+  generatedBy?: string | null;
+  /** «Regenerar con…», en la cabecera del resumen. */
+  regenerate?: ReactNode;
+  /** Atajo a la transcripción mientras llega el acta. */
+  onReadTranscript?(): void;
 }
 
 function TimeLink({ at, onSeek }: { at: number | null; onSeek(ms: number): void }) {
@@ -57,8 +65,19 @@ function TaskList({ title, icon, empty, items, onToggleTask, onSeek }: { title: 
   );
 }
 
-export function MinutesTab({ minutes, onToggleTask, onSeek }: Props) {
+export function MinutesTab({ minutes, onToggleTask, onSeek, pending, generatedBy, regenerate, onReadTranscript }: Props) {
   if (!minutes) {
+    if (pending) {
+      return (
+        <EmptyState icon={<Sparkles size={26} strokeWidth={1.7} />} title="Generando el acta…" hint="Resumen, decisiones y tareas aparecerán aquí en cuanto estén.">
+          {onReadTranscript ? (
+            <Button small capsule onClick={onReadTranscript}>
+              Leer la transcripción mientras tanto
+            </Button>
+          ) : null}
+        </EmptyState>
+      );
+    }
     return <EmptyState icon={<FileText size={26} strokeWidth={1.7} />} title="Todavía no hay acta" hint="Se genera sola cuando termina el procesado de la reunión." />;
   }
   const { mine, others } = tasksSplit(minutes.actionItems);
@@ -68,6 +87,16 @@ export function MinutesTab({ minutes, onToggleTask, onSeek }: Props) {
         <div className="card-head">
           <Sparkles size={15} strokeWidth={1.9} aria-hidden />
           <h3>Resumen</h3>
+          {generatedBy || regenerate ? (
+            <span className="card-tools">
+              {generatedBy ? (
+                <span className="card-count" title="Proveedor y modelo que generaron esta acta">
+                  {generatedBy}
+                </span>
+              ) : null}
+              {regenerate}
+            </span>
+          ) : null}
         </div>
         <Markdown source={minutes.summaryMd} />
       </section>

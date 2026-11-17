@@ -7,7 +7,7 @@ import { ActaMark } from "../shared/brand/ActaMark";
 import { IconButton, Spinner } from "../shared/ui/ui";
 import { useApi, useApiEvent } from "./ApiContext";
 
-export type View = "meetings" | "groups" | "ask" | "settings";
+export type View = "meetings" | "groups" | "ask" | "settings" | "live";
 
 const ICON = { size: 16, strokeWidth: 1.9, "aria-hidden": true } as const;
 
@@ -99,7 +99,15 @@ function RecordControl() {
   );
 }
 
-export function Sidebar({ view, onView, onSearch }: { view: View; onView(v: View): void; onSearch(): void }) {
+interface SidebarProps {
+  view: View;
+  onView(v: View): void;
+  onSearch(): void;
+  /** Hay una grabación en curso: sale «En directo». */
+  live?: { paused: boolean } | null;
+}
+
+export function Sidebar({ view, onView, onSearch, live }: SidebarProps) {
   return (
     <aside className="sidebar">
       <div className="side-brand" aria-hidden>
@@ -114,6 +122,14 @@ export function Sidebar({ view, onView, onSearch }: { view: View; onView(v: View
         </span>
       </button>
       <nav aria-label="Secciones" className="side-nav">
+        {live ? (
+          <button type="button" className={`nav-item nav-live${view === "live" ? " nav-active" : ""}`} aria-current={view === "live" ? "page" : undefined} onClick={() => onView("live")}>
+            <span className="nav-live-dot" aria-hidden>
+              <span className={`rec-dot rec-dot-sm${live.paused ? " rec-dot-paused" : ""}`} />
+            </span>
+            En directo
+          </button>
+        ) : null}
         {ITEMS.map((i) => (
           <button key={i.key} type="button" className={`nav-item${view === i.key ? " nav-active" : ""}${i.key === "settings" ? " nav-bottom" : ""}`} aria-current={view === i.key ? "page" : undefined} onClick={() => onView(i.key)}>
             {i.icon}

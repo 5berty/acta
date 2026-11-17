@@ -108,3 +108,8 @@ html[data-native] .pill { background: rgba(16, 16, 20, 0.66); }
   @starting-style { .pill > * { transform: none; filter: none; } }
   html:not([data-native]) .pill { transition: none; }
 }
+
+/* «Ver en directo»: abre la transcripción y el chat en la ventana principal. */
+.pbtn-live { color: var(--fg-2); }
+.pill-row:has(.pbtn-live) { gap: 7px; }
+.pill-row:has(.pbtn-live) .meter { grid-template-columns: 26px 1fr; }

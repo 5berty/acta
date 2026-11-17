@@ -4,12 +4,12 @@
 
 use crate::detection::{AppRule, Platform};
 use crate::ids::ProviderId;
-use crate::llm::{ProviderConfig, ProviderKind};
+use crate::llm::ProviderConfig;
 use crate::minutes::UserIdentity;
 use crate::recording::{AutoStopConfig, HealthConfig};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-use std::path::PathBuf;
+
+pub mod language;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -109,6 +109,10 @@ pub struct ScreenSettings {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TranscriptionSettings {
+    /// Idioma de las reuniones: `"auto"` o un código ISO 639-1 (`"es"`, `"en"`…).
+    /// Dirige la transcripción (pista para el ASR; `"auto"` = que lo detecte) y
+    /// el idioma en que se escriben el acta, el resumen y el chat (`"auto"` =
+    /// el que se habla en la reunión). Ver [`language`].
     pub language: String,
     pub diarization: bool,
     /// Transcripción en vivo durante la llamada (`live:transcript`, `live_ask`);
@@ -140,10 +144,8 @@ pub struct EmbeddingSettings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            user: UserIdentity {
-                display_name: "Edu".into(),
-                aliases: vec!["Eduardo".into(), "Edu Navajas".into()],
-            },
+            // Sin nombre de fábrica: lo propone la bienvenida (`system_profile`).
+            user: UserIdentity { display_name: String::new(), aliases: Vec::new() },
             recording: RecordingSettings::default(),
             auto_stop: AutoStopConfig::default(),
             health: HealthConfig::default(),
@@ -231,7 +233,7 @@ impl Default for ScreenSettings {
 impl Default for TranscriptionSettings {
     fn default() -> Self {
         Self {
-            language: "es".into(),
+            language: language::AUTO.into(),
             diarization: true,
             live_preview: true,
             voiceprint_min_similarity_pct: 75,
@@ -239,48 +241,11 @@ impl Default for TranscriptionSettings {
     }
 }
 
+/// De fábrica no hay NINGÚN proveedor: la bienvenida detecta lo que hay en
+/// este Mac (CLI instalados, Ollama, modelo integrado) y el usuario elige.
 impl Default for LlmSettings {
     fn default() -> Self {
-        let claude = ProviderConfig {
-            id: "claude-cli".into(),
-            label: "Claude Code (CLI)".into(),
-            enabled: true,
-            kind: ProviderKind::ClaudeCli {
-                binary_path: PathBuf::from("/opt/homebrew/bin/claude"),
-                model: None,
-                effort: None,
-                extra_env: BTreeMap::new(),
-            },
-            timeout_s: 600,
-        };
-        let codex = ProviderConfig {
-            id: "codex-cli".into(),
-            label: "Codex (CLI)".into(),
-            enabled: false,
-            kind: ProviderKind::CodexCli {
-                binary_path: PathBuf::from("/opt/homebrew/bin/codex"),
-                model: None,
-                extra_env: BTreeMap::new(),
-            },
-            timeout_s: 600,
-        };
-        let ollama = ProviderConfig {
-            id: "ollama".into(),
-            label: "Ollama (local)".into(),
-            enabled: false,
-            kind: ProviderKind::OpenAiCompatible {
-                base_url: "http://localhost:11434/v1".into(),
-                model: "qwen2.5:14b".into(),
-                api_key: None,
-            },
-            timeout_s: 600,
-        };
-        Self {
-            providers: vec![claude, codex, ollama],
-            minutes_provider: Some("claude-cli".into()),
-            chat_provider: Some("claude-cli".into()),
-            naming_provider: Some("claude-cli".into()),
-        }
+        Self { providers: Vec::new(), minutes_provider: None, chat_provider: None, naming_provider: None }
     }
 }
 
@@ -295,6 +260,8 @@ impl Default for EmbeddingSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::llm::ProviderKind;
+    use std::path::PathBuf;
 
     #[test]
     fn live_preview_is_on_and_calendar_titles_are_opt_in_by_default() {
@@ -304,5 +271,98 @@ mod tests {
         let old: Settings = serde_json::from_str(r#"{"transcription":{"language":"es"}}"#).unwrap_or_default();
         assert!(!old.titles.calendar);
         assert_eq!(old.transcription.language, "es");
+    }
+
+    #[test]
+    fn fresh_defaults_are_neutral() {
+        let s = Settings::default();
+        assert_eq!(s.user.display_name, "");
+        assert!(s.user.aliases.is_empty());
+        assert_eq!(s.transcription.language, "auto");
+        assert!(s.llm.providers.is_empty(), "nada activado de fábrica: lo elige la bienvenida");
+        assert_eq!((&s.llm.minutes_provider, &s.llm.chat_provider, &s.llm.naming_provider), (&None, &None, &None));
+        assert!(!s.onboarding.completed);
+    }
+
+    #[test]
+    fn fresh_defaults_contain_no_personal_strings() {
+        let json = serde_json::to_string(&Settings::default()).expect("json");
+        for personal in ["Edu", "Navajas", ".claude-personal", "eduardo", "qwen", "deepseek", "nan.builders", "CLAUDE_CONFIG_DIR", "/Users/"] {
+            assert!(!json.contains(personal), "los ajustes de fábrica llevan «{personal}»: {json}");
+        }
+        assert!(!json.to_lowercase().contains("navajas"));
+    }
+
+    /// Ajustes guardados por una instalación anterior a los valores neutros:
+    /// se leen TAL CUAL (los valores de fábrica solo son para instalaciones nuevas).
+    const STORED_BEFORE_NEUTRAL_DEFAULTS: &str = r#"{
+      "user": {"displayName": "Edu", "aliases": ["Eduardo", "Edu Navajas"]},
+      "recording": {"segmentSeconds": 30, "frameMs": 100, "micDeviceUid": null, "deleteSegmentsAfterConcat": false},
+      "detection": {"enabled": true, "rules": [{"bundleId": "com.microsoft.teams2", "platform": "teams", "isBrowser": false}],
+        "meetUrlPatterns": ["meet.google.com/"], "startPromptTimeoutS": 90, "pollMs": 1000, "debounceMs": 3000, "denylist": ["com.typeless.app"]},
+      "transcription": {"language": "es", "diarization": true, "livePreview": true, "voiceprintMinSimilarityPct": 75},
+      "llm": {
+        "providers": [
+          {"id": "claude-cli", "label": "Claude Code (CLI)", "enabled": true, "timeoutS": 600,
+           "kind": {"type": "claudeCli", "binaryPath": "/opt/homebrew/bin/claude", "model": null, "effort": null,
+                    "extraEnv": {"CLAUDE_CONFIG_DIR": "/Users/someone/.claude-personal"}}},
+          {"id": "codex-cli", "label": "Codex (CLI)", "enabled": false, "timeoutS": 600,
+           "kind": {"type": "codexCli", "binaryPath": "/opt/homebrew/bin/codex", "model": null, "extraEnv": {}}},
+          {"id": "ollama", "label": "Ollama (local)", "enabled": false, "timeoutS": 600,
+           "kind": {"type": "openAiCompatible", "baseUrl": "http://localhost:11434/v1", "model": "qwen2.5:14b", "apiKey": null}},
+          {"id": "nan", "label": "NaN Builders", "enabled": true, "timeoutS": 600,
+           "kind": {"type": "openAiCompatible", "baseUrl": "https://api.nan.builders/v1", "model": "deepseek-v4-pro",
+                    "apiKey": {"service": "acta", "account": "provider:nan"}}}
+        ],
+        "minutesProvider": "claude-cli", "chatProvider": "nan", "namingProvider": "claude-cli"
+      },
+      "embeddings": {"model": "intfloat/multilingual-e5-small"},
+      "onboarding": {"completed": true},
+      "cleanup": {"enabled": true, "minAgeDays": 90, "snoozedUntil": null},
+      "titles": {"calendar": true}
+    }"#;
+
+    #[test]
+    fn settings_stored_before_the_neutral_defaults_load_unchanged() {
+        let s: Settings = serde_json::from_str(STORED_BEFORE_NEUTRAL_DEFAULTS).expect("ajustes guardados");
+        assert_eq!(s.user, UserIdentity { display_name: "Edu".into(), aliases: vec!["Eduardo".into(), "Edu Navajas".into()] });
+        assert_eq!(s.transcription.language, "es");
+        let ids: Vec<(&str, bool)> = s.llm.providers.iter().map(|p| (p.id.0.as_str(), p.enabled)).collect();
+        assert_eq!(ids, [("claude-cli", true), ("codex-cli", false), ("ollama", false), ("nan", true)]);
+        assert!(matches!(&s.llm.providers[0].kind, ProviderKind::ClaudeCli { binary_path, extra_env, .. }
+            if binary_path == &PathBuf::from("/opt/homebrew/bin/claude")
+                && extra_env.get("CLAUDE_CONFIG_DIR").map(String::as_str) == Some("/Users/someone/.claude-personal")));
+        assert!(matches!(&s.llm.providers[2].kind, ProviderKind::OpenAiCompatible { model, .. } if model == "qwen2.5:14b"));
+        assert!(matches!(&s.llm.providers[3].kind, ProviderKind::OpenAiCompatible { base_url, model, api_key: Some(k) }
+            if base_url == "https://api.nan.builders/v1" && model == "deepseek-v4-pro" && k.account == "provider:nan"));
+        assert_eq!(s.llm.minutes_provider, Some("claude-cli".into()));
+        assert_eq!(s.llm.chat_provider, Some("nan".into()));
+        assert_eq!(s.llm.naming_provider, Some("claude-cli".into()));
+        assert!(s.onboarding.completed && s.titles.calendar);
+        assert_eq!(s.detection.denylist, ["com.typeless.app"]);
+        // Guardar y volver a leer no cambia nada.
+        let again: Settings = serde_json::from_str(&serde_json::to_string(&s).expect("json")).expect("ida y vuelta");
+        assert_eq!(again, s);
+    }
+
+    #[test]
+    fn a_partial_legacy_json_missing_newer_keys_still_loads() {
+        // Sin `onboarding`, `cleanup`, `titles`, `livePreview` ni `denylist` (claves posteriores).
+        let old = r#"{
+          "user": {"displayName": "Edu", "aliases": ["Eduardo"]},
+          "detection": {"enabled": false},
+          "transcription": {"language": "es", "diarization": false},
+          "llm": {"providers": [{"id": "claude-cli", "label": "Claude Code (CLI)", "enabled": true, "timeoutS": 600,
+                   "kind": {"type": "claudeCli", "binaryPath": "/opt/homebrew/bin/claude", "model": null, "extraEnv": {}}}],
+                  "minutesProvider": "claude-cli"}
+        }"#;
+        let s: Settings = serde_json::from_str(old).expect("ajustes antiguos");
+        assert_eq!(s.user.display_name, "Edu");
+        assert_eq!((s.transcription.language.as_str(), s.transcription.diarization, s.transcription.live_preview), ("es", false, true));
+        assert_eq!(s.llm.providers.len(), 1);
+        assert_eq!((s.llm.minutes_provider.clone(), s.llm.chat_provider.clone()), (Some("claude-cli".into()), None));
+        assert!(!s.detection.enabled && s.detection.denylist.is_empty() && !s.detection.rules.is_empty());
+        assert_eq!(s.cleanup, CleanupSettings::default());
+        assert!(!s.onboarding.completed);
     }
 }

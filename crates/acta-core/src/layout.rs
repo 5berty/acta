@@ -8,6 +8,7 @@
 //!   models/                                   <- caché de modelos (fastembed, FluidAudio)
 //!   models/llm/<modelo>.gguf (+ .part)        <- modelo local integrado (opcional)
 //!   runtime/llama/<versión>/llama-server      <- llama.cpp descargado por acta
+//!   cache/app-icons/<bundle id>.png           <- iconos de las apps instaladas (`apps_list`)
 //!   meetings/<meeting_id>/
 //!     manifest.json                           <- manifiesto de sesión (recuperable)
 //!     audio/mic/seg-000000.wav                <- segmentos finalizados
@@ -63,6 +64,10 @@ impl DataLayout {
     /// `llama-server` descargado por acta: `runtime/llama/<versión>/`.
     pub fn llama_runtime_dir(&self) -> PathBuf {
         self.root.join("runtime").join("llama")
+    }
+    /// Iconos PNG de las apps instaladas (`apps_list`); se pueden borrar: se regeneran.
+    pub fn app_icons_dir(&self) -> PathBuf {
+        self.root.join("cache").join("app-icons")
     }
     pub fn meetings_dir(&self) -> PathBuf {
         self.root.join("meetings")
@@ -162,6 +167,11 @@ mod tests {
         assert!(p.ends_with("audio/mic/seg-000007.wav"));
         let t = l.segment_tmp_path(id, Track::System, 7);
         assert!(t.ends_with("audio/system/seg-000007.wav.tmp"));
+    }
+
+    #[test]
+    fn app_icons_live_in_a_cache_folder_inside_the_data_dir() {
+        assert_eq!(DataLayout::new("/data").app_icons_dir(), PathBuf::from("/data/cache/app-icons"));
     }
 
     #[test]

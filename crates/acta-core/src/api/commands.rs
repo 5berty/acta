@@ -34,7 +34,7 @@
 //! | `chat_thread_create` | `{ scope: ChatScope }` | `ChatThread` |
 //! | `chat_thread_delete` | `{ threadId }` | `null` |
 //! | `chat_messages_list` | `{ threadId }` | `ChatMessage[]` |
-//! | `chat_send` | `{ threadId, text }` | `ChatSendResult` (+ eventos `chat:delta`) |
+//! | `chat_send` | `{ threadId, text, providerId?, model? }` | `ChatSendResult` (+ eventos `chat:delta`; proveedor/modelo solo para esa respuesta) |
 //! | `voiceprints_list` | — | `VoiceprintSummary[]` |
 //! | `voiceprint_delete` | `{ id }` | `null` |
 //! | `settings_get` | — | `Settings` |
@@ -60,7 +60,8 @@
 //! | `main_window_show` | `{ meetingId? }` | `null` |
 //!
 //! Ola 4 (en vivo, reintento con otro proveedor, búsqueda en el transcript,
-//! título de grupos): ver [`super::live`].
+//! título de grupos): ver [`super::live`]. Ola 5 (`system_profile`,
+//! `apps_list`): ver [`super::system`].
 
 use crate::chat::ChatMessage;
 use crate::ids::ChatMessageId;
@@ -143,6 +144,9 @@ pub mod command_names {
     pub const GROUPS_SUGGEST_TITLE: &str = "groups_suggest_title";
     pub const CHAT_CANCEL: &str = "chat_cancel";
     pub const LIVE_CANCEL: &str = "live_cancel";
+    // Ola 5 (`api::system`).
+    pub const SYSTEM_PROFILE: &str = "system_profile";
+    pub const APPS_LIST: &str = "apps_list";
 }
 
 /// Estado de la sesión tal como lo ve la UI (comandos `session_*` y evento

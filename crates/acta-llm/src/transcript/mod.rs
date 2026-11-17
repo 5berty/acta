@@ -40,11 +40,84 @@ pub struct Line {
     pub text: String,
 }
 
+/// Cómo salen en el prompt las líneas del usuario: "Ana (yo)" o, sin nombre
+/// en Ajustes, solo "Yo".
+pub fn me_label(me_name: &str) -> String {
+    match me_name.trim() {
+        "" => "Yo".to_owned(),
+        name => format!("{name} (yo)"),
+    }
+}
+
+/// Cómo se nombra al usuario dentro de una frase del prompt.
+pub fn user_ref(me_name: &str) -> &str {
+    match me_name.trim() {
+        "" => "el usuario",
+        name => name,
+    }
+}
+
+/// "de Ana" / "del usuario".
+pub fn of_user(me_name: &str) -> String {
+    match me_name.trim() {
+        "" => "del usuario".to_owned(),
+        name => format!("de {name}"),
+    }
+}
+
+/// Idioma en que debe escribir el modelo según `Settings.transcription.language`.
+/// `auto` (o vacío) = `auto_phrase` (el idioma que se habla en la reunión).
+pub fn output_language(setting: &str, auto_phrase: &str) -> String {
+    let code = acta_core::settings::language::normalize(setting);
+    let name = match code.as_str() {
+        acta_core::settings::language::AUTO => auto_phrase,
+        "es" => "castellano de España",
+        "en" => "inglés",
+        "fr" => "francés",
+        "de" => "alemán",
+        "it" => "italiano",
+        "pt" => "portugués",
+        "ca" => "catalán",
+        "gl" => "gallego",
+        "eu" => "euskera",
+        "nl" => "neerlandés",
+        "pl" => "polaco",
+        "ro" => "rumano",
+        "sv" => "sueco",
+        "da" => "danés",
+        "fi" => "finés",
+        "el" => "griego",
+        "cs" => "checo",
+        "hu" => "húngaro",
+        "ru" => "ruso",
+        "uk" => "ucraniano",
+        "bg" => "búlgaro",
+        "hr" => "croata",
+        "sk" => "eslovaco",
+        "sl" => "esloveno",
+        "et" => "estonio",
+        "lv" => "letón",
+        "lt" => "lituano",
+        "mt" => "maltés",
+        "ja" => "japonés",
+        "zh" => "chino",
+        "ko" => "coreano",
+        "ar" => "árabe",
+        "tr" => "turco",
+        "no" | "nb" => "noruego",
+        other => return format!("el idioma con código ISO 639-1 «{other}»"),
+    };
+    name.to_owned()
+}
+
+/// `auto` para lo que se escribe sobre UNA reunión (acta, chat, preguntas en vivo).
+pub const SAME_AS_MEETING: &str = "el mismo idioma en que se habla en la reunión (el de la transcripción)";
+
 /// Nombre con el que aparece un hablante en el prompt. `me_name` es el
-/// nombre del usuario (los hablantes `is_me` salen como "Edu (yo)").
+/// nombre del usuario (los hablantes `is_me` salen como "Ana (yo)", o "Yo").
 pub fn speaker_label(speaker: &Speaker, me_name: &str) -> String {
     if speaker.is_me {
-        format!("{me_name} (yo)")
+        me_label(me_name)
     } else {
         speaker.shown_name().to_owned()
     }
@@ -163,6 +236,23 @@ mod tests {
             text: text.into(),
             confidence: None,
         }
+    }
+
+    #[test]
+    fn without_a_user_name_my_lines_are_just_yo() {
+        assert_eq!(me_label(""), "Yo");
+        assert_eq!(me_label("  "), "Yo");
+        assert_eq!(me_label("Ana"), "Ana (yo)");
+    }
+
+    #[test]
+    fn the_output_language_is_named_for_the_model() {
+        assert_eq!(output_language("es", "x"), "castellano de España");
+        assert_eq!(output_language("EN-gb", "x"), "inglés");
+        assert_eq!(output_language("ca", "x"), "catalán");
+        assert_eq!(output_language("auto", "el mismo idioma de la reunión"), "el mismo idioma de la reunión");
+        assert_eq!(output_language("", "auto"), "auto");
+        assert!(output_language("xx", "x").contains("«xx»"));
     }
 
     #[test]

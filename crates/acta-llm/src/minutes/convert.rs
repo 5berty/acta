@@ -43,6 +43,14 @@ pub fn matches_user(name: &str, me: &UserIdentity) -> bool {
         .any(|alias| names_match(name, alias))
 }
 
+/// Nombre del dueño de «mis tareas»: el de Ajustes o, si no hay, «Yo».
+fn me_name(me: &UserIdentity) -> String {
+    match me.display_name.trim() {
+        "" => "Yo".to_owned(),
+        name => name.to_owned(),
+    }
+}
+
 /// Reglas que el esquema JSON no puede expresar.
 pub fn validate(v: &MinutesV1) -> Result<(), String> {
     if v.resumen.trim().is_empty() {
@@ -121,7 +129,7 @@ fn convert_task(t: TareaV1, ctx: &ConvertCtx, map: &HashMap<String, CaptureId>) 
     let responsable = raw
         .map(|r| if marked_me { r[..r.len() - "(yo)".len()].trim().to_owned() } else { r })
         .filter(|r| !r.is_empty())
-        .or_else(|| marked_me.then(|| input.me.display_name.clone()));
+        .or_else(|| marked_me.then(|| me_name(&input.me)));
     let is_user = marked_me || responsable.as_deref().is_some_and(|r| matches_user(r, &input.me));
     let is_other_known = responsable.as_deref().is_some_and(|r| {
         !is_user && input.speakers.iter().any(|s| !s.is_me && names_match(r, s.shown_name()))
@@ -136,7 +144,7 @@ fn convert_task(t: TareaV1, ctx: &ConvertCtx, map: &HashMap<String, CaptureId>) 
     };
     let owner_name = match (&responsable, is_mine) {
         (Some(r), _) => Some(r.clone()),
-        (None, true) => Some(input.me.display_name.clone()),
+        (None, true) => Some(me_name(&input.me)),
         (None, false) => None,
     };
     let owner_speaker_id = owner_name.as_deref().and_then(|n| speaker_for(n, input, is_mine));
@@ -254,6 +262,21 @@ mod tests {
         assert!(names_match("Eduardo García", "eduardo"));
         assert!(!names_match("Ana", "Edu"));
         assert!(!names_match("", "Edu"));
+    }
+
+    /// Sin nombre en Ajustes, mis tareas son de «Yo» (nunca un nombre vacío).
+    #[test]
+    fn without_a_user_name_my_tasks_belong_to_yo() {
+        let mut input = sample_input();
+        input.me = UserIdentity { display_name: String::new(), aliases: vec![] };
+        let map = cap_map(&input);
+        let labelled = convert_task(tarea("Enviar el informe", Some("Yo"), false), &ctx(&input), &map);
+        assert_eq!((labelled.owner_name.as_deref(), labelled.is_mine), (Some("Yo"), true));
+        let flagged = convert_task(tarea("Enviar el informe", None, true), &ctx(&input), &map);
+        assert_eq!((flagged.owner_name.as_deref(), flagged.is_mine), (Some("Yo"), true));
+        let marker = convert_task(tarea("Enviar el informe", Some("(yo)"), false), &ctx(&input), &map);
+        assert_eq!((marker.owner_name.as_deref(), marker.is_mine), (Some("Yo"), true));
+        assert!(flagged.owner_speaker_id.is_some());
     }
 
     #[test]

@@ -33,12 +33,19 @@ const SUMMARY_CHARS: usize = 600;
 
 pub struct LlmGroupNamer {
     provider: Arc<dyn LlmProvider>,
-    user_name: String,
+    /// `Settings.transcription.language`; `auto` = el idioma de las reuniones.
+    language: String,
 }
 
 impl LlmGroupNamer {
-    pub fn new(provider: Arc<dyn LlmProvider>, user_name: impl Into<String>) -> Self {
-        Self { provider, user_name: user_name.into() }
+    /// El nombre del usuario no entra en el prompt (se conserva el parámetro por compatibilidad).
+    pub fn new(provider: Arc<dyn LlmProvider>, _user_name: impl Into<String>) -> Self {
+        Self { provider, language: acta_core::settings::language::AUTO.to_owned() }
+    }
+
+    pub fn with_language(mut self, language: impl Into<String>) -> Self {
+        self.language = language.into();
+        self
     }
 }
 
@@ -58,7 +65,10 @@ impl GroupNamer for LlmGroupNamer {
             .collect::<Vec<_>>()
             .join("\n\n");
         let request = LlmRequest {
-            system: Some(render_template(prompts::GROUP_NAME_SYSTEM, &[("user_name", &self.user_name)])),
+            system: Some(render_template(
+                prompts::GROUP_NAME_SYSTEM,
+                &[("language", &crate::transcript::output_language(&self.language, "el mismo idioma de esos títulos y resúmenes"))],
+            )),
             messages: vec![LlmMessage { role: Role::User, content: list }],
             json_schema: serde_json::from_str(schemas::GROUP_NAME_V1).ok(),
             max_tokens: Some(300),
@@ -82,6 +92,18 @@ mod tests {
             ("Kickoff Azure".into(), "Se planifica la migración".into()),
             ("Revisión de costes".into(), "Costes de cloud".into()),
         ]
+    }
+
+    #[tokio::test]
+    async fn the_name_is_written_in_the_configured_language() {
+        let system_of = |p: &Arc<FakeProvider>| p.requests.lock().unwrap()[0].system.clone().expect("sys");
+        let p = Arc::new(FakeProvider::new(vec![r#"{"nombre":"Azure migration","descripcion":"Weekly sync."}"#]));
+        LlmGroupNamer::new(p.clone(), "").with_language("en").name_group(&meetings()).await.expect("name");
+        assert!(system_of(&p).contains("palabras en inglés"), "{}", system_of(&p));
+        let p = Arc::new(FakeProvider::new(vec![r#"{"nombre":"Migración a Azure","descripcion":"Seguimiento."}"#]));
+        LlmGroupNamer::new(p.clone(), "").name_group(&meetings()).await.expect("name");
+        let sys = system_of(&p);
+        assert!(sys.contains("mismo idioma") && !sys.contains("castellano") && !sys.contains("{{"), "{sys}");
     }
 
     #[tokio::test]

@@ -3,7 +3,7 @@
 //! streaming con citas `[mm:ss]` que la UI convierte en saltos.
 
 use crate::prompts;
-use crate::transcript::render_template;
+use crate::transcript::{SAME_AS_MEETING, of_user, output_language, render_template, user_ref};
 use acta_core::api::{LIVE_SPEAKER_ME, LIVE_SPEAKER_OTHERS, LiveCitation, LiveSegment};
 use acta_core::llm::{LlmMessage, LlmRequest, Role};
 
@@ -40,11 +40,15 @@ pub fn render_live(segments: &[LiveSegment]) -> String {
     format!("(…lo anterior se omite)\n{}", &out[start..])
 }
 
-pub fn live_ask_request(segments: &[LiveSegment], question: &str, user_name: &str) -> LlmRequest {
+/// `language` es `Settings.transcription.language` (`auto` = el de la reunión).
+pub fn live_ask_request(segments: &[LiveSegment], question: &str, user_name: &str, language: &str) -> LlmRequest {
     let transcript = render_live(segments);
     let transcript = if transcript.is_empty() { "(Todavía no se ha transcrito nada.)".to_owned() } else { transcript };
     LlmRequest {
-        system: Some(render_template(prompts::LIVE_ASK_SYSTEM, &[("user_name", user_name)])),
+        system: Some(render_template(
+            prompts::LIVE_ASK_SYSTEM,
+            &[("of_user", &of_user(user_name)), ("user_ref", user_ref(user_name)), ("language", &output_language(language, SAME_AS_MEETING))],
+        )),
         messages: vec![LlmMessage {
             role: Role::User,
             content: format!("# Transcripción hasta ahora\n{transcript}\n\n# Pregunta\n{}", question.trim()),
@@ -95,10 +99,19 @@ mod tests {
     fn transcript_lines_say_who_and_when_in_order() {
         let s = vec![seg("system-0", "otros", 63_000, "¿Cómo va lo de las subcuentas?"), seg("mic-0", "yo", 40_500, "Ayer arreglé el borrado.")];
         assert_eq!(render_live(&s), "[00:40] Yo: Ayer arreglé el borrado.\n[01:03] Otros: ¿Cómo va lo de las subcuentas?");
-        let r = live_ask_request(&s, " ¿Han hablado de subcuentas? ", "Edu");
-        assert!(r.system.as_deref().unwrap_or_default().contains("Edu"));
+        let r = live_ask_request(&s, " ¿Han hablado de subcuentas? ", "Ana", "es");
+        let sys = r.system.unwrap_or_default();
+        assert!(sys.contains("asistente de Ana") && sys.contains("\"Yo\" es Ana") && sys.contains("castellano de España"), "{sys}");
         assert!(r.messages[0].content.ends_with("# Pregunta\n¿Han hablado de subcuentas?"));
-        assert!(live_ask_request(&[], "x", "Edu").messages[0].content.contains("Todavía no"));
+        assert!(live_ask_request(&[], "x", "Ana", "es").messages[0].content.contains("Todavía no"));
+    }
+
+    #[test]
+    fn the_prompt_works_without_a_name_and_answers_in_the_meeting_language() {
+        let sys = live_ask_request(&[], "x", "", "auto").system.unwrap_or_default();
+        assert!(sys.contains("asistente del usuario") && sys.contains("\"Yo\" es el usuario"), "{sys}");
+        assert!(sys.contains("mismo idioma") && !sys.contains("castellano") && !sys.contains("{{"), "{sys}");
+        assert!(live_ask_request(&[], "x", "", "en").system.unwrap_or_default().contains("Responde en inglés"));
     }
 
     #[test]

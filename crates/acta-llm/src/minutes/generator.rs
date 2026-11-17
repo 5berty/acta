@@ -5,7 +5,10 @@ use super::MinutesV1;
 use super::meta::{MIN_TRANSCRIPT_WORDS, empty_minutes, strip_meta};
 use super::convert::{ConvertCtx, convert, validate};
 use crate::structured::complete_structured;
-use crate::transcript::{Line, estimate_tokens, format_date, join_lines, mmss, render_lines, render_template, split_lines};
+use crate::transcript::{
+    Line, SAME_AS_MEETING, estimate_tokens, format_date, join_lines, me_label, mmss, of_user, output_language, render_lines, render_template,
+    split_lines, user_ref,
+};
 use crate::{prompts, schemas};
 use acta_core::PortResult;
 use acta_core::detection::Platform;
@@ -63,14 +66,6 @@ impl LlmMinutesGenerator {
     }
 }
 
-fn language_name(code: &str) -> String {
-    match code {
-        "es" | "" => "castellano de España".into(),
-        "en" => "inglés".into(),
-        other => other.into(),
-    }
-}
-
 fn platform_name(p: Platform) -> &'static str {
     match p {
         Platform::Teams => "Microsoft Teams",
@@ -81,13 +76,36 @@ fn platform_name(p: Platform) -> &'static str {
     }
 }
 
+/// Quién es el usuario para el modelo. Sin nombre en Ajustes, solo «Yo».
+fn user_intro(me: &acta_core::minutes::UserIdentity) -> String {
+    let name = me.display_name.trim();
+    let aliases: Vec<&str> = me.aliases.iter().map(|a| a.trim()).filter(|a| !a.is_empty()).collect();
+    if name.is_empty() {
+        let also = if aliases.is_empty() { String::new() } else { format!(" (le llaman {})", aliases.join(", ")) };
+        return format!("Las intervenciones del usuario{also} aparecen como \"Yo\".");
+    }
+    let also = if aliases.is_empty() { String::new() } else { format!(" (también llamado {})", aliases.join(", ")) };
+    format!("\"{name}\"{also} es el usuario: sus intervenciones aparecen como \"{}\".", me_label(name))
+}
+
+/// «…o si otra persona se lo pide/asigna ___»: por su nombre si se sabe.
+fn asked_by(me: &acta_core::minutes::UserIdentity) -> String {
+    let names: Vec<&str> =
+        std::iter::once(me.display_name.as_str()).chain(me.aliases.iter().map(String::as_str)).map(str::trim).filter(|n| !n.is_empty()).collect();
+    if names.is_empty() { "hablándole directamente".to_owned() } else { format!("por su nombre o alias ({})", names.join(", ")) }
+}
+
 fn system_prompt(input: &MinutesInput) -> String {
+    let name = &input.me.display_name;
     render_template(
         prompts::MINUTES_SYSTEM,
         &[
-            ("user_name", &input.me.display_name),
-            ("user_aliases", &input.me.aliases.join(", ")),
-            ("language", &language_name(&input.language)),
+            ("of_user", &of_user(name)),
+            ("user_intro", &user_intro(&input.me)),
+            ("user_ref", user_ref(name)),
+            ("me_label", &me_label(name)),
+            ("asked_by", &asked_by(&input.me)),
+            ("language", &output_language(&input.language, SAME_AS_MEETING)),
         ],
     )
 }
@@ -253,6 +271,7 @@ fn reduce_prompt(parts: &[MinutesV1]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use acta_core::minutes::UserIdentity;
     use acta_core::PortError;
     use crate::structured::testing::FakeProvider;
     use crate::testutil::{sample_input, utt};
@@ -287,6 +306,31 @@ mod tests {
         let sys = req.system.as_ref().expect("system");
         assert!(sys.contains("Edu") && sys.contains("Eduardo, Edu Navajas") && sys.contains("castellano"));
         assert!(!sys.contains("{{"));
+    }
+
+    /// Instalación nueva: sin nombre y con idioma automático. El prompt no
+    /// deja huecos ni presupone castellano, y "Yo" sigue marcando mis tareas.
+    #[tokio::test]
+    async fn the_prompt_works_without_a_name_and_follows_the_meeting_language() {
+        let p = Arc::new(FakeProvider::new(vec![GOOD]));
+        let mut input = sample_input();
+        input.me = UserIdentity { display_name: String::new(), aliases: vec![] };
+        input.language = "auto".into();
+        let out = make_gen(p.clone()).generate(input.clone()).await.expect("generate");
+        let req = p.requests.lock().unwrap()[0].clone();
+        let sys = req.system.expect("system");
+        assert!(!sys.contains("{{") && !sys.contains("\"\"") && !sys.contains("()") && !sys.contains("de ."), "{sys}");
+        assert!(!sys.contains("Edu") && !sys.contains("castellano"), "{sys}");
+        assert!(sys.contains("mismo idioma") && sys.contains("\"Yo\""), "{sys}");
+        assert!(req.messages[0].content.contains("[00:06|6000] Yo: Sí, yo me encargo."));
+        assert!(!req.messages[0].content.contains(" (yo)"));
+        assert!(out.minutes.action_items.iter().all(|t| t.owner_name.as_deref() != Some("")));
+
+        for (code, name) in [("en", "inglés"), ("es", "castellano de España"), ("fr", "francés"), ("ja", "japonés")] {
+            input.language = code.into();
+            let sys = system_prompt(&input);
+            assert!(sys.contains(&format!("Escribe en {name}")), "{code}: {sys}");
+        }
     }
 
     #[tokio::test]

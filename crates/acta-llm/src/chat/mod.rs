@@ -73,6 +73,8 @@ pub struct LlmChatEngine {
     source: Arc<dyn MeetingSource>,
     retriever: Arc<dyn Retriever>,
     me: UserIdentity,
+    /// `Settings.transcription.language`; `auto` = el idioma de las reuniones.
+    language: String,
 }
 
 impl LlmChatEngine {
@@ -91,7 +93,12 @@ impl LlmChatEngine {
         retriever: Arc<dyn Retriever>,
         me: UserIdentity,
     ) -> Self {
-        Self { provider, source, retriever, me }
+        Self { provider, source, retriever, me, language: acta_core::settings::language::AUTO.to_owned() }
+    }
+
+    pub fn with_language(mut self, language: impl Into<String>) -> Self {
+        self.language = language.into();
+        self
     }
 
     fn usable_tokens(&self) -> usize {
@@ -279,7 +286,13 @@ impl ChatEngine for LlmChatEngine {
             content: format!("# Contexto\n{context}\n\n# Pregunta\n{question}"),
         });
         let request = LlmRequest {
-            system: Some(render_template(prompts::CHAT_SYSTEM, &[("user_name", &self.me.display_name)])),
+            system: Some(render_template(
+                prompts::CHAT_SYSTEM,
+                &[
+                    ("of_user", &crate::transcript::of_user(&self.me.display_name)),
+                    ("language", &crate::transcript::output_language(&self.language, "el mismo idioma en que se habla en las reuniones del contexto")),
+                ],
+            )),
             messages,
             json_schema: None,
             max_tokens: Some(2_000),
@@ -384,6 +397,29 @@ mod tests {
 
     async fn collect(stream: EventStream<ChatDelta>) -> Vec<ChatDelta> {
         stream.collect().await
+    }
+
+    #[tokio::test]
+    async fn the_chat_answers_in_the_configured_language_and_copes_without_a_name() {
+        let th = thread(ChatScope::Meeting { meeting_id: MeetingId::from_u128(1) });
+        let system_of = |p: &Arc<FakeProvider>| p.requests.lock().unwrap()[0].system.clone().expect("sys");
+
+        let p = Arc::new(FakeProvider::new(vec!["ok"]));
+        let (e, _) = engine(p.clone(), transcript(), vec![]);
+        collect(e.ask(&th, &[], "¿Qué?", ChatMessageId::from_u128(9)).await.expect("ask")).await;
+        let sys = system_of(&p);
+        assert!(sys.contains("asistente de reuniones de Edu") && sys.contains("mismo idioma") && !sys.contains("castellano"), "{sys}");
+
+        let p = Arc::new(FakeProvider::new(vec!["ok"]));
+        let retr = Arc::new(FakeRetriever(vec![], Default::default()));
+        let src = Arc::new(FakeSource { title: "Kickoff".into(), transcript: transcript() });
+        let nameless = UserIdentity { display_name: String::new(), aliases: vec![] };
+        let e = LlmChatEngine::with_source(p.clone(), src, retr, nameless).with_language("en");
+        collect(e.ask(&th, &[], "What?", ChatMessageId::from_u128(9)).await.expect("ask")).await;
+        let sys = system_of(&p);
+        assert!(sys.contains("asistente de reuniones del usuario") && sys.contains("Respondes en inglés") && !sys.contains("{{"), "{sys}");
+        let user = p.requests.lock().unwrap()[0].messages.last().expect("msg").content.clone();
+        assert!(user.contains("Yo: Sí, yo me encargo."), "{user}");
     }
 
     #[tokio::test]

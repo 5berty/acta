@@ -94,3 +94,78 @@ describe("turnos del transcript", () => {
     expect(screen.getByText("tú")).toBeInTheDocument();
   });
 });
+
+describe("buscar en el transcript", () => {
+  const long = (() => {
+    const t = sampleMeeting().transcript;
+    const [ana, me] = [t.speakers[1]!.id, t.speakers[0]!.id];
+    t.utterances = [
+      { idx: 0, speakerId: ana, track: "system", start: 0, end: 4_000, text: "Empezamos con el plan de la reunión.", confidence: 1 },
+      { idx: 1, speakerId: me, track: "mic", start: 5_000, end: 9_000, text: "El plan está claro, el PLAN es lanzar.", confidence: 1 },
+      { idx: 2, speakerId: ana, track: "system", start: 10_000, end: 12_000, text: "Hablemos de las subcuentas.", confidence: 1 },
+    ];
+    return t;
+  })();
+  const box = () => screen.getByRole("searchbox", { name: "Buscar en la transcripción" });
+
+  it("resalta las coincidencias y las cuenta, sin distinguir tildes ni mayúsculas", async () => {
+    setup({ transcript: long });
+    await userEvent.type(box(), "plan");
+    expect(await screen.findByText("1 de 3")).toBeInTheDocument();
+    expect(document.querySelectorAll("mark.hit")).toHaveLength(3);
+    await userEvent.clear(box());
+    await userEvent.type(box(), "reunion");
+    expect(await screen.findByText("1 de 1")).toBeInTheDocument();
+    expect(document.querySelector("mark.hit")?.textContent).toBe("reunión");
+  });
+
+  it("siguiente y anterior recorren las coincidencias y saltan el audio", async () => {
+    const p = setup({ transcript: long });
+    await userEvent.type(box(), "plan");
+    await screen.findByText("1 de 3");
+    await userEvent.click(screen.getByRole("button", { name: "Siguiente coincidencia" }));
+    expect(screen.getByText("2 de 3")).toBeInTheDocument();
+    expect(p.onSeek).toHaveBeenLastCalledWith(5_000);
+    expect(document.querySelectorAll("mark.hit-active")).toHaveLength(1);
+    await userEvent.type(box(), "{Enter}");
+    expect(screen.getByText("3 de 3")).toBeInTheDocument();
+    await userEvent.type(box(), "{Enter}");
+    expect(screen.getByText("1 de 3")).toBeInTheDocument();
+    expect(p.onSeek).toHaveBeenLastCalledWith(0);
+    await userEvent.type(box(), "{Shift>}{Enter}{/Shift}");
+    expect(screen.getByText("3 de 3")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Coincidencia anterior" }));
+    expect(screen.getByText("2 de 3")).toBeInTheDocument();
+  });
+
+  it("sin coincidencias lo dice y Esc limpia", async () => {
+    setup({ transcript: long });
+    await userEvent.type(box(), "presupuesto");
+    expect(await screen.findByText("Sin resultados")).toBeInTheDocument();
+    await userEvent.type(box(), "{Escape}");
+    expect(box()).toHaveValue("");
+    expect(screen.queryByText("Sin resultados")).not.toBeInTheDocument();
+  });
+
+  it("⌘F lleva al buscador", async () => {
+    setup({ transcript: long });
+    await userEvent.keyboard("{Meta>}f{/Meta}");
+    expect(box()).toHaveFocus();
+  });
+
+  it("usa la búsqueda del backend y resalta la línea entera si no encuentra el texto literal", async () => {
+    const onSearch = vi.fn(async (q: string) => (q === "cuentas hijas" ? [{ utteranceId: 2, startMs: 10_000, snippet: "Hablemos de las subcuentas.", ranges: [] as [number, number][] }] : []));
+    setup({ transcript: long, onSearch });
+    await userEvent.type(box(), "cuentas hijas");
+    expect(await screen.findByText("1 de 1")).toBeInTheDocument();
+    expect(onSearch).toHaveBeenLastCalledWith("cuentas hijas");
+    expect(document.querySelector("mark.hit")?.textContent).toBe("Hablemos de las subcuentas.");
+  });
+
+  it("si el backend no sabe buscar (null) o falla, filtra en cliente", async () => {
+    const onSearch = vi.fn(async () => null);
+    setup({ transcript: long, onSearch });
+    await userEvent.type(box(), "subcuentas");
+    expect(await screen.findByText("1 de 1")).toBeInTheDocument();
+  });
+});

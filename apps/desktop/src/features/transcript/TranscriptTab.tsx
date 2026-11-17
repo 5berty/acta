@@ -1,7 +1,10 @@
 import { Captions, Check, Pencil } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Speaker, Transcript } from "../../api";
 import { formatClock, speakerColor } from "../../shared/format";
+import { Highlight } from "../../shared/textSearch";
+import { FindBar } from "../../shared/ui/FindBar";
+import { useFindShortcut, useLineSearch, type RemoteMatch } from "../../shared/useLineSearch";
 import { Avatar, Button, EmptyState, IconButton } from "../../shared/ui/ui";
 
 interface Props {
@@ -10,6 +13,8 @@ interface Props {
   currentMs: number;
   onSeek(ms: number): void;
   onRename(speakerId: string, name: string, remember: boolean): void;
+  /** Búsqueda del backend (`meeting_search_transcript`); sin ella, o si devuelve `null`, se filtra aquí. */
+  onSearch?(query: string): Promise<RemoteMatch[] | null>;
 }
 
 const nameOf = (s: Speaker): string => s.displayName ?? s.label;
@@ -46,8 +51,11 @@ function RenameForm({ speaker, names, onSave, onCancel }: { speaker: Speaker; na
   );
 }
 
-export function TranscriptTab({ transcript, voiceprintNames, currentMs, onSeek, onRename }: Props) {
+export function TranscriptTab({ transcript, voiceprintNames, currentMs, onSeek, onRename, onSearch }: Props) {
   const [editing, setEditing] = useState<string | null>(null);
+  const lines = useMemo(() => transcript.utterances.map((u) => ({ id: u.idx, text: u.text, at: u.start })), [transcript.utterances]);
+  const search = useLineSearch(lines, { remote: onSearch, onJump: (hit) => onSeek(hit.at) });
+  useFindShortcut(search.input);
   const index = new Map(transcript.speakers.map((s, i) => [s.id, i]));
   const byId = new Map(transcript.speakers.map((s) => [s.id, s]));
 
@@ -56,7 +64,10 @@ export function TranscriptTab({ transcript, voiceprintNames, currentMs, onSeek, 
   }
 
   return (
-    <div className="transcript">
+    <div className="transcript" ref={search.container}>
+      <div className="transcript-find">
+        <FindBar label="Buscar en la transcripción" placeholder="Buscar en la transcripción…" query={search.query} onQuery={search.setQuery} count={search.count} index={search.index} onNext={search.next} onPrev={search.prev} inputRef={search.input} />
+      </div>
       <ul className="speakers" aria-label="Hablantes">
         {transcript.speakers.map((s, i) => {
           const suggested = !s.isMe && !s.confirmed && (s.nameSource === "voiceprint" || s.nameSource === "appUi") && s.displayName;
@@ -103,6 +114,7 @@ export function TranscriptTab({ transcript, voiceprintNames, currentMs, onSeek, 
           const first = transcript.utterances[i - 1]?.speakerId !== u.speakerId;
           const color = speakerColor(index.get(u.speakerId) ?? 0);
           const name = s ? nameOf(s) : "?";
+          const found = search.rangesFor(u.idx);
           return (
             <li key={u.idx} className={first ? "turn" : undefined}>
               <button type="button" className={`line${active ? " line-active" : ""}`} aria-current={active ? "true" : undefined} onClick={() => onSeek(u.start)}>
@@ -113,7 +125,9 @@ export function TranscriptTab({ transcript, voiceprintNames, currentMs, onSeek, 
                       {name}
                     </span>
                   ) : null}
-                  <span className="line-text">{u.text}</span>
+                  <span className="line-text">
+                    <Highlight text={u.text} ranges={found.ranges} activeIndex={found.activeIndex} />
+                  </span>
                 </span>
                 <span className="line-time num">{formatClock(u.start)}</span>
               </button>

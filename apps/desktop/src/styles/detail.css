@@ -155,3 +155,19 @@
 .lightbox-block li { padding: 2px 0; }
 .lightbox-actions { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
 @media (max-width: 900px) { .lightbox { grid-template-columns: 1fr; } }
+
+/* Buscar dentro de una vista (transcript, directo). */
+.findbar { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 6px 0 12px; border-radius: var(--r-capsule); background: var(--card); box-shadow: var(--card-shadow); color: var(--fg-2); transition: box-shadow var(--d-fast) ease; }
+.findbar:focus-within { box-shadow: var(--card-shadow), 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
+.findbar input { flex: 1; min-width: 0; background: none; box-shadow: none; padding: 0 4px; min-height: 0; height: 100%; -webkit-appearance: none; appearance: none; }
+.findbar input::-webkit-search-cancel-button { display: none; }
+.findbar input:focus-visible { box-shadow: none; }
+.findbar-count { color: var(--fg-2); font-size: var(--t-caption); white-space: nowrap; padding: 0 4px; }
+.findbar-btn { width: 24px; height: 24px; border: 0; border-radius: 50%; display: grid; place-items: center; background: none; color: var(--fg-2); transition: background-color var(--d-fast) ease, transform var(--d-press) var(--ease-out); }
+.findbar-btn:disabled { opacity: 0.35; }
+.findbar-btn:active:not(:disabled) { transform: scale(0.9); }
+@media (hover: hover) and (pointer: fine) { .findbar-btn:hover:not(:disabled) { background: var(--fill-hover); color: var(--fg); } }
+.findbar .kbd { margin-right: 6px; }
+.transcript-find { position: sticky; top: 58px; z-index: 6; align-self: flex-end; width: min(360px, 100%); margin-bottom: -4px; }
+.transcript-find .findbar { background: var(--glass-bg-thick); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); box-shadow: var(--glass-shadow); }
+.transcript-find .findbar:focus-within { box-shadow: var(--glass-shadow), 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }

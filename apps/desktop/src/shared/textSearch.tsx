@@ -44,15 +44,15 @@ export function findRanges(text: string, query: string): Range[] {
 
 export const matches = (text: string, query: string): boolean => fold(text).includes(fold(query.trim()));
 
-/** Texto con los tramos marcados. `active` pinta la coincidencia en la que está el cursor de búsqueda. */
-export function Highlight({ text, ranges, active = false }: { text: string; ranges: Range[]; active?: boolean }) {
+/** Texto con los tramos marcados. `activeIndex`: la coincidencia en la que está el cursor de búsqueda. */
+export function Highlight({ text, ranges, activeIndex = -1 }: { text: string; ranges: Range[]; activeIndex?: number }) {
   if (ranges.length === 0) return <>{text}</>;
   const parts: React.ReactNode[] = [];
   let last = 0;
   ranges.forEach(([a, b], i) => {
     if (a > last) parts.push(text.slice(last, a));
     parts.push(
-      <mark key={i} className={active ? "hit hit-active" : "hit"}>
+      <mark key={i} className={i === activeIndex ? "hit hit-active" : "hit"}>
         {text.slice(a, b)}
       </mark>,
     );

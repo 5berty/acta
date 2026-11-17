@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import type { Group } from "../../api";
 import { useApi } from "../../app/ApiContext";
 import { Highlight, findRanges, fold, matches } from "../../shared/textSearch";
+import { errorMessage } from "../../shared/ui/ui";
 import { PickerPopover, type PickerItem } from "../../shared/ui/PickerPopover";
 
 interface Props {
@@ -21,7 +22,12 @@ export function GroupPicker({ label = "Añadir a grupo", memberOf, onAdd }: Prop
   const [groups, setGroups] = useState<Group[]>([]);
   const [query, setQuery] = useState("");
   const text = query.trim();
-  const load = () => api.groupsList().then((g) => setGroups([...g]));
+  const [error, setError] = useState<string | null>(null);
+  const load = () =>
+    api
+      .groupsList()
+      .then((g) => (setError(null), setGroups([...g])))
+      .catch((e) => setError(errorMessage(e)));
 
   const items = useMemo<PickerItem[]>(() => {
     const mine = new Set(memberOf);
@@ -61,7 +67,7 @@ export function GroupPicker({ label = "Añadir a grupo", memberOf, onAdd }: Prop
       items={items}
       query={query}
       onQuery={setQuery}
-      emptyText={text ? `Ningún grupo coincide con «${text}».` : "Aún no tienes grupos. Escribe un nombre para crear el primero."}
+      emptyText={error ?? (text ? `Ningún grupo coincide con «${text}».` : "Aún no tienes grupos. Escribe un nombre para crear el primero.")}
       confirmLabel={count}
       onConfirm={onAdd}
       create={
@@ -69,9 +75,14 @@ export function GroupPicker({ label = "Añadir a grupo", memberOf, onAdd }: Prop
           ? {
               label: (q) => `Crear grupo «${q}»`,
               run: async (q) => {
-                const g = await api.groupCreate(q);
-                await load();
-                return g.id;
+                try {
+                  const g = await api.groupCreate(q);
+                  await load();
+                  return g.id;
+                } catch (e) {
+                  setError(errorMessage(e));
+                  return null;
+                }
               },
             }
           : null

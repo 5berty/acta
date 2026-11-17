@@ -117,4 +117,202 @@ describe("GroupsContainer", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Eliminar grupo" }));
     await waitFor(() => expect(controls.state.groups.map((g) => g.name)).toEqual(["Z"]));
   });
+
+  describe("Buscar sugerencias", () => {
+    const sug: GroupSuggestion = { id: "s9", name: "Sprint planning", description: null, meetingIds: ["a", "b", "c"], cohesion: 0.9, createdAt: 0 };
+    const meetings = (n: number) => Array.from({ length: n }, () => sampleMeeting());
+
+    it("muestra carga mientras busca y deshabilita el botón", async () => {
+      const { api } = setup();
+      let done!: (s: GroupSuggestion[]) => void;
+      api.groupSuggestionsRefresh = () => new Promise((r) => (done = r));
+      await userEvent.click(await screen.findByRole("button", { name: "Buscar sugerencias" }));
+      const busy = await screen.findByRole("button", { name: /Buscando/ });
+      expect(busy).toBeDisabled();
+      expect(busy).toHaveAttribute("aria-busy", "true");
+      expect(screen.getByRole("status")).toHaveTextContent("Comparando tus reuniones…");
+      done([]);
+      await waitFor(() => expect(screen.getByRole("button", { name: "Buscar sugerencias" })).toBeEnabled());
+      expect(screen.queryByText("Comparando tus reuniones…")).not.toBeInTheDocument();
+    });
+
+    it("sin resultados y con 1 reunión explica por qué", async () => {
+      setup({ meetings: meetings(1) });
+      await userEvent.click(await screen.findByRole("button", { name: "Buscar sugerencias" }));
+      expect(await screen.findByText(/Hacen falta al menos 3 reuniones parecidas; ahora tienes 1 reunión procesada\./)).toBeInTheDocument();
+      expect(screen.getByText(/Graba o importa alguna más y vuelve a probar\./)).toBeInTheDocument();
+    });
+
+    it("sin resultados y con 3 o más reuniones propone crear un grupo a mano", async () => {
+      setup({ meetings: meetings(4) });
+      await userEvent.click(await screen.findByRole("button", { name: "Buscar sugerencias" }));
+      expect(await screen.findByText(/No he encontrado reuniones lo bastante parecidas entre tus 4 reuniones procesadas\./)).toBeInTheDocument();
+      expect(screen.getByText(/Puedes crear un grupo a mano y añadirlas tú\./)).toBeInTheDocument();
+    });
+
+    it("sin reuniones dice que todavía no hay ninguna", async () => {
+      setup({ meetings: [] });
+      await userEvent.click(await screen.findByRole("button", { name: "Buscar sugerencias" }));
+      expect(await screen.findByText(/todavía no tienes ninguna reunión procesada/)).toBeInTheDocument();
+    });
+
+    it("si falla el recuento muestra el mensaje genérico sin número", async () => {
+      const { api } = setup();
+      api.meetingsList = () => Promise.reject(new Error("x"));
+      await userEvent.click(await screen.findByRole("button", { name: "Buscar sugerencias" }));
+      expect(await screen.findByText(/No he encontrado reuniones lo bastante parecidas/)).toBeInTheDocument();
+      expect(screen.queryByText(/procesadas/)).not.toBeInTheDocument();
+    });
+
+    it("con resultados enseña la caja y cuántas hay", async () => {
+      const { api } = setup();
+      api.groupSuggestionsRefresh = async () => [sug];
+      api.groupSuggestionsList = async () => [sug];
+      await userEvent.click(await screen.findByRole("button", { name: "Buscar sugerencias" }));
+      expect(await screen.findByText("1 sugerencia nueva")).toBeInTheDocument();
+      expect(screen.getByRole("region", { name: "Grupos sugeridos" })).toBeInTheDocument();
+    });
+
+    it("el aviso desaparece al descartar una sugerencia", async () => {
+      const { api } = setup();
+      let list: GroupSuggestion[] = [];
+      api.groupSuggestionsList = async () => list;
+      api.groupSuggestionsRefresh = async () => (list = [sug]);
+      api.groupSuggestionDismiss = async () => void (list = []);
+      await userEvent.click(await screen.findByRole("button", { name: "Buscar sugerencias" }));
+      await screen.findByText("1 sugerencia nueva");
+      await userEvent.click(screen.getByRole("button", { name: "Descartar Sprint planning" }));
+      await waitFor(() => expect(screen.queryByText("1 sugerencia nueva")).not.toBeInTheDocument());
+    });
+
+    it("el aviso se puede cerrar", async () => {
+      setup({ meetings: [] });
+      await userEvent.click(await screen.findByRole("button", { name: "Buscar sugerencias" }));
+      await screen.findByText(/todavía no tienes ninguna/);
+      await userEvent.click(screen.getByRole("button", { name: "Cerrar aviso" }));
+      expect(screen.queryByText(/todavía no tienes ninguna/)).not.toBeInTheDocument();
+    });
+
+    it("un fallo se ve como alerta y Reintentar vuelve a buscar", async () => {
+      const { api } = setup();
+      let calls = 0;
+      api.groupSuggestionsRefresh = async () => {
+        if (calls++ === 0) throw { message: "El modelo no responde" };
+        return [];
+      };
+      await userEvent.click(await screen.findByRole("button", { name: "Buscar sugerencias" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("El modelo no responde");
+      await userEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+      await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+      expect(calls).toBe(2);
+    });
+  });
+
+  it("si la carga inicial falla muestra el error y Reintentar la repite", async () => {
+    const mock = createMockApi();
+    let calls = 0;
+    const orig = mock.api.groupsList.bind(mock.api);
+    mock.api.groupsList = async () => {
+      if (calls++ === 0) throw { message: "Base de datos bloqueada" };
+      return orig();
+    };
+    await mock.api.groupCreate("Atlas");
+    render(
+      <ApiProvider api={mock.api}>
+        <GroupsContainer onOpenMeeting={vi.fn()} />
+      </ApiProvider>,
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("Base de datos bloqueada");
+    await userEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+    expect(await screen.findByRole("button", { name: /Atlas/ })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("si falla marcar favorito se deshace y se avisa", async () => {
+    const mock = createMockApi();
+    await mock.api.groupCreate("Atlas");
+    mock.api.groupSetFavourite = async () => {
+      throw { message: "No se pudo guardar" };
+    };
+    render(
+      <ApiProvider api={mock.api}>
+        <GroupsContainer onOpenMeeting={vi.fn()} />
+      </ApiProvider>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Marcar como favorito" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo guardar");
+    expect(screen.getByRole("button", { name: "Marcar como favorito" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("si falla crear un grupo se muestra el error", async () => {
+    const { api } = setup();
+    api.groupCreate = async () => {
+      throw { message: "Nombre duplicado" };
+    };
+    await userEvent.type(await screen.findByRole("textbox", { name: "Nombre del grupo nuevo" }), "Dup");
+    await userEvent.click(screen.getByRole("button", { name: "Crear grupo" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Nombre duplicado");
+  });
+
+  describe("detalle del grupo: los fallos se ven", () => {
+    async function openGroup() {
+      const d = sampleMeeting();
+      const mock = createMockApi({ meetings: [d] });
+      const g = await mock.api.groupCreate("Producto");
+      await mock.api.groupAddMeeting(g.id, d.meeting.id);
+      render(
+        <ApiProvider api={mock.api}>
+          <GroupsContainer onOpenMeeting={vi.fn()} />
+        </ApiProvider>,
+      );
+      await userEvent.click(await screen.findByRole("button", { name: /^Producto/ }));
+      return mock.api;
+    }
+
+    it("quitar una reunión que falla enseña el error", async () => {
+      const api = await openGroup();
+      api.groupRemoveMeeting = async () => {
+        throw { message: "No se pudo quitar" };
+      };
+      await userEvent.click(await screen.findByRole("button", { name: "Quitar Daily del equipo del grupo" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo quitar");
+    });
+
+    it("eliminar un grupo que falla enseña el error", async () => {
+      const api = await openGroup();
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      api.groupDelete = async () => {
+        throw { message: "No se pudo eliminar" };
+      };
+      await userEvent.click(await screen.findByRole("button", { name: "Eliminar grupo" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo eliminar");
+    });
+
+    it("renombrar un grupo que falla enseña el error", async () => {
+      const api = await openGroup();
+      api.groupUpdate = async () => {
+        throw { message: "No se pudo guardar el nombre" };
+      };
+      const input = await screen.findByRole("textbox", { name: "Nombre del grupo" });
+      await userEvent.clear(input);
+      await userEvent.type(input, "Otro");
+      await userEvent.tab();
+      expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo guardar el nombre");
+    });
+
+    it("si falla la carga de reuniones del grupo, avisa", async () => {
+      const mock = createMockApi();
+      await mock.api.groupCreate("Producto");
+      mock.api.meetingsList = async () => {
+        throw { message: "Lista no disponible" };
+      };
+      render(
+        <ApiProvider api={mock.api}>
+          <GroupsContainer onOpenMeeting={vi.fn()} />
+        </ApiProvider>,
+      );
+      await userEvent.click(await screen.findByRole("button", { name: /^Producto/ }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("Lista no disponible");
+    });
+  });
 });

@@ -15,6 +15,11 @@
 .suggestion-item input { width: 100%; font-weight: 600; }
 .suggestion-foot { display: flex; align-items: center; gap: 6px; font-size: var(--t-small); padding-left: 4px; }
 .groups-none { color: var(--fg-3); font-size: var(--t-small); line-height: 1.45; padding: 0 4px; }
+.groups-notice { display: flex; align-items: flex-start; gap: 6px; padding: 0 4px; font-size: var(--t-small); line-height: 1.45; transition: opacity 180ms ease-out, transform 180ms ease-out; }
+.groups-notice > p { flex: 1; margin: 0; padding: 0; }
+.groups-notice-actions { display: flex; align-items: center; gap: 4px; flex: none; }
+@starting-style { .groups-notice { opacity: 0; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .groups-notice { transition: none; } @starting-style { .groups-notice { opacity: 1; transform: none; } } }
 .group-list { display: flex; flex-direction: column; gap: 2px; }
 .group-item { width: 100%; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 10px 0 6px; border: 0; border-radius: 10px; background: none; text-align: left; transition: background-color var(--d-fast) ease, transform var(--d-press) var(--ease-out); }
 .group-item:active { transform: scale(0.985); }

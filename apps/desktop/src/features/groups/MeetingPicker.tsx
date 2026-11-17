@@ -4,7 +4,7 @@ import { useApi } from "../../app/ApiContext";
 import { formatDate, formatDuration } from "../../shared/format";
 import { Highlight, findRanges, matches } from "../../shared/textSearch";
 import { PickerPopover, type PickerItem } from "../../shared/ui/PickerPopover";
-import { AvatarStack, PlatformIcon } from "../../shared/ui/ui";
+import { AvatarStack, PlatformIcon, errorMessage } from "../../shared/ui/ui";
 
 interface Props {
   label?: string;
@@ -22,6 +22,7 @@ export function MeetingPicker({ label = "Añadir reunión", excludeIds, onAdd }:
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const text = query.trim();
 
   // Lo que se dijo: se pregunta al índice (con un respiro para no buscar a cada tecla).
@@ -36,7 +37,7 @@ export function MeetingPicker({ label = "Añadir reunión", excludeIds, onAdd }:
       void api
         .search({ text, scope: { kind: "all" }, limit: 40 })
         .then((h) => live && setHits([...h]))
-        .catch(() => live && setHits([]))
+        .catch((e) => live && (setHits([]), setError(errorMessage(e))))
         .finally(() => live && setLoading(false));
     }, 120);
     return () => {
@@ -89,10 +90,16 @@ export function MeetingPicker({ label = "Añadir reunión", excludeIds, onAdd }:
       query={query}
       onQuery={setQuery}
       loading={loading}
-      emptyText={text ? `Ninguna reunión coincide con «${text}».` : "Aún no hay reuniones."}
+      emptyText={error ?? (text ? `Ninguna reunión coincide con «${text}».` : "Aún no hay reuniones.")}
       confirmLabel={count}
       onConfirm={onAdd}
-      onOpen={() => void api.meetingsList({ limit: 200 }).then((p) => setAll([...p.items]))}
+      onOpen={() => {
+        setError(null);
+        void api
+          .meetingsList({ limit: 200 })
+          .then((p) => setAll([...p.items]))
+          .catch((e) => setError(errorMessage(e)));
+      }}
     />
   );
 }

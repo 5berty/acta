@@ -1,9 +1,10 @@
 import { Check, FolderOpen, FolderPlus, Plus, Sparkles, X } from "lucide-react";
 import { StarButton } from "../../shared/ui/Star";
-import { Segmented } from "../../shared/ui/ui";
+import { Segmented, Spinner } from "../../shared/ui/ui";
 import { useState } from "react";
 import type { Group, GroupSuggestion } from "../../api";
 import { Button, IconButton } from "../../shared/ui/ui";
+import type { GroupsNotice } from "./GroupsContainer";
 
 interface Props {
   groups: Group[];
@@ -15,6 +16,53 @@ interface Props {
   onAccept(id: string, name: string): void;
   onDismiss(id: string): void;
   onRefresh(): void;
+  refreshing: boolean;
+  notice: GroupsNotice | null;
+  onCloseNotice(): void;
+}
+
+const processed = (n: number): string => (n === 1 ? "1 reunión procesada" : `${n} reuniones procesadas`);
+
+function Notice({ notice, onClose }: { notice: GroupsNotice; onClose(): void }) {
+  const close = (
+    <IconButton small label="Cerrar aviso" onClick={onClose}>
+      <X size={13} strokeWidth={2.2} aria-hidden />
+    </IconButton>
+  );
+  if (notice.kind === "error") {
+    return (
+      <div className="groups-notice" role="alert">
+        <p className="inline-error">{notice.message}</p>
+        <div className="groups-notice-actions">
+          <Button small variant="ghost" capsule onClick={notice.retry}>
+            Reintentar
+          </Button>
+          {close}
+        </div>
+      </div>
+    );
+  }
+  if (notice.kind === "found") {
+    return (
+      <div className="groups-notice" role="status" aria-live="polite">
+        <p className="muted">{notice.count === 1 ? "1 sugerencia nueva" : `${notice.count} sugerencias`}</p>
+        {close}
+      </div>
+    );
+  }
+  const few = notice.ready !== null && notice.ready < 3;
+  return (
+    <div className="groups-notice" role="status" aria-live="polite">
+      <p className="groups-none">
+        {notice.ready === null
+          ? "No he encontrado reuniones lo bastante parecidas. Puedes crear un grupo a mano y añadirlas tú."
+          : few
+            ? `Hacen falta al menos 3 reuniones parecidas; ${notice.ready === 0 ? "todavía no tienes ninguna reunión procesada" : `ahora tienes ${processed(notice.ready)}`}. Graba o importa alguna más y vuelve a probar.`
+            : `No he encontrado reuniones lo bastante parecidas entre tus ${processed(notice.ready)}. Puedes crear un grupo a mano y añadirlas tú.`}
+      </p>
+      {close}
+    </div>
+  );
 }
 
 const count = (n: number): string => (n === 1 ? "1 reunión" : `${n} reuniones`);
@@ -115,9 +163,24 @@ export function GroupsView(p: Props) {
         </ul>
         </>
       )}
-      <Button small variant="ghost" capsule icon={<Sparkles size={12} strokeWidth={2} aria-hidden />} onClick={p.onRefresh}>
-        Buscar sugerencias
+      <Button
+        small
+        variant="ghost"
+        capsule
+        disabled={p.refreshing}
+        aria-busy={p.refreshing}
+        icon={p.refreshing ? <Spinner /> : <Sparkles size={12} strokeWidth={2} aria-hidden />}
+        onClick={p.onRefresh}
+      >
+        {p.refreshing ? "Buscando…" : "Buscar sugerencias"}
       </Button>
+      {p.refreshing ? (
+        <p className="groups-notice muted" role="status">
+          Comparando tus reuniones…
+        </p>
+      ) : p.notice ? (
+        <Notice notice={p.notice} onClose={p.onCloseNotice} />
+      ) : null}
     </aside>
   );
 }

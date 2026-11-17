@@ -6,19 +6,8 @@ acta se publica como un `.zip` con `acta.app` **sin firmar ni notarizar**, en un
 
 1. **Licencia.** Hoy `Cargo.toml` dice `UNLICENSED` y no hay `LICENSE`. Elige una, añade el archivo y actualiza `license` en `Cargo.toml`. Sin licencia no es código abierto.
 2. **Repo público.** Quien instale por Homebrew descarga el zip sin autenticarse, así que las releases tienen que ser públicas.
-3. **Tap de Homebrew.** Crea el repo `homebrew-acta` (el nombre tiene que empezar por `homebrew-`):
 
-   ```bash
-   gh repo create <usuario>/homebrew-acta --public --description "Homebrew tap de acta"
-   ```
-
-4. **Token para que el workflow actualice el tap** (opcional, pero evita copiar el cask a mano). Crea un token *fine-grained* con permiso **Contents: Read and write** solo sobre `homebrew-acta` y guárdalo como secreto del repo de acta:
-
-   ```bash
-   gh secret set TAP_GITHUB_TOKEN --repo <usuario>/acta
-   ```
-
-   Sin el secreto, la release se publica igual y el workflow avisa: copia `acta.rb` (adjunto en la release) a `Casks/acta.rb` del tap.
+No hace falta crear un repo aparte para Homebrew: este mismo repo es el tap (el cask vive en `Casks/acta.rb`). Ver más abajo.
 
 ## Publicar
 
@@ -38,18 +27,28 @@ acta se publica como un `.zip` con `acta.app` **sin firmar ni notarizar**, en un
    - crea `acta-X.Y.Z-macos-arm64.zip` y su `.sha256`;
    - genera el cask (`packaging/homebrew/render-cask.sh`);
    - publica la release con el zip, el hash y `acta.rb`;
-   - si hay `TAP_GITHUB_TOKEN`, sube el cask al tap.
+   - hace commit del cask en `Casks/acta.rb` de `main` (con el `GITHUB_TOKEN` del workflow; si `main` tiene protección de rama que bloquea al bot, este paso falla y el cask se copia a mano desde la release).
 
 **Ensayo sin publicar:** Actions › *release* › *Run workflow*. Compila y sube el zip como artefacto, pero no crea la release.
 
 ## Cómo instalan y actualizan los usuarios
 
 ```bash
-brew install --cask <usuario>/acta/acta     # instala (añade el tap solo)
-brew upgrade --cask acta                    # actualiza cuando hay versión nueva en el tap
+brew tap <usuario>/acta https://github.com/<usuario>/acta     # una sola vez
+brew install --cask <usuario>/acta/acta
+brew update && brew upgrade --cask acta                        # cuando haya versión nueva
 ```
 
-`brew upgrade` solo ve versiones nuevas si el cask del tap cambia: por eso el workflow lo actualiza en cada release.
+La URL es necesaria porque Homebrew, sin ella, buscaría un repo llamado `homebrew-acta`. Según su [documentación](https://docs.brew.sh/How-to-Create-and-Maintain-a-Tap), ese prefijo es una recomendación para poder usar el `brew tap` corto, no un requisito.
+
+`brew upgrade` solo ve versiones nuevas si el cask cambia: por eso el workflow lo actualiza en cada release.
+
+**Inconvenientes de usar el repo principal como tap:**
+- el comando de instalación es más largo (lleva la URL);
+- `brew tap` clona el repo entero (código, capturas, historial) y cada `brew update` lo actualiza; un repo aparte `homebrew-acta` solo tendría el cask;
+- el bot hace commits en `main`.
+
+Si molesta, se pasa a un repo `homebrew-acta`: el comando queda en `brew install --cask <usuario>/acta/acta` sin tap previo, pero el workflow necesita un token con permiso sobre ese repo (secreto del repo principal) para subir el cask.
 
 ## Gatekeeper (el peaje de no firmar)
 

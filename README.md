@@ -57,7 +57,12 @@ Muchas herramientas de actas de reunión mandan el audio a la nube de otra empre
 
 > Todavía no hay binarios publicados: hoy se instala **compilando desde el código**. Tarda unos minutos y lo hace un solo script.
 
-> A partir de la primera release también se podrá instalar con Homebrew (`brew install --cask edunavajas/acta/acta`); el proceso está en [docs/RELEASING.md](docs/RELEASING.md).
+> A partir de la primera release también se podrá instalar con Homebrew:
+> ```bash
+> brew tap edunavajas/acta https://github.com/edunavajas/acta
+> brew install --cask edunavajas/acta/acta
+> ```
+> Para actualizar: `brew update && brew upgrade --cask acta`. El proceso de publicación está en [docs/RELEASING.md](docs/RELEASING.md).
 
 **Requisitos**
 

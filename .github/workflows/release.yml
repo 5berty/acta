@@ -1,6 +1,7 @@
 name: release
 
-# Publica una release al empujar un tag vX.Y.Z (que debe coincidir con la versión de tauri.conf.json).
+# Publica una release al empujar un tag vX.Y.Z (que debe coincidir con la versión de tauri.conf.json)
+# y deja el cask de Homebrew actualizado en Casks/acta.rb de este mismo repo.
 # A mano (workflow_dispatch) solo compila y sube el .zip como artefacto: sirve de ensayo, no publica nada.
 #
 # La app se empaqueta SIN FIRMAR ni notarizar, igual que scripts/install-mac.sh.
@@ -17,9 +18,6 @@ jobs:
   build:
     runs-on: macos-15
     timeout-minutes: 90
-    env:
-      # Opcional: token con permiso de escritura sobre el repo del tap de Homebrew.
-      TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -121,20 +119,22 @@ jobs:
             --generate-notes \
             --verify-tag
 
-      - name: Actualizar el tap de Homebrew
-        if: github.ref_type == 'tag' && env.TAP_TOKEN != ''
+      # Este mismo repo es el tap de Homebrew: el cask vive en Casks/acta.rb.
+      # Usa el GITHUB_TOKEN del workflow, no hace falta ningún secreto extra.
+      # Si main tiene protección de rama que bloquea al bot, este paso fallará.
+      - name: Publicar el cask en Casks/acta.rb
+        if: github.ref_type == 'tag'
         run: |
-          git clone "https://x-access-token:${TAP_TOKEN}@github.com/${{ github.repository_owner }}/homebrew-acta.git" tap
-          mkdir -p tap/Casks
-          cp acta.rb tap/Casks/acta.rb
-          cd tap
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -f -B main origin/main
+          mkdir -p Casks
+          cp acta.rb Casks/acta.rb
           git add Casks/acta.rb
-          git commit -m "acta ${{ steps.version.outputs.version }}"
-          git push
-
-      - name: Aviso si no hay tap configurado
-        if: github.ref_type == 'tag' && env.TAP_TOKEN == ''
-        run: |
-          echo "::notice::Sin secreto TAP_GITHUB_TOKEN: copia acta.rb de la release a Casks/ del tap a mano (docs/RELEASING.md)."
+          if git diff --cached --quiet; then
+            echo "El cask ya estaba al día"
+            exit 0
+          fi
+          git commit -m "chore(cask): acta ${{ steps.version.outputs.version }}"
+          git push origin main

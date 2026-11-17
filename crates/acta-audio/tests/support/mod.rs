@@ -277,6 +277,8 @@ impl MeetingStore for FakeStore {
             created_at: m.started_at,
             updated_at: m.started_at,
             favourite: false,
+            error_provider: None,
+            error_model: None,
         };
         lock(&self.meetings).insert(m.id, meeting.clone());
         Ok(meeting)

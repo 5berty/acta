@@ -1,12 +1,13 @@
 import { Bot, Camera, Download, Info, Radar, ShieldCheck, SlidersHorizontal, Timer } from "lucide-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
-import type { AppInfo, ModelDownload, ModelStatus, PermissionState, ProviderTestResult, Settings, VoiceprintSummary } from "../../api";
+import { useEffect, useState, type ReactNode } from "react";
+import type { AppInfo, ModelDownload, ModelStatus, ProviderTestResult, Settings, VoiceprintSummary } from "../../api";
 import { useApi, useApiEvent } from "../../app/ApiContext";
 import { Button, errorMessage } from "../../shared/ui/ui";
 import { AboutSection } from "./AboutSection";
 import { DetectionSection, GeneralSection, RecordingSection, ScreenSection } from "./GeneralSections";
 import { ModelsSection } from "./ModelsSection";
 import { PermissionsSection } from "./PermissionsSection";
+import { usePermissions } from "./usePermissions";
 import { createFromPreset } from "../providers/presets";
 import { ProvidersSection } from "./ProvidersSection";
 
@@ -31,7 +32,7 @@ export function SettingsContainer({ onReplayOnboarding }: { onReplayOnboarding?:
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [saved, setSaved] = useState<Settings | null>(null);
   const [draft, setDraft] = useState<Settings | null>(null);
-  const [permissions, setPermissions] = useState<PermissionState[]>([]);
+  const { permissions, refresh: refreshPermissions } = usePermissions(section === "permissions");
   const [voiceprints, setVoiceprints] = useState<VoiceprintSummary[]>([]);
   const [models, setModels] = useState<ModelStatus[]>([]);
   const [downloads, setDownloads] = useState<Record<string, ModelDownload>>({});
@@ -43,7 +44,6 @@ export function SettingsContainer({ onReplayOnboarding }: { onReplayOnboarding?:
       setSaved(s);
       setDraft(structuredClone(s));
     });
-    void api.permissionsStatus().then(setPermissions);
     void api.voiceprintsList().then(setVoiceprints);
     void api.modelsStatus().then(setModels);
     void api.appInfo().then(setInfo);
@@ -65,9 +65,6 @@ export function SettingsContainer({ onReplayOnboarding }: { onReplayOnboarding?:
     setDownloads((prev) => ({ ...prev, [name]: { name, fraction: 0, done: false, error: null } }));
     api.modelsDownload(name).catch((e: unknown) => setDownloads((prev) => ({ ...prev, [name]: { name, fraction: 0, done: false, error: errorMessage(e) } })));
   };
-  useApiEvent("session:state", () => {}); // reservado: refrescar permisos al volver a la app
-
-  const refreshPermissions = useCallback(() => void api.permissionsStatus().then((p) => setPermissions([...p])), [api]);
 
   if (!draft || !saved) return <p className="loading">Cargando…</p>;
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);

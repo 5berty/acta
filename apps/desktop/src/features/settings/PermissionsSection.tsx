@@ -97,7 +97,7 @@ export function PermissionsSection({ permissions, onRequest, onOpen, onRefresh }
             </li>
           ))}
         </ul>
-        <p className="group-foot">Después de cambiar un permiso en Ajustes del Sistema, vuelve aquí y compruébalo.</p>
+        <p className="group-foot">El estado se actualiza solo al volver de Ajustes del Sistema. Algunos permisos (grabación de pantalla) piden reiniciar acta para aplicarse.</p>
       </div>
       <div>
         <Button small capsule icon={<RotateCw size={12} strokeWidth={2.2} aria-hidden />} onClick={onRefresh}>

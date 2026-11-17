@@ -314,6 +314,70 @@ describe("SettingsContainer", () => {
     expect(open).toHaveBeenCalledWith("screenRecording");
   });
 
+  describe("permisos al día", () => {
+    const row = async (name: string) => within(await screen.findByRole("region", { name: "Permisos" })).getByRole("listitem", { name });
+    const grant = (controls: ReturnType<typeof createMockApi>["controls"], kind: string) => {
+      controls.state.permissions = controls.state.permissions.map((p) => (p.kind === kind ? { ...p, status: "granted" } : p));
+    };
+
+    it("al volver a la ventana se vuelve a comprobar y la fila cambia", async () => {
+      const { controls } = setup();
+      await goTo("Permisos");
+      expect(within(await row("Audio del sistema")).getByText("Sin comprobar")).toBeInTheDocument();
+      grant(controls, "systemAudio");
+      act(() => void window.dispatchEvent(new Event("focus")));
+      await waitFor(async () => expect(within(await row("Audio del sistema")).getByText("Concedido")).toBeInTheDocument());
+      expect(within(await row("Audio del sistema")).queryByRole("button", { name: "Abrir Ajustes del Sistema" })).not.toBeInTheDocument();
+    });
+
+    it("también al volver a ser visible (cambio de espacio o de app)", async () => {
+      const { api, controls } = setup();
+      await goTo("Permisos");
+      await row("Accesibilidad");
+      const status = vi.spyOn(api, "permissionsStatus");
+      grant(controls, "accessibility");
+      act(() => void document.dispatchEvent(new Event("visibilitychange")));
+      await waitFor(async () => expect(within(await row("Accesibilidad")).getByText("Concedido")).toBeInTheDocument());
+      expect(status).toHaveBeenCalled();
+    });
+
+    it("`permissions:changed` actualiza la fila en el acto", async () => {
+      const { controls } = setup();
+      await goTo("Permisos");
+      await row("Grabación de pantalla");
+      act(() => controls.emit("permissions:changed", { kind: "screenRecording", status: "granted" }));
+      expect(within(await row("Grabación de pantalla")).getByText("Concedido")).toBeInTheDocument();
+    });
+
+    it("con la sección abierta sondea cada poco; fuera de ella, no", async () => {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+      try {
+        const { api, controls } = setup();
+        const status = vi.spyOn(api, "permissionsStatus");
+        await screen.findByRole("region", { name: "General" });
+        act(() => void vi.advanceTimersByTime(6_500));
+        expect(status).not.toHaveBeenCalled();
+        await goTo("Permisos");
+        grant(controls, "systemAudio");
+        act(() => void vi.advanceTimersByTime(2_100));
+        await waitFor(async () => expect(within(await row("Audio del sistema")).getByText("Concedido")).toBeInTheDocument());
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("el aviso rojo de la lista desaparece cuando se concede lo que faltaba", async () => {
+      const { controls } = setup();
+      controls.state.permissions = controls.state.permissions.map((p) => (p.kind === "microphone" ? { ...p, status: "denied" } : p));
+      act(() => void window.dispatchEvent(new Event("focus")));
+      const nav = await screen.findByRole("navigation", { name: "Secciones de ajustes" });
+      await waitFor(() => expect(nav.querySelector(".settings-nav-alert")).toBeInTheDocument());
+      grant(controls, "microphone");
+      act(() => void window.dispatchEvent(new Event("focus")));
+      await waitFor(() => expect(nav.querySelector(".settings-nav-alert")).not.toBeInTheDocument());
+    });
+  });
+
   it("muestra el progreso de descarga de modelos", async () => {
     const { controls } = setup();
     await goTo("Modelos");

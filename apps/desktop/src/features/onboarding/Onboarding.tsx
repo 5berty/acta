@@ -1,12 +1,13 @@
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CliDetection, ModelDownload, ModelStatus, PermissionState, ProviderTestResult, Settings } from "../../api";
+import type { CliDetection, ModelDownload, ModelStatus, ProviderTestResult, Settings } from "../../api";
 import { useApi, useApiEvent } from "../../app/ApiContext";
 import { Button, errorMessage } from "../../shared/ui/ui";
 import { useBuiltInModels } from "../providers/BuiltInModels";
 import { useLocalDetection } from "../providers/LocalModels";
 import { NAN_REFERRAL_URL } from "../providers/presets";
 import { PERMISSION_LABEL, PERMISSION_REQUIRED } from "../settings/PermissionsSection";
+import { usePermissions } from "../settings/usePermissions";
 import { AiStep } from "./AiStep";
 import { aiProblem, applyAi, initialAi, secretIdFor, type AiState } from "./aiChoice";
 import { DetectionStep, DoneStep, ModelsStep, PermissionsStep, WelcomeStep, type SummaryLine } from "./steps";
@@ -17,7 +18,6 @@ const AI = 3;
 const DETECTION = 4;
 const LAST = STEPS.length - 1;
 /** Mientras se miran los permisos, se vuelve a preguntar cada poco. */
-const PERMISSION_POLL_MS = 2_000;
 
 /** Bienvenida de primer arranque. Cada paso guarda lo suyo al avanzar; se puede saltar en cualquier momento. */
 export function Onboarding({ onClose }: { onClose(): void }) {
@@ -25,7 +25,6 @@ export function Onboarding({ onClose }: { onClose(): void }) {
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState<"fwd" | "back">("fwd");
   const [saved, setSaved] = useState<Settings | null>(null);
-  const [permissions, setPermissions] = useState<PermissionState[]>([]);
   const [models, setModels] = useState<ModelStatus[]>([]);
   const [downloads, setDownloads] = useState<Record<string, ModelDownload>>({});
   const [cli, setCli] = useState<CliDetection | null | undefined>(undefined);
@@ -39,7 +38,8 @@ export function Onboarding({ onClose }: { onClose(): void }) {
   const savedRef = useRef<Settings | null>(null);
   savedRef.current = saved;
 
-  const refreshPermissions = useCallback(() => void api.permissionsStatus().then((p) => setPermissions([...p])), [api]);
+  // Permisos en vivo: al volver de Ajustes del Sistema, con `permissions:changed` y cada pocos segundos en su paso.
+  const { permissions, refresh: refreshPermissions } = usePermissions(step === PERMISSIONS);
   const detectCli = useCallback(() => {
     setCli(undefined);
     api.llmCliDetect().then(setCli, () => setCli(null));
@@ -53,20 +53,8 @@ export function Onboarding({ onClose }: { onClose(): void }) {
       setAutoStop(s.autoStop);
     });
     void api.modelsStatus().then(setModels);
-    refreshPermissions();
     detectCli();
-  }, [api, refreshPermissions, detectCli]);
-
-  // Permisos en vivo: al volver de Ajustes del Sistema y cada pocos segundos.
-  useEffect(() => {
-    if (step !== PERMISSIONS) return;
-    window.addEventListener("focus", refreshPermissions);
-    const id = window.setInterval(refreshPermissions, PERMISSION_POLL_MS);
-    return () => {
-      window.removeEventListener("focus", refreshPermissions);
-      window.clearInterval(id);
-    };
-  }, [step, refreshPermissions]);
+  }, [api, detectCli]);
 
   useApiEvent("model:download", (d) => {
     setDownloads((prev) => ({ ...prev, [d.name]: d }));

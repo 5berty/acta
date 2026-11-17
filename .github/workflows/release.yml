@@ -1,0 +1,140 @@
+name: release
+
+# Publica una release al empujar un tag vX.Y.Z (que debe coincidir con la versión de tauri.conf.json).
+# A mano (workflow_dispatch) solo compila y sube el .zip como artefacto: sirve de ensayo, no publica nada.
+#
+# La app se empaqueta SIN FIRMAR ni notarizar, igual que scripts/install-mac.sh.
+# Guía completa: docs/RELEASING.md
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      # Opcional: token con permiso de escritura sobre el repo del tap de Homebrew.
+      TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      - name: Herramientas
+        run: brew install ripgrep
+
+      - name: Guards (nada firma, nada lanza procesos sin supervisar)
+        run: scripts/guards.sh
+
+      - name: Versión
+        id: version
+        run: |
+          VERSION="$(jq -r .version apps/desktop/src-tauri/tauri.conf.json)"
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "v$VERSION" ]]; then
+            echo "::error::El tag $GITHUB_REF_NAME no coincide con la versión $VERSION de tauri.conf.json"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Sidecar Swift (release)
+        run: |
+          TRIPLE="$(rustc -vV | awk '/^host:/ {print $2}')"
+          (cd sidecars/acta-mac && swift build -c release --disable-get-task-allow-entitlement)
+          mkdir -p apps/desktop/src-tauri/binaries
+          cp sidecars/acta-mac/.build/release/acta-mac "apps/desktop/src-tauri/binaries/acta-mac-$TRIPLE"
+          chmod +x "apps/desktop/src-tauri/binaries/acta-mac-$TRIPLE"
+
+      - name: Dependencias del frontend
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Empaquetar acta.app (sin firma)
+        working-directory: apps/desktop
+        run: pnpm exec tauri build --bundles app --no-sign --features local-embeddings --config src-tauri/tauri.bundle.conf.json
+
+      - name: Verificar el bundle
+        run: |
+          APP=""
+          for c in target/release/bundle/macos/acta.app apps/desktop/src-tauri/target/release/bundle/macos/acta.app; do
+            [[ -d "$c" ]] && APP="$c" && break
+          done
+          [[ -n "$APP" ]] || { echo "::error::No encuentro acta.app tras el bundle"; exit 1; }
+          [[ -x "$APP/Contents/MacOS/acta-mac" ]] || { echo "::error::Falta el sidecar acta-mac en el bundle"; exit 1; }
+          if [[ -n "$(find "$APP" -name _CodeSignature -print -quit)" ]]; then
+            echo "::error::El bundle trae _CodeSignature: algo ha firmado la app"
+            exit 1
+          fi
+          echo "APP=$APP" >> "$GITHUB_ENV"
+
+      - name: Comprimir y calcular el hash
+        id: pack
+        run: |
+          NAME="acta-${{ steps.version.outputs.version }}-macos-arm64.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$NAME"
+          shasum -a 256 "$NAME" | awk '{print $1}' > "$NAME.sha256"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(cat "$NAME.sha256")" >> "$GITHUB_OUTPUT"
+
+      - name: Generar el cask de Homebrew
+        run: |
+          packaging/homebrew/render-cask.sh \
+            "${{ steps.version.outputs.version }}" \
+            "${{ steps.pack.outputs.sha256 }}" \
+            "${{ github.repository }}" > acta.rb
+          cat acta.rb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: acta-${{ steps.version.outputs.version }}
+          path: |
+            ${{ steps.pack.outputs.name }}
+            ${{ steps.pack.outputs.name }}.sha256
+            acta.rb
+
+      - name: Publicar la release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "${{ steps.pack.outputs.name }}" \
+            "${{ steps.pack.outputs.name }}.sha256" \
+            acta.rb \
+            --title "acta ${{ steps.version.outputs.version }}" \
+            --generate-notes \
+            --verify-tag
+
+      - name: Actualizar el tap de Homebrew
+        if: github.ref_type == 'tag' && env.TAP_TOKEN != ''
+        run: |
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/${{ github.repository_owner }}/homebrew-acta.git" tap
+          mkdir -p tap/Casks
+          cp acta.rb tap/Casks/acta.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/acta.rb
+          git commit -m "acta ${{ steps.version.outputs.version }}"
+          git push
+
+      - name: Aviso si no hay tap configurado
+        if: github.ref_type == 'tag' && env.TAP_TOKEN == ''
+        run: |
+          echo "::notice::Sin secreto TAP_GITHUB_TOKEN: copia acta.rb de la release a Casks/ del tap a mano (docs/RELEASING.md)."

@@ -57,6 +57,8 @@ Muchas herramientas de actas de reunión mandan el audio a la nube de otra empre
 
 > Todavía no hay binarios publicados: hoy se instala **compilando desde el código**. Tarda unos minutos y lo hace un solo script.
 
+> A partir de la primera release también se podrá instalar con Homebrew (`brew install --cask edunavajas/acta/acta`); el proceso está en [docs/RELEASING.md](docs/RELEASING.md).
+
 **Requisitos**
 
 | Qué | Versión |
@@ -118,6 +120,7 @@ Lanza los guards, `cargo check`, clippy, los tests de Rust, `swift build`, `tsc`
 - [docs/01-arquitectura.md](docs/01-arquitectura.md): arquitectura, contratos y plan de implementación
 - [docs/02-verificacion-manual.md](docs/02-verificacion-manual.md): pruebas manuales
 - [docs/03-instalacion.md](docs/03-instalacion.md): instalación, permisos y configuración
+- [docs/RELEASING.md](docs/RELEASING.md): cómo se publica una release y el cask de Homebrew
 - [docs/referencia-meetily-zombis.md](docs/referencia-meetily-zombis.md): el bug de procesos zombi que nunca debemos repetir
 - [docs/brand/GUIA-DE-USO.md](docs/brand/GUIA-DE-USO.md): guía de uso del logo
 

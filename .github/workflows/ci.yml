@@ -1,0 +1,44 @@
+name: ci
+
+# Verificación completa en macOS (el sidecar Swift y el audio solo compilan allí).
+# Solo en pull requests y a mano: los minutos de macOS son caros en repos privados.
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      # scripts/guards.sh usa ripgrep.
+      - name: Herramientas
+        run: brew install ripgrep
+
+      - name: Verificar (guards, cargo, clippy, tests, swift build, tsc, vitest)
+        run: scripts/verify.sh
